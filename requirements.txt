@@ -1,0 +1,21 @@
+# Stimatore di fedelta' (genworld.scale / fidelity / report / cli):
+#   nessuna dipendenza, solo Python 3.10+
+
+# Scrittura mondi e anteprima (genworld.mondo / livello_dat / anteprima):
+amulet-core>=1.9
+pillow>=10
+
+# NOTA: amulet-core richiede numpy<2. Installalo in un ambiente virtuale
+# dedicato, non nell'ambiente di sistema, per non rompere altri pacchetti.
+
+# Erosione, fiumi, filtri morfologici:
+scipy>=1.11
+
+# La finestra (genworld.gui). Senza, resta la riga di comando.
+PySide6-Essentials>=6.6
+
+# Fasi successive:
+# ezdxf                # import DXF
+# svgpathtools         # import SVG
+# shapely              # buffer, semplificazione, operazioni geometriche
+# rasterio, pyproj     # import GIS (DEM, land cover) e riproiezione
