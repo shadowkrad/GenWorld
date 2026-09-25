@@ -1,0 +1,31 @@
+# Ambiente
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.spec
+
+# Mondi generati e cache dell'analisi: si rifanno in un minuto con
+#   python esempi/genera_mappa.py
+# e pesano piu' di tutto il resto del progetto messo insieme.
+mondi/*
+!mondi/*.png
+
+# Mappe di prova: sono opere di altri (Ansalon e Faerun sono di Wizards of
+# the Coast, le carte fisiche hanno il loro editore). Il programma non ne ha
+# bisogno per funzionare - se ne carica una qualunque - e ridistribuirle qui
+# non sarebbe corretto.
+input/*
+!input/*.profilo.json
+!input/README.md
+
+# Cartella di lavoro di Cowork
+Claude outputs/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
