@@ -249,7 +249,13 @@ def rete(area: np.ndarray, piazza: tuple[int, int], raggio: int,
     # delicato di tutto il modulo. Con passo 11 su raggio 33 le vie si
     # mangiavano il 38% dell'area e nessun lotto ci stava piu' dentro: zero
     # case costruite su una pianta perfetta.
-    passo = int(np.clip(raggio // 2, 11, 20))
+    # Alzato da 11-20 a 14-24 quando sono arrivate le case da template: con
+    # isolati da undici celle, fra la sede stradale e le due celle di
+    # distacco, al lotto ne restavano tre o quattro di profondita'. Il
+    # generatore parametrico ci costruiva lo stesso - prende le misure dal
+    # lotto - e venivano casotti di due per due; un template, che le misure
+    # ce le ha sue, non ci entrava mai.
+    passo = int(np.clip(raggio // 2, 14, 24))
     punti = _semi(area, piazza, passo, rng)
     if len(punti) < 3:
         return rango, [], punti
@@ -325,6 +331,14 @@ PASSO = {E.NORD: (1, 0), E.SUD: (-1, 0), E.OVEST: (0, 1), E.EST: (0, -1)}
 LATO = {E.NORD: (0, 1), E.SUD: (0, 1), E.OVEST: (1, 0), E.EST: (1, 0)}
 
 
+# Un sedime di quattro per quattro non e' una casa, e' un ripostiglio: dentro
+# ci sta una stanza di due per due. Serviva anche a un altro scopo - riempire
+# gli angoli degli isolati - e il prezzo era un paese di casotti. Sei e' il
+# minimo perche' ci stia una stanza di quattro per quattro, che e' anche la
+# misura sotto la quale nessun template di casa entra.
+LATO_MINIMO = 6
+
+
 def _rettangolo(occupato: np.ndarray, area: np.ndarray, cz: int, cx: int,
                 verso: int, fronte_max: int, fondo_max: int,
                 ) -> tuple[int, int, int, int] | None:
@@ -348,7 +362,7 @@ def _rettangolo(occupato: np.ndarray, area: np.ndarray, cz: int, cx: int,
     fondo = 0
     while fondo < fondo_max and libera(fondo, 0):
         fondo += 1
-    if fondo < 4:
+    if fondo < LATO_MINIMO:
         return None
 
     def colonna(off: int) -> bool:
@@ -368,7 +382,7 @@ def _rettangolo(occupato: np.ndarray, area: np.ndarray, cz: int, cx: int,
             cresciuto = True
         if not cresciuto:
             break
-    if sinistra + destra + 1 < 4:
+    if sinistra + destra + 1 < LATO_MINIMO:
         return None
 
     zs, xs = [], []
@@ -411,15 +425,21 @@ def lotti(area: np.ndarray, vie: np.ndarray, cls: np.ndarray, h: np.ndarray,
         if occupato[cz, cx]:
             continue
         t = float(d_centro[k]) / max(raggio, 1)         # 0 centro, 1 bordo
-        if rng.random() > 1.15 - 0.45 * t:             # piu' rado in periferia
+        if rng.random() > 1.35 - 0.45 * t:             # piu' rado in periferia
             continue
         verso = _verso_strada(vie, cz, cx)
         if verso is None:
             continue
 
         # il fronte e' quello che conta, la profondita' e' quel che avanza
-        fronte_max = 8 if t > 0.6 else 11
-        misura = _rettangolo(occupato, area, cz, cx, verso, fronte_max, 11)
+        # Alzati da 8/11 a 10/13 per i template: un modello di casa ha le sue
+        # misure, e il lotto o gliele da' o quel modello non si usa mai.
+        fronte_max = 10 if t > 0.6 else 13
+        # La PROFONDITA' resta contenuta apposta: un isolato ha due file di
+        # case, una per lato, schiena contro schiena. Con lotti profondi
+        # tredici la prima fila si mangiava tutto l'isolato e la seconda non
+        # nasceva - 1.956 lotti scartati per mancanza di spazio su 2.100.
+        misura = _rettangolo(occupato, area, cz, cx, verso, fronte_max, 9)
         if misura is None:
             continue
         x0, z0, larg, prof = misura
@@ -434,7 +454,13 @@ def lotti(area: np.ndarray, vie: np.ndarray, cls: np.ndarray, h: np.ndarray,
         # In centro le case restano attaccate e rinunciano alla gronda, che e'
         # esattamente quello che succede in una schiera; in periferia tengono
         # la gronda e si lasciano due blocchi, cosi' i tetti non si toccano.
-        if t < 0.55:
+        #
+        # Le soglie sono state ritarate guardando una citta' dall'alto: con
+        # la schiera fino a meta' raggio e tre piani in tutto il centro, i
+        # vicoli venivano larghi un blocco e profondi dodici. Non e' un
+        # centro storico, e' un pozzo di ventilazione. La schiera resta, ma
+        # solo nel cuore vero, e subito fuori le case si staccano.
+        if t < 0.35:
             stacco, gronda = 0, 0
         else:
             stacco, gronda = 1, 1
@@ -479,6 +505,13 @@ def _fabbrica(cls, h, livello, x0, z0, larg, prof, verso, t,
     fetta_h = h[z0:z0 + prof, x0:x0 + larg]
     if fetta_c.size == 0 or np.isin(fetta_c, ACQUA).any():
         return None
+    # ...e nemmeno proprio sul filo dell'acqua. Una cella di rispetto basta:
+    # il raccordo del lotto arriva piu' in la', ma le sponde sono nella
+    # maschera `intoccabile` e il raccordo non le tocca. Pretenderne tre
+    # faceva sparire un terzo delle case di una citta' di fiume.
+    if np.isin(cls[max(0, z0 - 1):z0 + prof + 1,
+                   max(0, x0 - 1):x0 + larg + 1], ACQUA).any():
+        return None
     # Dislivello ROBUSTO, non massimo meno minimo: il terreno porta addosso
     # il dettaglio frattale, e un solo pixel fuori posto bocciava il lotto.
     # Il sedime viene spianato comunque; quello che va evitato e' la casa sul
@@ -493,8 +526,10 @@ def _fabbrica(cls, h, livello, x0, z0, larg, prof, verso, t,
     classe = int(np.bincount(fetta_c.ravel()).argmax())
     if classe in (MONTAGNA, NEVE) and dislivello > 5:
         return None
-    # in centro si costruisce alto, in periferia no
-    piani = 3 if t < 0.25 and rng.random() < 0.5 else (2 if t < 0.6 else 1)
+    # In centro si costruisce alto, in periferia no. Il terzo piano e' raro:
+    # in una citta' medievale e' un'eccezione, e messo a meta' delle case del
+    # centro trasformava i vicoli in trincee.
+    piani = 3 if t < 0.18 and rng.random() < 0.3 else (2 if t < 0.55 else 1)
     return E.Edificio(
         x=x0, z=z0, larghezza=larg, profondita=prof, base=base,
         piani=piani, porta=verso,
@@ -564,7 +599,9 @@ def mercato(area: np.ndarray, vie: np.ndarray, occupato: np.ndarray,
 
 def mura(area: np.ndarray, vie: np.ndarray, sedimi: np.ndarray,
          cls: np.ndarray, porte_grafo: list[tuple[int, int]],
-         ) -> tuple[np.ndarray, np.ndarray, list[tuple[int, int]]]:
+         altezze: np.ndarray | None = None, riva: int = 4,
+         pendenza_massima: float = 1.6,
+         ) -> tuple[np.ndarray, np.ndarray, list[tuple[int, int]], np.ndarray]:
     """Cinta attorno all'abitato. Ritorna (muro, porta, punti delle porte).
 
     Non segue il contorno dell'area - che comprende anche i campi - ma
@@ -583,15 +620,42 @@ def mura(area: np.ndarray, vie: np.ndarray, sedimi: np.ndarray,
     vuoto = np.zeros_like(sedimi)
     costruito = sedimi | (vie >= SECONDARIA)
     if costruito.sum() < 300:
-        return vuoto, vuoto.copy(), []
+        return vuoto, vuoto.copy(), [], vuoto.copy()
     dentro = binary_closing(binary_dilation(costruito, iterations=3),
                             iterations=3, border_value=0)
     dentro = binary_fill_holes(dentro)
     dentro = binary_dilation(dentro, iterations=1)
-    anello = binary_dilation(dentro, iterations=1) & ~dentro
+    # DUE celle di spessore, non una. Una cinta di una cella sola e' connessa
+    # solo in diagonale: sul terreno si vede una fila di cubi staccati che si
+    # toccano per lo spigolo, ci si passa in mezzo, e da lontano sembra
+    # muratura caduta in giro a caso invece che una cinta. E' esattamente
+    # quello che si vede negli screenshot.
+    anello = binary_dilation(dentro, iterations=2) & ~dentro
     anello &= ~np.isin(cls, ACQUA)          # una cinta non cammina sull'acqua
+
+    # LA CINTA SI FERMA SULLA RIVA.
+    #
+    # Negli screenshot le mura scendevano fino in acqua e continuavano dentro
+    # il mare, a gradoni, come muratura buttata giu' dalla scogliera. Togliere
+    # le sole celle d'acqua non basta: il guaio e' l'ultimo tratto, quello che
+    # corre sulla battigia e sul fianco della falesia, dove un muro alto sette
+    # blocchi viene su a pezzi e non sta in piedi ne' con gli occhi ne' con la
+    # testa. Una citta' di mare, del resto, le mura dalla parte del mare non le
+    # ha mai avute: il mare e' gia' la difesa, e dove si apre il porto il muro
+    # smette. Quindi si toglie la fascia di cinta a ridosso dell'acqua, e il
+    # varco che resta e' il fronte a mare.
+    if riva > 0:
+        vicino_acqua = binary_dilation(np.isin(cls, ACQUA), iterations=int(riva))
+        anello &= ~vicino_acqua
+
+    # E NON SI COSTRUISCE SUL DIRUPO. Un muro appoggiato a un pendio da tre
+    # blocchi per cella e' una fila di cubi sfalsati, non una cortina.
+    if pendenza_massima > 0 and altezze is not None:
+        gz_, gx_ = np.gradient(altezze.astype(np.float32))
+        anello &= np.hypot(gz_, gx_) <= pendenza_massima
+
     if not anello.any():
-        return vuoto, vuoto.copy(), []
+        return vuoto, vuoto.copy(), [], vuoto.copy()
 
     muro = anello.copy()
     porta = np.zeros_like(anello)
@@ -611,12 +675,157 @@ def mura(area: np.ndarray, vie: np.ndarray, sedimi: np.ndarray,
                 vie[z, x] = max(vie[z, x], ASSE)
         punti.append((mz, mx))
     muro &= ~porta
-    return muro, porta, punti
+
+    # --- torri ------------------------------------------------------------
+    # Una cinta senza torri e' un recinto. Le torri sono anche l'unica cosa
+    # che, da dentro, dice dove finisce la citta': un muro alto cinque lo si
+    # perde di vista dietro una casa, una torre no.
+    torre = np.zeros_like(anello)
+    zc, xc = float(zs.mean()), float(xs.mean())
+    ordine = np.argsort(np.arctan2(zs - zc, xs - xc))
+    passo_torri = max(18, int(len(ordine) / 14))
+    for k in range(0, len(ordine), passo_torri):
+        tz, tx = int(zs[ordine[k]]), int(xs[ordine[k]])
+        torre[max(0, tz - 1):tz + 2, max(0, tx - 1):tx + 2] = True
+    # e due torri a fianco di ogni porta, che e' il posto in cui le torri
+    # sono servite davvero
+    for mz, mx in punti:
+        torre[max(0, mz - 3):mz + 4, max(0, mx - 3):mx + 4] |= \
+            anello[max(0, mz - 3):mz + 4, max(0, mx - 3):mx + 4]
+        torre[max(0, mz - 1):mz + 2, max(0, mx - 1):mx + 2] = False
+    torre &= anello & ~porta
+    return muro, porta, punti, torre
 
 
 # --------------------------------------------------------------------------
 # Pianificazione
 # --------------------------------------------------------------------------
+
+PASSO_TERRAZZA = 4      # altezza di un gradone, in blocchi
+
+
+def _riquadro(h, area, margine):
+    zs, xs = np.nonzero(area)
+    if zs.size == 0:
+        return None
+    z0, z1 = max(0, int(zs.min()) - margine), min(h.shape[0], int(zs.max()) + margine + 1)
+    x0, x1 = max(0, int(xs.min()) - margine), min(h.shape[1], int(xs.max()) + margine + 1)
+    return z0, z1, x0, x1
+
+
+def terrazza_abitato(h: np.ndarray, area: np.ndarray, intoccabile: np.ndarray,
+                     passo: int = PASSO_TERRAZZA, sfocatura: float = 5.0) -> None:
+    """Spezza il terreno dell'abitato in pochi ripiani piani.
+
+    La spianata dolce di prima toglieva la rugosita' ma lasciava la pendenza,
+    e su un fianco ripido non bastava: le case restavano a cinquanta quote
+    diverse e il paese veniva un mappazzone di gradini casuali.
+
+    Un paese vero in collina non segue il pendio: lo **terrazza**. Pochi
+    ripiani piani, ciascuno alto qualche blocco, e fra l'uno e l'altro una
+    scarpata o un muro di sostegno. Le case di un ripiano stanno tutte alla
+    stessa quota, le strade salgono in rampa da un ripiano al successivo, e
+    la citta' si legge.
+
+    Tecnicamente e' una quantizzazione: si sfoca il terreno e si arrotonda al
+    multiplo del passo. I bordi dei ripiani vengono da soli lungo le curve di
+    livello, che e' esattamente dove un contadino avrebbe messo il muretto.
+    """
+    r = _riquadro(h, area, int(np.ceil(sfocatura * 3)))
+    if r is None:
+        return
+    z0, z1, x0, x1 = r
+    porzione = h[z0:z1, x0:x1].astype(np.float32)
+    liscio = gaussian_filter(porzione, sfocatura)
+    ripiani = np.round(liscio / passo) * passo
+    # un ripiano non puo' allontanarsi dal terreno vero piu' di un passo:
+    # altrimenti in fondo a una conca si scava un pozzo
+    ripiani = np.clip(ripiani, liscio - passo, liscio + passo)
+
+    peso = gaussian_filter(area[z0:z1, x0:x1].astype(np.float32), 3.0)
+    peso = np.clip(peso * 1.4, 0.0, 1.0)
+    peso[intoccabile[z0:z1, x0:x1]] = 0.0
+    h[z0:z1, x0:x1] = np.round(porzione * (1 - peso)
+                               + ripiani * peso).astype(np.int32)
+
+
+def raccorda_vie(h: np.ndarray, vie: np.ndarray, intoccabile: np.ndarray,
+                 raggio: int = 2) -> None:
+    """Trasforma i gradoni attraversati da una strada in rampe.
+
+    Le terrazze fanno bene alle case e male alle strade: una via che incontra
+    un salto di quattro blocchi diventa una parete. Qui si risfoca il terreno
+    lungo la sede stradale e un paio di celle intorno, cosi' il salto si
+    distribuisce su qualche cella e diventa una salita percorribile. Le case
+    non se ne accorgono: sono gia' state messe, e stanno dentro i ripiani.
+    """
+    sede = binary_dilation(vie > 0, iterations=raggio) & ~intoccabile
+    if not sede.any():
+        return
+    r = _riquadro(h, sede, 6)
+    if r is None:
+        return
+    z0, z1, x0, x1 = r
+    porzione = h[z0:z1, x0:x1].astype(np.float32)
+    rampa = gaussian_filter(porzione, 2.2)
+    m = sede[z0:z1, x0:x1]
+    h[z0:z1, x0:x1] = np.where(m, np.round(rampa), porzione).astype(np.int32)
+
+
+def scarpate(h: np.ndarray, urbano: np.ndarray, salto: int = 2) -> np.ndarray:
+    """Le celle che formano la fronte di un gradone.
+
+    Servono al motore per vestirle di pietra invece che di erba: un muro di
+    sostegno si vede, un taglio di terra nuda sembra un difetto.
+    """
+    hh = h.astype(np.int32)
+    piu_basso = np.minimum.reduce([
+        np.roll(hh, 1, 0), np.roll(hh, -1, 0),
+        np.roll(hh, 1, 1), np.roll(hh, -1, 1),
+    ])
+    return urbano & ((hh - piu_basso) >= salto)
+
+
+def spiana_abitato(h: np.ndarray, area: np.ndarray, intoccabile: np.ndarray,
+                   sfocatura: float = 5.0) -> None:
+    """Addolcisce il terreno dell'abitato, in blocco, prima delle case.
+
+    Le trincee che si vedono fra le case non nascono da una casa sola:
+    nascono dalla SOMMA di cinquanta terrazzamenti indipendenti. Ogni casa si
+    spiana la sua quota, presa dalla mediana del proprio sedime, e due sedimi
+    vicini su un pendio hanno mediane diverse di parecchi blocchi. Il
+    raccordo di una smaltisce il dislivello verso il terreno, ma il terreno
+    accanto e' gia' stato spianato a un'altra quota, e quello che resta in
+    mezzo e' un muretto.
+
+    La cura sta a monte: si toglie il rilievo fine dal terreno dell'abitato
+    PRIMA di distribuire i lotti. Su un terreno gia' dolce le mediane dei
+    sedimi vicini si assomigliano, i salti nascono piccoli, e i raccordi
+    bastano a smaltirli. Non si spiana a tavoletta - un paese in pendenza e'
+    bello - si toglie la rugosita', non la pendenza.
+
+    Si lavora sul solo riquadro dell'area: sfocare tutta la mappa per una
+    citta' costerebbe un secondo e mezzo a insediamento.
+    """
+    from scipy.ndimage import gaussian_filter
+
+    zs, xs = np.nonzero(area)
+    if zs.size == 0:
+        return
+    m = int(np.ceil(sfocatura * 3))
+    z0, z1 = max(0, int(zs.min()) - m), min(h.shape[0], int(zs.max()) + m + 1)
+    x0, x1 = max(0, int(xs.min()) - m), min(h.shape[1], int(xs.max()) + m + 1)
+
+    porzione = h[z0:z1, x0:x1].astype(np.float32)
+    liscio = gaussian_filter(porzione, sfocatura)
+    # il peso sfuma sul bordo dell'area: dentro pieno, fuori zero, senza
+    # gradino - lo stesso motivo per cui il lotto ha un raccordo
+    peso = gaussian_filter(area[z0:z1, x0:x1].astype(np.float32), 3.0)
+    peso = np.clip(peso * 1.4, 0.0, 1.0)
+    peso[intoccabile[z0:z1, x0:x1]] = 0.0
+    h[z0:z1, x0:x1] = np.round(porzione * (1 - peso)
+                               + liscio * peso).astype(np.int32)
+
 
 def pianifica(
     cls: np.ndarray,
@@ -626,10 +835,10 @@ def pianifica(
     livello_mare: int = 62,
     seed: int = 0,
 ) -> tuple[list[E.Edificio], np.ndarray, np.ndarray, np.ndarray,
-           list[Citta], list[E.Banco]]:
+           list[Citta], list[E.Banco], np.ndarray]:
     """Progetta gli insediamenti.
 
-    Ritorna (edifici, altezze spianate, vie, mura, citta', banchi).
+    Ritorna (edifici, altezze spianate, vie, mura, citta', banchi, urbano).
     """
     from .insediamenti import _terrazza
 
@@ -637,25 +846,36 @@ def pianifica(
     H, W = cls.shape
     vie = np.zeros((H, W), np.uint8)
     muro = np.zeros((H, W), np.uint8)
+    urbano = np.zeros((H, W), bool)
     fuori: list[E.Edificio] = []
     citta: list[Citta] = []
     banchi: list[E.Banco] = []
+
+    # L'acqua e le sue sponde non si toccano: ne' la spianata dell'abitato ne'
+    # il raccordo dei lotti. Tre celle di rispetto, che sono il raccordo meno
+    # due: cosi' il peso e' gia' quasi nullo quando arriva alla riva.
+    intoccabile = binary_dilation(np.isin(cls, ACQUA), iterations=3)
 
     for n, (sz, sx, raggio) in enumerate(siti):
         rng = np.random.default_rng(seed * 977 + n)
         area = contorno(cls, h, sz, sx, raggio, livello_mare, seed=seed * 31 + n)
         if area.sum() < 200:
             continue
+        terrazza_abitato(h, area, intoccabile)
         pz, px = _piazza(area, h, sz, sx)
         rango, porte, _ = rete(area, (pz, px), raggio, seed=seed * 61 + n)
         if not rango.any():
             continue
+        # le strade PRIMA delle case: il raccordo delle rampe muove il
+        # terreno, e una casa gia' posata si ritroverebbe il pavimento storto
+        raccorda_vie(h, rango, intoccabile)
         vie = np.maximum(vie, rango)
+        urbano |= area
 
         ed = lotti(area, rango > 0, cls, h, livello, (pz, px), raggio,
                    livello_mare, rng)
         for e in ed:
-            _terrazza(h, e)
+            _terrazza(h, e, intoccabile=intoccabile)
         fuori.extend(ed)
 
         # il mercato dopo le case: gli serve sapere cosa e' gia' occupato
@@ -673,9 +893,10 @@ def pianifica(
             sedimi = np.zeros((H, W), bool)
             for e in ed:
                 sedimi[e.z:e.z1, e.x:e.x1] = True
-            m, p, varchi = mura(area, rango, sedimi, cls, porte)
+            m, p, varchi, t = mura(area, rango, sedimi, cls, porte, altezze=h)
             if m.any():
                 muro[m] = 1
+                muro[t] = 3
                 muro[p] = 2
                 c.murata = True
                 if varchi:
@@ -683,7 +904,7 @@ def pianifica(
                 vie = np.maximum(vie, rango)
         citta.append(c)
 
-    return fuori, h, vie, muro, citta, banchi
+    return fuori, h, vie, muro, citta, banchi, urbano
 
 
 def statistiche(edifici: list[E.Edificio], vie: np.ndarray, muro: np.ndarray,
@@ -697,6 +918,7 @@ def statistiche(edifici: list[E.Edificio], vie: np.ndarray, muro: np.ndarray,
         "vicoli": int((vie == VICOLO).sum()),
         "mura": int((muro == 1).sum()),
         "porte": int((muro == 2).sum()),
+        "torri": int((muro == 3).sum()),
         "botteghe": sum(1 for e in edifici if e.mestiere),
         "banchi": len(banchi or []),
     }

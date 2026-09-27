@@ -84,9 +84,24 @@ class Edificio:
     @property
     def z1(self) -> int: return self.z + self.profondita
     @property
+    def falde(self) -> int:
+        """Quanti gradini di falda: il tetto e' a due acque, e la pendenza e'
+        di un blocco per blocco - la sola che in Minecraft non lasci buchi.
+
+        La campata deve essere DISPARI, altrimenti le due falde si incontrano
+        su due file e il colmo non esiste: resta una scanalatura lunga quanto
+        la casa. Quando viene pari si accorcia la gronda di un lato, che e'
+        uno sfalsamento di un blocco che non si nota, al contrario del
+        solco sul colmo, che si nota da lontano.
+        """
+        celle = min(self.larghezza, self.profondita) + 2 * self.gronda
+        if celle % 2 == 0:
+            celle -= 1
+        return celle // 2 + 1
+
+    @property
     def colmo(self) -> int:
-        return self.base + self.piani * self.altezza_piano + min(
-            self.larghezza, self.profondita) // 2 + 1
+        return self.base + self.piani * self.altezza_piano + self.falde
 
     def ingombro_tetto(self) -> tuple[int, int, int, int]:
         """Riquadro che il tetto occupa: i muri piu' la gronda.
@@ -136,6 +151,14 @@ class TavolozzaEdilizia:
         return self._s.blocco("fence", material=materiale, north="false",
                               south="false", east="false", west="false")
 
+    def trave(self, materiale: str, asse: str) -> int:
+        """Un tronco COLTO DI TRAVERSO. E' mezzo mestiere del graticcio: il
+        montante e' un tronco in piedi, il corrente e' lo stesso tronco
+        sdraiato, e finche' erano tutti in piedi le facciate restavano
+        quadretti di assi tutti uguali."""
+        return self._s.blocco("log", axis=asse, material=materiale,
+                              stripped="false")
+
 
 # --------------------------------------------------------------------------
 # Costruzione
@@ -155,6 +178,12 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int,
 
     def vuota(gx: int, gy: int, gz: int) -> None:
         posa(gx, gy, gz, tav.aria)
+
+    def leggi(gx: int, gy: int, gz: int):
+        lx, lz, ly = gx - ox, gz - oz, gy - y0
+        if 0 <= lx < 16 and 0 <= lz < 16 and 0 <= ly < H:
+            return out[lx, ly, lz]
+        return None
 
     m = tav.blocco[(ed.stile, "muro")]
     telaio = tav.blocco[(ed.stile, "telaio")]
@@ -176,17 +205,35 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int,
                         posa(gx, gy, gz, palo)
                 posa(gx, ed.base - 1, gz, pavimento)
     else:
+        # Fondazione, non pavimento. Il lotto e' spianato, ma il raccordo
+        # lascia il bordo un po' piu' basso: con un solo strato a base-1 la
+        # casa appoggiava su un'aria di uno o due blocchi lungo un lato. Qui
+        # si scende finche' non si trova del pieno, al massimo sei blocchi.
         for gx in range(x0, x1 + 1):
             for gz in range(z0, z1 + 1):
                 posa(gx, ed.base - 1, gz, basamento)
+                for giu in range(2, 8):
+                    sotto_di_qui = leggi(gx, ed.base - giu, gz)
+                    if sotto_di_qui is None or sotto_di_qui != tav.aria:
+                        break
+                    posa(gx, ed.base - giu, gz, basamento)
 
     altezza = ed.piani * ed.altezza_piano
 
-    # --- muri ------------------------------------------------------------
+    # --- muri a graticcio -------------------------------------------------
+    # La facciata non e' una parete di assi. E' un telaio di legno riempito di
+    # muratura: montanti verticali ogni tre o quattro blocchi, un corrente
+    # orizzontale a ogni solaio, e in mezzo il tamponamento. Senza il telaio
+    # si ottiene una scatola, ed e' quello che si vedeva dall'alto.
+    passo_montante = 3 if min(ed.larghezza, ed.profondita) >= 8 else 4
+    corrente_x = tav.trave(pal.legno, "x")
+    corrente_z = tav.trave(pal.legno, "z")
+
     for piano in range(ed.piani):
         y_base = ed.base + piano * ed.altezza_piano
         for k in range(ed.altezza_piano):
             gy = y_base + k
+            ultimo = k == ed.altezza_piano - 1
             for gx in range(x0, x1 + 1):
                 for gz in range(z0, z1 + 1):
                     sul_bordo = gx in (x0, x1) or gz in (z0, z1)
@@ -194,7 +241,19 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int,
                         vuota(gx, gy, gz)
                         continue
                     angolo = gx in (x0, x1) and gz in (z0, z1)
-                    posa(gx, gy, gz, telaio if angolo else m)
+                    if angolo:
+                        posa(gx, gy, gz, telaio)
+                    elif ultimo:
+                        # il corrente corre nel verso del muro su cui sta
+                        posa(gx, gy, gz,
+                             corrente_x if gz in (z0, z1) else corrente_z)
+                    elif k == 0 and piano == 0:
+                        posa(gx, gy, gz, basamento)   # zoccolo di pietra
+                    elif ((gz in (z0, z1) and (gx - x0) % passo_montante == 0)
+                          or (gx in (x0, x1) and (gz - z0) % passo_montante == 0)):
+                        posa(gx, gy, gz, telaio)      # montante
+                    else:
+                        posa(gx, gy, gz, m)
         # solaio fra i piani, col vano scala aperto
         if piano < ed.piani - 1:
             for gx in range(x0 + 1, x1):
@@ -203,48 +262,106 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int,
                         continue          # il buco per la scala
                     posa(gx, y_base + ed.altezza_piano - 1, gz, pavimento)
 
-    # --- finestre --------------------------------------------------------
-    for piano in range(ed.piani):
-        gy = ed.base + piano * ed.altezza_piano + 2
-        for gx in range(x0 + 2, x1 - 1, 2):
-            posa(gx, gy, z0, tav.vetro)
-            posa(gx, gy, z1, tav.vetro)
-        for gz in range(z0 + 2, z1 - 1, 2):
-            posa(x0, gy, gz, tav.vetro)
-            posa(x1, gy, gz, tav.vetro)
-
     # --- porta -----------------------------------------------------------
     cx, cz = (x0 + x1) // 2, (z0 + z1) // 2
     if ed.porta == NORD:   px, pz = cx, z0
     elif ed.porta == SUD:  px, pz = cx, z1
     elif ed.porta == OVEST: px, pz = x0, cz
     else:                  px, pz = x1, cz
+
+    # --- finestre --------------------------------------------------------
+    # Due blocchi di altezza e incassate fra i montanti. Quelle di prima erano
+    # un vetro solo a mezza altezza, che da fuori si legge come un puntino.
+    for piano in range(ed.piani):
+        gy = ed.base + piano * ed.altezza_piano + 1
+        for gx in range(x0 + 1, x1):
+            if (gx - x0) % passo_montante == 0:
+                continue
+            for gz in (z0, z1):
+                if (gx, gz) == (px, pz):
+                    continue
+                posa(gx, gy, gz, tav.vetro)
+                posa(gx, gy + 1, gz, tav.vetro)
+        for gz in range(z0 + 1, z1):
+            if (gz - z0) % passo_montante == 0:
+                continue
+            for gx in (x0, x1):
+                if (gx, gz) == (px, pz):
+                    continue
+                posa(gx, gy, gz, tav.vetro)
+                posa(gx, gy + 1, gz, tav.vetro)
+
     posa(px, ed.base, pz, tav.porta(pal.legno, OPPOSTO[ed.porta], "lower"))
     posa(px, ed.base + 1, pz, tav.porta(pal.legno, OPPOSTO[ed.porta], "upper"))
-    posa(px, ed.base + 2, pz, m)
+    posa(px, ed.base + 2, pz, telaio)          # architrave
 
-    # --- tetto a padiglione ---------------------------------------------
+    # --- tetto a due falde ------------------------------------------------
+    # Il padiglione di prima era una piramide: quattro falde che convergono in
+    # un punto. Sta bene su una villa, non su una casa di paese, e vista
+    # dall'alto da' un paese di tegole a rombi tutte uguali. Qui c'e' un colmo
+    # vero, due falde, e due timpani murati alle testate.
     cima = ed.base + altezza
-    passi = min(ed.larghezza, ed.profondita) // 2 + 1
+    lungo_x = ed.larghezza >= ed.profondita
+    g = ed.gronda
+    passi = ed.falde
+
+    # estremi della falda, in coordinate di gronda
+    if lungo_x:
+        a0, a1 = x0 - g, x1 + g          # lungo il colmo
+        b0, b1 = z0 - g, z1 + g          # lungo la pendenza
+    else:
+        a0, a1 = z0 - g, z1 + g
+        b0, b1 = x0 - g, x1 + g
+    if (b1 - b0) % 2 == 1:
+        b1 -= 1                          # campata dispari: vedi `falde`
+
     for k in range(passi):
-        gy = cima + k
-        ax0, az0 = x0 + k - ed.gronda, z0 + k - ed.gronda
-        ax1, az1 = x1 - k + ed.gronda, z1 - k + ed.gronda
-        if ax0 > ax1 or az0 > az1:
+        # La falda comincia SOTTO il filo di gronda, non sopra: alzandola di
+        # un blocco - com'era - restava una feritoia aperta fra la testa del
+        # muro e la falda, lungo tutti e due i lati lunghi. Da dentro si
+        # vedeva il cielo, da fuori sembrava una casa non finita.
+        gy = cima - g + k
+        q0, q1 = b0 + k, b1 - k
+        if q0 > q1:
             break
-        for gx in range(ax0, ax1 + 1):
-            for gz in range(az0, az1 + 1):
-                if gx in (ax0, ax1) or gz in (az0, az1):
-                    # verso: la scala scende verso l'esterno
-                    if gz == az0:   verso = NORD
-                    elif gz == az1: verso = SUD
-                    elif gx == ax0: verso = OVEST
-                    else:           verso = EST
-                    posa(gx, gy, gz, tav.scala(pal.tetto, verso))
-                elif k == passi - 1:
-                    posa(gx, gy, gz, tav.blocco[(ed.stile, "pavimento")])
-                else:
-                    vuota(gx, gy, gz)
+        for a in range(a0, a1 + 1):
+            for q, verso in ((q0, NORD if lungo_x else OVEST),
+                             (q1, SUD if lungo_x else EST)):
+                if q0 == q1:
+                    # il colmo: una trave nel verso del colmo, non due scale
+                    # che si scontrano
+                    gx, gz = (a, q) if lungo_x else (q, a)
+                    posa(gx, gy, gz, corrente_x if lungo_x else corrente_z)
+                    continue
+                gx, gz = (a, q) if lungo_x else (q, a)
+                posa(gx, gy, gz, tav.scala(pal.tetto, verso))
+        # timpano: il muro triangolare alle due testate, sotto la falda
+        if q0 < q1:
+            for a in (a0 + g, a1 - g):
+                for q in range(q0 + 1, q1):
+                    gx, gz = (a, q) if lungo_x else (q, a)
+                    posa(gx, gy, gz, m)
+        # NIENTE svuotamento del sottotetto. C'era, e alla prima falda -
+        # quella che passa esattamente sul filo dei muri - cancellava il
+        # corrente di testa lungo tutti e due i lati lunghi: la casa restava
+        # senza l'ultimo corso, con il tetto appoggiato sul vuoto. Sotto la
+        # falda c'e' gia' aria, perche' l'interno dei muri e' stato svuotato
+        # mentre li si alzava.
+
+    # --- comignolo --------------------------------------------------------
+    # Un tetto senza fumaiolo e' un tetto da modellino. Sale da dentro casa,
+    # buca la falda e sporge di due blocchi.
+    if ed.larghezza >= 6 and ed.profondita >= 6:
+        fx = x0 + 1 if ed.porta != OVEST else x1 - 1
+        fz = z0 + 1 if ed.porta != NORD else z1 - 1
+        gola = cima + passi + 1
+        for gy in range(ed.base, gola + 1):
+            posa(fx, gy, fz, basamento)
+        # il fuoco sta DENTRO la canna, due blocchi sotto la bocca: il fumo
+        # esce dal comignolo, che e' l'unico motivo per cui un comignolo c'e'
+        posa(fx, gola - 1, fz, tav.b("campfire", facing="north", lit="true",
+                                     signal_fire="false", waterlogged="false"))
+        vuota(fx, gola, fz)
 
     # --- interni ---------------------------------------------------------
     _arreda(posa, ed, tav, pal, rng)
@@ -453,6 +570,44 @@ def indice_banchi(banchi: list[Banco], passo: int = 16) -> dict:
             for cx in range((b.x - 1) // passo, (b.x1 + 1) // passo + 1):
                 fuori.setdefault((cx, cz), []).append(i)
     return fuori
+
+
+def posto_di_lavoro(out: np.ndarray, y0: int, ox: int, oz: int,
+                    ed: "Edificio", tav: TavolozzaEdilizia) -> None:
+    """Mette il banco del mestiere dentro una casa di template.
+
+    Una casa disegnata a mano non sa niente dei nostri mestieri, ma il banco
+    non e' arredamento: in Minecraft e' il **posto di lavoro** che l'abitante
+    rivendica, e senza quello il fabbro che ci abita dentro resta un
+    disoccupato con il cappello da fabbro.
+
+    Si cerca una cella d'aria al piano terra con del pieno sotto, partendo dal
+    centro e allargandosi: cosi' il banco finisce in mezzo alla stanza se c'e'
+    una stanza, e non finisce dentro un muro se non c'e'.
+    """
+    nome = BOTTEGA.get(ed.mestiere)
+    if not nome:
+        return
+    banco = _arredo(tav, nome[0], NORD)
+    H = out.shape[1]
+    cx, cz = (ed.x + ed.x1) // 2, (ed.z + ed.z1) // 2
+    ly = ed.base - y0
+    if not (1 <= ly < H):
+        return
+    for r in range(0, max(ed.larghezza, ed.profondita) // 2 + 1):
+        for dx in range(-r, r + 1):
+            for dz in range(-r, r + 1):
+                if max(abs(dx), abs(dz)) != r:
+                    continue
+                lx, lz = cx + dx - ox, cz + dz - oz
+                if not (0 <= lx < 16 and 0 <= lz < 16):
+                    continue
+                if out[lx, ly, lz] != tav.aria:
+                    continue
+                if out[lx, ly - 1, lz] == tav.aria:
+                    continue
+                out[lx, ly, lz] = banco
+                return
 
 
 def punto_lavoro(ed: Edificio) -> tuple[float, float, float]:

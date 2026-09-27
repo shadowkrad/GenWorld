@@ -63,6 +63,7 @@ def livella(
     profondita: int = 2,
     scavo_rive: int = 2,
     scavo_massimo: float = 8.0,
+    sopraelevazione_massima: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Calcola il pelo dell'acqua e scava l'alveo.
 
@@ -124,17 +125,62 @@ def livella(
             visto[nz, nx] = True
             coda.append((nz, nx))
 
+    # IL PELO NON PUO' STARE APPESO IN ARIA.
+    #
+    # La regola "a monte il pelo non scende" e' giusta ma, presa da sola, ha
+    # un effetto che si e' visto solo in gioco: quando il corso attraversa un
+    # colmo e poi ridiscende, tutto cio' che sta a monte resta agganciato alla
+    # quota del colmo. Il pelo dell'acqua finisce cosi' anche tredici blocchi
+    # sopra il terreno intorno - misurato su Arda, con punte di settanta - e
+    # l'alveo, che si costruisce sotto il pelo, viene ALZATO insieme a lui. Il
+    # risultato e' il fiume sospeso a mezz'aria in mezzo alla citta': un
+    # cordone di terra largo una cella con l'acqua in cima e il vuoto ai lati.
+    #
+    # Fra i due difetti si sceglie il minore. Un fiume che in un punto scende
+    # di due blocchi tutto in una volta e' una cascata, e si guarda volentieri;
+    # un acquedotto di terra che attraversa un paese non si spiega. Quindi il
+    # pelo non puo' stare piu' di un blocco sopra il terreno: dove la regola
+    # di monte lo vorrebbe piu' in alto, li' c'e' un salto.
+    # Il tetto si legge sul terreno VERO, non solo su quello sfocato. Il
+    # corso si traccia su una copia sfocata - e deve essere cosi', altrimenti
+    # ogni dosso da un blocco lo devia - ma la sfocatura riempie le forre: in
+    # una gola stretta il terreno sfocato sta quindici blocchi sopra il fondo
+    # vero, e chi prende il pelo da li' posa l'acqua a quindici blocchi da
+    # terra. E' la misura fatta su Arda: 4.252 sponde da alzare, in media di
+    # quindici blocchi. Il minimo fra i due tiene il corso morbido dove il
+    # terreno e' morbido e lo fa scendere dove c'e' un solco vero.
+    if sopraelevazione_massima is not None:
+        tetto_pelo = np.minimum(liscio, h) + float(sopraelevazione_massima)
+        livello = np.where(fiumi, np.minimum(livello, tetto_pelo), livello)
+
     # Alveo: sotto il pelo dell'acqua, ma con un tetto allo scavo. Senza, dove
     # il corso passa su un dosso locale il terreno sfocato sta molto piu' in
     # basso di quello vero e si apre un canyon da decine di blocchi.
-    alveo = np.maximum(livello - profondita, h - scavo_massimo)
+    # E un alveo non si ALZA mai: un letto sopra il terreno intorno e' un
+    # argine, e con l'acqua in cima e' un acquedotto.
+    alveo = np.minimum(h, np.maximum(livello - profondita, h - scavo_massimo))
     h = np.where(fiumi, alveo, h)
 
     # rive: si abbassa la fascia adiacente cosi' il fiume sta in un solco e
-    # non su un rilevato, che e' l'effetto di scavare senza toccare i bordi
+    # non su un rilevato, che e' l'effetto di scavare senza toccare i bordi.
+    #
+    # ATTENZIONE AL LIVELLO DI QUALE CELLA. Qui c'era il difetto peggiore di
+    # tutto il programma, e per mesi non l'ha visto nessuno: si leggeva
+    # `livello` NELLA CELLA DI RIVA, dove pero' vale il livello del mare,
+    # perche' quella cella non e' fiume. Risultato: la sponda di un fiume che
+    # scorre a quota 133 veniva scavata fino a 64. Lungo ogni corso alto si
+    # apriva una trincea di settanta blocchi con dentro, su un cordone di
+    # terra largo una cella, il fiume - che in gioco sembra sospeso a
+    # mezz'aria. E' il crepaccio in mezzo alla citta' dello screenshot.
+    #
+    # Il livello da usare e' quello del FIUME VICINO, e si prende dilatando
+    # il pelo dell'acqua sulla fascia di riva.
     if scavo_rive > 0:
+        from scipy.ndimage import maximum_filter
         riva = binary_dilation(fiumi, iterations=scavo_rive) & ~fiumi
-        tetto = np.where(riva, livello + 2.0, np.inf)
+        pelo = np.where(fiumi, livello, -1e9)
+        vicino = maximum_filter(pelo, size=2 * int(scavo_rive) + 1)
+        tetto = np.where(riva, vicino + 2.0, np.inf)
         h = np.minimum(h, tetto)
 
     return livello, h
@@ -277,3 +323,36 @@ def da_terreno(
             dim = np.bincount(cc.ravel()); dim[0] = 0
             f = np.isin(cc, np.flatnonzero(dim >= lunghezza_minima))
     return f, acc
+
+
+def puntella(h: np.ndarray, fiume: np.ndarray, livello: np.ndarray,
+             livello_mare: int = 62, raggio: int = 2) -> np.ndarray:
+    """Alza le sponde fino a contenere l'acqua.
+
+    Questo nasce da uno screenshot: in mezzo a una citta' di Arda un
+    fiumiciattolo scorreva **sospeso a mezz'aria** sul fianco di una trincea.
+    Il motivo e' che il pelo dell'acqua e il terreno si decidono in due momenti
+    diversi. I fiumi si livellano nell'analisi; poi arrivano le citta', che
+    spianano il sedime delle case, e se una casa sta vicino alla riva il
+    raccordo abbassa la sponda di qualche blocco. Il fiume non ne sa niente:
+    il suo pelo resta quello di prima, e l'acqua si ritrova a pelo d'aria.
+
+    Lo stesso vale per qualunque altra cosa tocchi il terreno dopo i fiumi -
+    strade, campi, terrazzamenti. Quindi il rimedio non si mette dentro la
+    citta' ma **alla fine**, come ultima regola: dove c'e' una sponda, la
+    sponda deve arrivare almeno un blocco sopra il pelo dell'acqua.
+
+    Non si tocca la foce: li' il pelo e' quello del mare e alzare la riva
+    produrrebbe un cordone di terra lungo tutte le spiagge.
+    """
+    if not fiume.any():
+        return h
+    from scipy.ndimage import maximum_filter
+
+    lato = 2 * int(raggio) + 1
+    pelo = np.where(fiume, livello.astype(np.float32), -1e9)
+    vicino = maximum_filter(pelo, size=lato)
+    tocca = maximum_filter(fiume.astype(np.uint8), size=lato) > 0
+    sponda = tocca & ~fiume & (vicino > livello_mare + 0.5)
+    minimo = (np.floor(vicino) + 1).astype(h.dtype)
+    return np.where(sponda, np.maximum(h, minimo), h)

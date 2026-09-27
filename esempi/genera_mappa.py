@@ -41,6 +41,8 @@ def main() -> None:
     ap.add_argument("--lotto", type=int, default=0)
     ap.add_argument("--chunk-per-lotto", type=int, default=0,
                     help="0 = tutto in una volta")
+    ap.add_argument("--templates", default=os.path.join(RADICE, "templates", "case"),
+                    help="cartella dei .nbt da usare come case ('' per le case parametriche)")
     ap.add_argument("--anteprima", action="store_true")
     ap.add_argument("--profilo", help="profilo JSON prodotto dal Calibratore Mappe: "
                     "rettangolo di interesse + campioni col contagocce")
@@ -78,7 +80,8 @@ def main() -> None:
     op = Opzioni(immagine=a.immagine, uscita=a.uscita, nome=a.nome, lato=a.lato,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
-                 alberi=a.alberi, villaggi=a.villaggi, strade=a.strade)
+                 alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,
+                 templates=a.templates)
 
     t0 = time.time()
     primo = a.lotto == 0

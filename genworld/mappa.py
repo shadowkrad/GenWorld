@@ -27,8 +27,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 from PIL import Image
-from scipy.ndimage import (binary_dilation, gaussian_filter, median_filter,
-                           uniform_filter)
+from scipy.ndimage import (binary_dilation, distance_transform_edt,
+                           gaussian_filter, median_filter, uniform_filter)
 
 # --------------------------------------------------------------------------
 # Classi di terreno
@@ -67,11 +67,21 @@ class Quote:
     base: dict[int, float] = field(default_factory=lambda: {
         OCEANO: 30.0, MARE: 54.0, SPIAGGIA: 64.0, DESERTO: 68.0,
         PIANURA: 71.0, PRATERIA: 79.0, FORESTA: 86.0,
-        MONTAGNA: 120.0, NEVE: 140.0, FIUME: 70.0,
+        MONTAGNA: 112.0, NEVE: 128.0, FIUME: 70.0,
         VULCANO: 130.0, CRATERE: 150.0,
     })
     # quanto la rugosita' dipinta alza le quote (blocchi a rugosita' piena)
-    guadagno_rugosita: float = 62.0
+    guadagno_rugosita: float = 46.0
+    # Quota a cui ripiega un rilievo troppo stretto per reggere la sua quota
+    # piena: un puntino di colore montagna diventa una collina, non un ago.
+    quota_collina: float = 88.0
+    # Mezza larghezza, in celle, che un massiccio deve avere per arrivare alla
+    # sua quota piena. Sotto, la quota scende in proporzione.
+    raggio_massiccio: float = 14.0
+    # Quanto puo' salire la terra allontanandosi dalla riva, in blocchi per
+    # cella. Senza, la costa e' un muro: misurato su Arda, terra a 109 e mare
+    # a 60 nella cella accanto.
+    pendenza_costa: float = 3.5
 
 
 # --------------------------------------------------------------------------
@@ -244,15 +254,42 @@ def altimetria(cls: np.ndarray, rug: np.ndarray, q: Quote | None = None,
     4. si reimpone l'acqua sotto il livello del mare, che la sfocatura alzerebbe
     """
     q = q or Quote()
+
+    # --- LA QUOTA DIPENDE DA QUANTO E' LARGO IL RILIEVO -------------------
+    #
+    # Prima la quota dipendeva solo dal colore: una macchia di cinque pixel
+    # di "montagna" in mezzo al deserto diventava, sfocata, un picco di
+    # centoventi blocchi su quindici celle - cioe' quattro blocchi di salita
+    # per cella. In gioco erano aghi, e si vedevano subito come sbagliati:
+    # una cima alta come tre montagne e larga come una casa.
+    #
+    # In natura la quota di un massiccio dipende dalla sua LARGHEZZA: una
+    # catena larga chilometri regge tremila metri, un affioramento largo
+    # cento metri no. Qui si misura la larghezza con la distanza dal bordo
+    # del rilievo e si ripiega sulla quota di collina dove il rilievo e'
+    # troppo stretto per reggere la sua.
+    rilievo = np.isin(cls, (MONTAGNA, NEVE))
     h = np.zeros(cls.shape, dtype=np.float32)
     for k, quota in q.base.items():
         h[cls == k] = quota
 
-    h = gaussian_filter(h, morbidezza)
+    if rilievo.any() and q.raggio_massiccio > 0:
+        magro = h.copy()
+        magro[rilievo] = q.quota_collina
+        larghezza = distance_transform_edt(rilievo).astype(np.float32)
+        t = np.clip(larghezza / q.raggio_massiccio, 0.0, 1.0)
+        peso = t * t * (3.0 - 2.0 * t)          # curva a S: niente spigoli
+        h = gaussian_filter(magro, morbidezza) + (
+            gaussian_filter(h, morbidezza) - gaussian_filter(magro, morbidezza)
+        ) * gaussian_filter(peso, morbidezza)
+    else:
+        h = gaussian_filter(h, morbidezza)
 
     # La spinta di rilievo vale solo sulla terra: la grana dipinta del mare
     # non deve creare secche, e le coste devono restare coste.
-    spinta = gaussian_filter(rug.astype(np.float32), 2.0)
+    # Sfocata a 3,5 e non a 2: a due celle una grana fine si traduceva in
+    # guglie da un pixel, che e' l'altra meta' del difetto degli aghi.
+    spinta = gaussian_filter(rug.astype(np.float32), 3.5)
     spinta = np.where(np.isin(cls, MARINO), 0.0, spinta)
     h = h + q.guadagno_rugosita * spinta
 
@@ -261,6 +298,18 @@ def altimetria(cls: np.ndarray, rug: np.ndarray, q: Quote | None = None,
     marino = np.isin(cls, MARINO)
     tetto = np.where(cls == OCEANO, q.livello_mare - 12.0, q.livello_mare - 3.0)
     h = np.where(marino, np.minimum(h, tetto), h)
+
+    # --- la costa non e' un muro -----------------------------------------
+    # La terra non puo' salire piu' in fretta di cosi' allontanandosi dalla
+    # riva. Senza, il colore di montagna che arriva fino al mare produce una
+    # parete: misurato su Arda, terra a quota 109 con il mare a 60 nella cella
+    # accanto, cioe' cinquanta blocchi di salto in un metro. Restano le
+    # falesie - tre blocchi e mezzo per cella sono ripidissimi - ma smettono
+    # di essere verticali.
+    if q.pendenza_costa > 0 and marino.any():
+        dal_mare = distance_transform_edt(~marino).astype(np.float32)
+        tetto_costa = q.livello_mare + 3.0 + q.pendenza_costa * dal_mare
+        h = np.where(marino, h, np.minimum(h, tetto_costa))
     return h
 
 

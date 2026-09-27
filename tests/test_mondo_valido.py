@@ -125,6 +125,45 @@ class TestMondoValido(unittest.TestCase):
     def test_niente_session_lock_appeso(self):
         self.assertFalse(os.path.exists(os.path.join(self.percorso, "session.lock")))
 
+    def test_il_mondo_arriva_a_y_meno_64(self):
+        """IL DIFETTO PIU' SILENZIOSO CHE ABBIAMO AVUTO.
+
+        Il level.dat scritto da amulet ha un `WorldGenSettings` che amulet
+        stesso non sa rileggere; quando non lo sa rileggere ripiega sui
+        limiti di prima della 1.18, y da 0 a 256, e nel salvataggio butta via
+        senza dire niente ogni sub-chunk negativo. Spariva tutto: la bedrock
+        a -64, la fascia di ardesia, le caverne profonde, i minerali del
+        fondo. E il controllo di andata e ritorno non se ne accorgeva, perche'
+        alla chiusura il level.dat lo riscriviamo noi, giusto, e da quel
+        momento rileggendo il mondo i limiti tornavano corretti.
+
+        Qui si guarda la cosa che conta davvero: quanto scende la pietra che
+        e' finita SUL DISCO.
+        """
+        import amulet
+        lv = amulet.load_level(self.percorso)
+        try:
+            self.assertLessEqual(lv.bounds("minecraft:overworld").min[1], -64)
+            ch = lv.get_chunk(0, 0, "minecraft:overworld")
+            piu_giu = min(ch.blocks.sub_chunks) * 16
+            self.assertEqual(piu_giu, -64,
+                             f"il mondo comincia a y={piu_giu}: tutto il "
+                             f"sottosuolo sotto lo zero e' stato buttato via")
+        finally:
+            lv.close()
+
+    def test_quello_che_si_scrive_sotto_zero_si_rilegge(self):
+        """La prova diretta: un blocco posato a y=-50 deve tornare indietro."""
+        import amulet
+        lv = amulet.load_level(self.percorso)
+        try:
+            ch = lv.get_chunk(0, 0, "minecraft:overworld")
+            pal = lv.block_palette
+            self.assertEqual(pal[int(np.asarray(ch.blocks[8, -50, 8]))].base_name,
+                             "stone")
+        finally:
+            lv.close()
+
 
 if __name__ == "__main__":
     unittest.main()
