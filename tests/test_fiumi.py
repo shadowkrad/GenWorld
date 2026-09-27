@@ -141,3 +141,50 @@ class TestDaTerreno(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSpondeInQuota(unittest.TestCase):
+    """Un fiume in quota non deve scavarsi una trincea fino al livello del mare.
+
+    Questo test nasce da uno screenshot: in mezzo a una citta' di Arda si
+    apriva un crepaccio vuoto con dentro, sospeso, un fiumiciattolo. La causa
+    era in `livella`: lo scavo delle rive leggeva `livello` nella cella di
+    riva, dove pero' vale il livello del mare, perche' quella cella non e'
+    fiume. Un corso a quota 133 si vedeva scavare le sponde fino a 64.
+    """
+
+    def scenario(self):
+        lato = 60
+        h = np.full((lato, lato), 140, np.int32)
+        h[:, 30] = 134                      # un solco in cima all'altopiano
+        fiumi = np.zeros((lato, lato), bool)
+        fiumi[:, 30] = True
+        mare = np.zeros((lato, lato), bool)
+        mare[:2, :] = True                  # una foce fittizia in alto
+        return h, fiumi, mare
+
+    def test_le_rive_non_scendono_al_livello_del_mare(self):
+        h, fiumi, mare = self.scenario()
+        livello, nuovo = F.livella(fiumi, h, mare, livello_mare=62)
+        riva = nuovo[5:, 28]
+        self.assertGreater(int(riva.min()), 120,
+                           f"sponda scavata a {int(riva.min())} invece che in quota")
+
+    def test_il_letto_non_si_alza_sopra_il_terreno(self):
+        """Un alveo sopra il terreno intorno e' un argine; con l'acqua in
+        cima e' un acquedotto."""
+        h, fiumi, mare = self.scenario()
+        _, nuovo = F.livella(fiumi, h, mare, livello_mare=62)
+        self.assertTrue((nuovo[fiumi] <= h[fiumi]).all())
+
+    def test_puntella_alza_solo_le_sponde_basse(self):
+        h = np.full((40, 40), 100, np.int32)
+        fiumi = np.zeros((40, 40), bool)
+        fiumi[:, 20] = True
+        livello = np.full((40, 40), 62.0, np.float32)
+        livello[:, 20] = 99.0
+        h[:, 18] = 80                        # una sponda sfondata
+        nuovo = F.puntella(h, fiumi, livello, livello_mare=62)
+        self.assertEqual(int(nuovo[10, 18]), 100)   # alzata a contenere
+        self.assertEqual(int(nuovo[10, 30]), 100)   # lontano non si tocca
+        self.assertEqual(int(nuovo[10, 20]), 100)   # il letto non si tocca

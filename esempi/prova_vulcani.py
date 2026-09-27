@@ -40,7 +40,7 @@ def pannello(h: np.ndarray, colata: np.ndarray, lava: np.ndarray,
     base = 0.25 + 0.75 * (hh - hh.min()) / max(float(np.ptp(hh)), 1.0)
     g = np.clip(om * 0.75 + base * 0.45, 0, 1)
     rgb = np.dstack([g, g, g])
-    rgb[colata[fetta]] = (1.0, 0.45, 0.05)
+    rgb[colata[fetta] > 0] = (1.0, 0.45, 0.05)
     rgb[lava[fetta]] = (1.0, 0.72, 0.15)
     return Image.fromarray((rgb * 255).astype(np.uint8))
 

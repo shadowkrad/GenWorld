@@ -23,6 +23,7 @@ from typing import Callable
 import numpy as np
 
 from . import agricoltura as AG
+from . import batimetria as BAT
 from . import biomi as B
 from . import citta as CT
 from . import edifici as E
@@ -31,7 +32,10 @@ from . import fiumi as R
 from . import insediamenti as I
 from . import mappa as M
 from . import normalizza as N
+from . import sottosuolo as SS
 from . import strade as ST
+from . import stratigrafia as SG
+from . import template as TM
 from . import vegetazione as V
 from . import vulcani as U
 from .classi_auto import classifica_adattiva
@@ -83,6 +87,10 @@ class Opzioni:
     alberi: float = 1.0
     villaggi: float = 1.0
     strade: bool = True
+    caverne: float = 1.0
+    # Cartella dei `.nbt` di blocco struttura da usare come case. Vuota o
+    # inesistente: si usa il generatore parametrico, come prima.
+    templates: str = ""
     seed: int = 11
 
     @property
@@ -189,20 +197,35 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
                   quota_minima=float(LIVELLO_MARE + 1), seed=op.seed)
     h = h + dettaglio(h, ampiezza_base=0.7, ampiezza_pendenza=3.5, seed=op.seed)
     h = quantizza(h, forza=1.0, seed=op.seed)
-    # Il tetto sull'acqua va RIMESSO alla fine. `altimetria` lo impone, ma poi
-    # il dettaglio frattale e la quantizzazione lavorano su tutta la mappa e
-    # rialzano celle di mare sopra il livello dell'acqua: nascono isolotti da
-    # un blocco sparsi per l'oceano, e la semina ci pianta sopra gli alberi.
-    acqua = np.isin(cls, M.ACQUA)
-    tetto = np.where(cls == M.OCEANO, LIVELLO_MARE - 12, LIVELLO_MARE - 3)
-    h = np.where(acqua, np.minimum(h, tetto), h)
+    # IL FONDALE si calcola, non si taglia. Il vecchio codice imponeva un
+    # tetto (-3 al mare, -12 all'oceano) e prendeva il minimo: siccome sotto
+    # non c'era niente che generasse rilievo, tutto si appiattiva contro quel
+    # tetto. Risultato misurato su Arda: il 53% dell'acqua a esattamente y=54,
+    # un piano unico, e un muro di 67 blocchi al confine fra le due classi.
+    # Sostituire invece di tagliare risolve anche il vecchio problema degli
+    # isolotti da un blocco, perche' la quota marina non viene piu' dal
+    # rumore.
+    avanza(0.44, "fondale")
+    h = BAT.applica(h, cls, livello_mare=LIVELLO_MARE, seed=op.seed)
+    # i fiumi restano dove sono: scorrono in quota, non sono mare
+    fiume = cls == M.FIUME
+    if fiume.any():
+        h = np.where(fiume, np.minimum(h, LIVELLO_MARE - 1), h)
     h = np.clip(h, -60, 300).astype(np.int32)
+    st = BAT.statistiche(h, cls, LIVELLO_MARE)
+    if st["acqua"]:
+        note.append(
+            f"fondale: profondita' media {st['prof_media']:.0f} blocchi, "
+            f"massima {st['prof_max']:.0f}, {st['quote_distinte']} quote "
+            f"distinte, la piu' diffusa copre il "
+            f"{st['quota_piu_diffusa'] * 100:.0f}% dell'acqua, "
+            f"{st['scalini']} scalini oltre 8 blocchi")
 
     # VULCANI. Vanno prima dei fiumi: sono l'unico elemento che si SOVRAPPONE
     # al terreno invece di dedurlo, e il deflusso deve poter scendere dai loro
     # fianchi. Calcolarli dopo darebbe coni senza torrenti.
     lava = np.zeros(h.shape, bool)
-    colata = np.zeros(h.shape, bool)
+    colata = np.zeros(h.shape, np.float32)
     q_lava = np.zeros(h.shape, np.float32)
     if op.vulcani > 0:
         avanza(0.52, "vulcani")
@@ -214,7 +237,8 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             st = U.statistiche(coni, cls, lava, colata)
             note.append(f"vulcani: {st['vulcani']}, cono {st['cono']} celle, "
                         f"cratere {st['cratere']}, lago di lava "
-                        f"{st['lago_di_lava']}, colate {st['colate']}, "
+                        f"{st['lago_di_lava']}, colate {st['colate']} "
+                        f"(di cui {st['colate_incandescenti']} incandescenti), "
                         f"cima a quota {st['quota_massima']}")
 
     # Fiumi. NON estratti dal disegno: calcolati dal terreno. Tre tentativi di
@@ -301,13 +325,16 @@ class Piano:
     quota_strada: np.ndarray | None
     alberi: dict | None
     indice_alberi: dict
-    muro: np.ndarray | None = None   # 1 = cinta, 2 = porta
+    muro: np.ndarray | None = None   # 1 = cinta, 2 = porta, 3 = torre
+    scarpata: np.ndarray | None = None   # fronte dei gradoni urbani
     citta: list = field(default_factory=list)
     abitanti: list = field(default_factory=list)
     banchi: list = field(default_factory=list)
     indice_banchi: dict = field(default_factory=dict)
     campi: np.ndarray | None = None
     poderi: list = field(default_factory=list)
+    caverne: dict = field(default_factory=dict)
+    indice_caverne: dict = field(default_factory=dict)
     note: list[str] = field(default_factory=list)
 
 
@@ -325,7 +352,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     siti = (I.scegli_siti(a.cls, h, livello_mare=LIVELLO_MARE,
                           celle_per_villaggio=int(45_000 / max(op.villaggi, 1e-3)),
                           seed=31) if op.villaggi > 0 else [])
-    edifici, h, vie, muro, citta, banchi = CT.pianifica(
+    edifici, h, vie, muro, citta, banchi, urbano = CT.pianifica(
         a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31)
     indice_ed = I.indice_per_chunk(edifici) if edifici else {}
     # Un abitante per bottega: il villager sta nella sua stanza, accanto al
@@ -392,6 +419,36 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                     f"{st['lastricato']} lastricate, {st['ponte']} di "
                     f"ponte ({st['parapetto']} di parapetto)")
 
+    # ULTIMA REGOLA SUL TERRENO. Citta', campi e strade hanno tutti il
+    # permesso di muovere le quote; nessuno di loro sa dove passa l'acqua. Le
+    # sponde si ricontrollano qui, quando nessuno le tocchera' piu'.
+    fiume = a.cls == M.FIUME
+    if fiume.any():
+        prima = h.copy()
+        h = R.puntella(h, fiume, a.livello, livello_mare=LIVELLO_MARE)
+        quante = int((h != prima).sum())
+        if quante:
+            note.append(f"sponde ripuntellate: {quante} celle "
+                        f"(fiumi rimasti sospesi dopo citta' e strade)")
+
+    # I fronti dei gradoni si leggono ADESSO, quando nessuno muovera' piu' il
+    # terreno: sono una proprieta' delle quote finali, non una decisione.
+    scarpata = None
+    if urbano.any():
+        scarpata = CT.scarpate(h, urbano)
+        if scarpata.any():
+            note.append(f"terrazze: {int(scarpata.sum())} celle di fronte "
+                        f"(muri di sostegno)")
+
+    avanza(0.62, "caverne")
+    caverne = (SS.scava_caverne(h, livello_mare=LIVELLO_MARE, seed=19)
+               if op.caverne > 0 else {"x": np.zeros(0, np.int32)})
+    if caverne["x"].size:
+        st = SS.statistiche(caverne)
+        note.append(f"sottosuolo: {st['sfere']} celle di cunicolo fra "
+                    f"y={st['quota_min']} e y={st['quota_max']}, "
+                    f"raggio medio {st['raggio_medio']:.1f}")
+
     avanza(0.75, "vegetazione")
     alberi = (V.semina(a.cls, h, livello_mare=LIVELLO_MARE,
                        scala_densita=op.alberi, seed=21)
@@ -438,8 +495,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     return Piano(h=h, edifici=edifici, indice_edifici=indice_ed,
                  tipo_strada=tipo_strada, quota_strada=quota_strada,
                  alberi=alberi, indice_alberi=indice, muro=muro,
+                 scarpata=scarpata,
                  citta=citta, abitanti=abitanti, banchi=banchi,
-                 campi=campi, poderi=poderi,
+                 campi=campi, poderi=poderi, caverne=caverne,
+                 indice_caverne=SS.indice_per_chunk(caverne) if caverne["x"].size else {},
                  indice_banchi=E.indice_banchi(banchi) if banchi else {},
                  note=note)
 
@@ -471,7 +530,9 @@ def fetta(a: np.ndarray, sx: int, sz: int) -> np.ndarray:
 
 def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   quota_c=None, lava_c=None, colata_c=None, muro_c=None,
-                  campi_c=None, ox=0, oz=0, y0=-64, y1=220):
+                  campi_c=None, ox=0, oz=0, y0=-64, y1=220,
+                  roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
+                  manto_c=None, scarpata_c=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -481,12 +542,55 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
     out[solido] = scrittore.blocco("stone")
     out[:, 0, :] = scrittore.blocco("bedrock")
 
+    # --- strati di roccia -------------------------------------------------
+    # PRIMA della superficie: gli strati stanno dentro la montagna, l'erba
+    # sopra. L'ordine inverso darebbe banchi di tufo in mezzo a un prato.
+    if roccia is not None:
+        scarto = (np.zeros((16, 16), np.int32) if scarto_c is None
+                  else np.asarray(scarto_c).astype(np.int32))[:, None, :]
+        SG.applica(out, roccia, ys, solido, scarto)
+
     cima = ys == hh - 1
     sotto = solido & (ys >= hh - 4) & ~cima
+    # Dove il pendio e' una parete non cresce niente: la superficie resta lo
+    # strato di roccia che c'e' sotto. E' cosi' che si ottengono le pareti,
+    # senza generarle: basta non coprirle di erba.
+    nuda = (np.zeros((16, 16), bool) if nuda_c is None
+            else np.asarray(nuda_c).astype(bool))[:, None, :]
     for k, (sup, sub) in SUPERFICIE.items():
-        m = (cls_c == k)[:, None, :]
+        m = (cls_c == k)[:, None, :] & ~nuda
         out[cima & m] = scrittore.blocco(sup)
         out[sotto & m] = scrittore.blocco(sub)
+
+    # --- fronti dei gradoni -----------------------------------------------
+    # Dove la citta' e' terrazzata, il salto fra un ripiano e l'altro si veste
+    # di pietra: un muro di sostegno si legge come una cosa costruita, un
+    # taglio di terra nuda sembra un difetto del terreno.
+    if scarpata_c is not None and np.any(scarpata_c):
+        sc = np.asarray(scarpata_c).astype(bool)
+        sasso = scrittore.blocco("cobblestone")
+        muschio = scrittore.blocco("mossy_cobblestone")
+        for lx, lz in zip(*np.nonzero(sc)):
+            cima_y = int(h_c[lx, lz]) - 1
+            for k in range(4):
+                ly = cima_y - k - y0
+                if 0 <= ly < out.shape[1]:
+                    out[lx, ly, lz] = (muschio if (lx + lz + k) % 5 == 0
+                                       else sasso)
+
+    # --- neve -------------------------------------------------------------
+    # Non una quota netta ma una fascia: prima il manto sottile a chiazze,
+    # poi il blocco pieno. Una linea delle nevi disegnata col righello si
+    # riconosce da chilometri.
+    if roccia is not None and neve_c is not None:
+        nv = np.asarray(neve_c).astype(np.uint8)
+        piena = (nv == 2)[:, None, :]
+        out[cima & piena] = roccia.neve
+        manto = np.nonzero(nv == 1)
+        for lx, lz in zip(*manto):
+            ly = int(h_c[lx, lz]) - y0
+            if 0 <= ly < out.shape[1] and out[lx, ly, lz] == scrittore.id_aria:
+                out[lx, ly, lz] = roccia.manto
 
     # Il livello dell'acqua NON e' globale: un fiume scorre in quota, e
     # riempirlo fino al livello del mare lo trasformerebbe in un canyon
@@ -500,17 +604,47 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         m = np.asarray(lava_c)[:, None, :]
         out[liquido & m] = scrittore.blocco("lava", falling="false",
                                             flowing="false", level="0")
+    # --- manto del cono ---------------------------------------------------
+    # Prima il cono era basalto e basta, dalla base all'orlo. Un vulcano vero
+    # e' fatto di colate sovrapposte di eta' diverse, e si vede.
+    if manto_c is not None:
+        mc = np.asarray(manto_c)
+        vulcanico = np.isin(cls_c, (M.VULCANO, M.CRATERE))
+        for k, (sup, sub) in enumerate((("basalt", "blackstone"),
+                                        ("smooth_basalt", "blackstone"),
+                                        ("blackstone", "blackstone"),
+                                        ("tuff", "blackstone"))):
+            mm = (vulcanico & (mc == k))[:, None, :]
+            out[cima & mm] = scrittore.blocco(sup, axis="y") if "basalt" in sup \
+                else scrittore.blocco(sup)
+            out[sotto & mm] = scrittore.blocco(sub)
+
     if colata_c is not None and np.any(colata_c):
         cima_i = (hh - 1 - y0)
         magma = scrittore.blocco("magma_block")
-        cc = np.asarray(colata_c)
+        basalto = scrittore.blocco("basalt", axis="y")
+        lava_viva = scrittore.blocco("lava", falling="false", flowing="false",
+                                     level="0")
+        cc = np.asarray(colata_c, dtype=np.float32)
         for lx in range(16):
             for lz in range(16):
-                if not cc[lx, lz]:
+                t = float(cc[lx, lz])
+                if t <= 0:
                     continue
                 yy = int(cima_i[lx, 0, lz])
-                if 0 <= yy < out.shape[1]:
+                if not (0 <= yy < out.shape[1]):
+                    continue
+                if t <= U.SOGLIA_LIQUIDA:
+                    # lava viva: sta in un canale, non spalmata sul pendio.
+                    # Il blocco sotto resta magma cosi' la colata non cola in
+                    # una caverna e non sparisce dentro la montagna.
+                    out[lx, yy, lz] = lava_viva
+                    if yy > 0:
+                        out[lx, yy - 1, lz] = magma
+                elif t <= U.SOGLIA_CROSTA:
                     out[lx, yy, lz] = magma
+                else:
+                    out[lx, yy, lz] = basalto
 
     if tipo_c is not None:
         _posa_strada(out, scrittore, np.asarray(tipo_c),
@@ -523,6 +657,14 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         _posa_mura(out, scrittore, np.asarray(muro_c),
                    np.asarray(h_c).astype(np.int32), y0)
     return out
+
+
+def _pendenza(h: np.ndarray) -> np.ndarray:
+    """Blocchi di quota per cella di pianta. E' la misura che distingue un
+    prato da una parete, e serve a tre cose diverse: dove non ditherare, dove
+    non far crescere l'erba, dove non far attaccare la neve."""
+    gz, gx = np.gradient(h.astype(np.float32))
+    return np.hypot(gz, gx)
 
 
 def binary_dilation_campi(campi):
@@ -569,16 +711,28 @@ def _posa_campi(out, s, campi, h_c, y0):
                 out[lx, y + 1, lz] = aria
 
 
+ALTEZZA_MURA = 7
+ALTEZZA_TORRE = 11
+
+
 def _posa_mura(out, s, muro, h_c, y0):
-    """Cinta muraria e varchi.
+    """Cinta muraria, torri e varchi.
 
     Il muro non ha una quota propria: segue il terreno, come un muro vero.
     Merlatura a denti alterni, e sopra la porta un architrave, cosi' il varco
     si legge come una porta e non come un pezzo di muro che manca.
+
+    Due correzioni nate da uno screenshot in cui le mura sembravano macerie
+    sparse: e' cresciuta da cinque a sette blocchi - sotto i cinque, con le
+    case a due piani accanto, una cinta non si distingue da un muretto - e
+    soprattutto adesso ha le FONDAMENTA. Prima partiva dalla quota del
+    terreno e saliva; dove il terreno accanto scendeva, sotto il muro
+    restava il vuoto e si vedevano blocchi appesi.
     """
     H = out.shape[1]
     pietra = s.blocco("stone_bricks", variant="normal")
     mattone = s.blocco("stone_bricks", variant="mossy")
+    incrinata = s.blocco("stone_bricks", variant="cracked")
     aria = s.id_aria
     for lx in range(16):
         for lz in range(16):
@@ -586,21 +740,32 @@ def _posa_mura(out, s, muro, h_c, y0):
             if m == 0:
                 continue
             base = int(h_c[lx, lz]) - y0
-            if m == 1:
-                cima = base + 5
+            if m in (1, 3):
+                # fondamenta: si scende finche' non si trova del pieno
+                for giu in range(1, 9):
+                    k = base - giu
+                    if k < 0 or out[lx, k, lz] != aria:
+                        break
+                    out[lx, k, lz] = pietra
+                alta = ALTEZZA_TORRE if m == 3 else ALTEZZA_MURA
+                cima = base + alta
                 for k in range(base, min(cima, H)):
-                    out[lx, k, lz] = mattone if (lx + lz) % 7 == 0 else pietra
+                    if (lx + lz) % 7 == 0:
+                        out[lx, k, lz] = mattone
+                    elif (lx * 3 + lz) % 11 == 0:
+                        out[lx, k, lz] = incrinata
+                    else:
+                        out[lx, k, lz] = pietra
                 # merli: un dente sì e uno no
                 if (lx + lz) % 2 == 0 and 0 <= cima < H:
                     out[lx, cima, lz] = pietra
             else:
                 # varco: si sgombera il passaggio e si mette l'architrave
-                for k in range(base, min(base + 4, H)):
+                for k in range(base, min(base + 5, H)):
                     out[lx, k, lz] = aria
-                if 0 <= base + 4 < H:
-                    out[lx, base + 4, lz] = pietra
-                if 0 <= base + 5 < H:
-                    out[lx, base + 5, lz] = pietra
+                for k in range(base + 5, min(base + ALTEZZA_MURA + 1, H)):
+                    if 0 <= k < H:
+                        out[lx, k, lz] = pietra
 
 
 def _posa_strada(out, s, tipo, quota, h_c, ox, oz, y0):
@@ -669,8 +834,49 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
     interrotto = False
 
     with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, crea=primo) as m:
+        tav_ss = SS.Tavolozza(m)
+        roccia = SG.TavolozzaRoccia(m, seed=op.seed)
+        # Gli strati fanno parte della roccia, quindi il sottosuolo puo'
+        # scavarli e sostituirli come farebbe con la pietra liscia.
+        tav_ss.aggiungi_rocce(roccia.ids)
+        pend = _pendenza(piano.h)
+        clima = B.freddo(a.cls, piano.h, livello_mare=LIVELLO_MARE, seed=op.seed)
+        nuda_m, neve_m = SG.superficie_montana(piano.h, pend, seed=op.seed,
+                                               freddo=clima)
+        # La parete nuda vale sulla terra ferma: sott'acqua non si vede, sul
+        # basalto di un vulcano sarebbe un banco di granito in mezzo a una
+        # colata, e sulla sabbia una scogliera di pietra in mezzo alle dune.
+        nuda_m &= ~np.isin(a.cls, M.MARINO + (M.FIUME, M.VULCANO, M.CRATERE,
+                                              M.DESERTO, M.SPIAGGIA))
+        neve_m = np.where(np.isin(a.cls, M.MARINO + (M.FIUME, M.CRATERE)),
+                          0, neve_m).astype(np.uint8)
+        scarto_m = SG.piega(max(piano.h.shape),
+                            seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
+        manto_m = U.manto(a.cls, seed=op.seed)
         tav = V.Tavolozza(m) if piano.alberi is not None else None
         tav_ed = E.TavolozzaEdilizia(m) if piano.edifici else None
+
+        # --- case da template ------------------------------------------
+        # La scelta si fa QUI, una volta per edificio, e non dentro il ciclo
+        # dei chunk: una casa sta a cavallo di quattro chunk, e sceglierne il
+        # modello quattro volte con quattro tirate di dado significa
+        # costruirne quattro diverse una dentro l'altra.
+        modelli = TM.carica_cartella(op.templates) if op.templates else []
+        cat = TM.Catalogo(modelli, m) if modelli else None
+        scelte: dict[int, tuple[int, int]] = {}
+        if cat is not None and piano.edifici:
+            rng_t = np.random.default_rng(op.seed * 7717 + 3)
+            for i, e in enumerate(piano.edifici):
+                if e.palafitta:
+                    continue          # la palafitta e' un modificatore, non una casa
+                s = TM.scegli(modelli, e.larghezza + 2 * e.gronda,
+                              e.profondita + 2 * e.gronda, e.porta, rng_t)
+                if s is not None:
+                    scelte[i] = s
+            st = TM.statistiche(modelli)
+            avanza(0.0, f"{st['modelli']} template, {len(scelte)} case su "
+                        f"{len(piano.edifici)}")
+
         # gli id del palette dei biomi si risolvono una volta sola, ma DOPO
         # l'apertura del livello: il palette appartiene al mondo, non a noi
         id_bioma = (np.array([m.bioma(n) for n in B.BIOMI], np.uint32)
@@ -696,7 +902,19 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 fetta(a.lava, sx, sz), fetta(a.colata, sx, sz),
                 muro_c=fetta(piano.muro, sx, sz) if piano.muro is not None else None,
                 campi_c=fetta(piano.campi, sx, sz) if piano.campi is not None else None,
-                ox=sx, oz=sz)
+                ox=sx, oz=sz,
+                roccia=roccia, scarto_c=fetta(scarto_m, sx, sz),
+                nuda_c=fetta(nuda_m, sx, sz), neve_c=fetta(neve_m, sx, sz),
+                manto_c=fetta(manto_m, sx, sz),
+                scarpata_c=(fetta(piano.scarpata, sx, sz)
+                            if piano.scarpata is not None else None))
+            # Il sottosuolo PRIMA di tutto il resto: le caverne scavano, e
+            # devono scavare nella roccia, non dentro una casa o sotto una
+            # strada gia' posata.
+            SS.posa(blocchi, tav_ss, fetta(piano.h, sx, sz), sx, sz, -64,
+                    piano.caverne,
+                    piano.indice_caverne.get((sx // 16, sz // 16), ()),
+                    seed=19)
             if tav is not None:
                 # Si disegnano anche gli alberi dei chunk vicini: uno piantato
                 # a un blocco dal bordo sporge qui, e filtrando per centro
@@ -708,7 +926,22 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             if tav_ed is not None:
                 # gli edifici dopo gli alberi: una casa vince su un ramo
                 for k in piano.indice_edifici.get((sx // 16, sz // 16), ()):
-                    E.costruisci(blocchi, -64, sx, sz, piano.edifici[k], tav_ed)
+                    ed = piano.edifici[k]
+                    if k in scelte:
+                        mi, quarti = scelte[k]
+                        ix, iz = modelli[mi].ingombro(quarti)
+                        px = ed.x + (ed.larghezza - ix) // 2
+                        pz = ed.z + (ed.profondita - iz) // 2
+                        TM.fondazione(blocchi, -64, sx, sz, cat, mi, quarti,
+                                      px, pz, ed.base,
+                                      tav_ed.blocco[(ed.stile, "basamento")],
+                                      tav_ed.aria)
+                        TM.costruisci(blocchi, -64, sx, sz, cat, mi, quarti,
+                                      px, pz, ed.base)
+                        if ed.mestiere:
+                            E.posto_di_lavoro(blocchi, -64, sx, sz, ed, tav_ed)
+                    else:
+                        E.costruisci(blocchi, -64, sx, sz, ed, tav_ed)
                 for k in piano.indice_banchi.get((sx // 16, sz // 16), ()):
                     E.costruisci_banco(blocchi, -64, sx, sz, piano.banchi[k],
                                        tav_ed)

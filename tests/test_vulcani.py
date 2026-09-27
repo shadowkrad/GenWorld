@@ -86,7 +86,7 @@ def test_le_colate_scendono():
     v = un_vulcano()
     cls, h = terreno()
     c, h2, _, _ = V.modella(cls, h, [v])
-    col = V.colate(h2, c, [v], per_vulcano=6)
+    col = V.colate(h2, c, [v], per_vulcano=6) > 0
     assert col.sum() > 20
     zz, xx = np.nonzero(col)
     d = np.hypot(zz - v.z, xx - v.x)
@@ -94,6 +94,25 @@ def test_le_colate_scendono():
     # partenza sull'orlo
     assert d.min() >= v.raggio_cratere - 1
     assert h2[col].max() <= v.quota_orlo + 2
+
+
+def test_la_colata_si_raffredda_scendendo():
+    """L'avanzamento e' la ragione per cui la colata non e' tutta uguale:
+    deve crescere allontanandosi dalla bocca. Con una maschera booleana si
+    posavano mattoncini di magma identici dall'orlo alla punta."""
+    v = un_vulcano()
+    cls, h = terreno()
+    c, h2, _, _ = V.modella(cls, h, [v])
+    col = V.colate(h2, c, [v], per_vulcano=6)
+    vivo = (col > 0) & (col <= V.SOGLIA_LIQUIDA)
+    freddo = col > V.SOGLIA_CROSTA
+    assert vivo.any(), "nessuna colata incandescente: sono tutte crosta"
+    zz, xx = np.nonzero(vivo)
+    vicino = np.hypot(zz - v.z, xx - v.x).mean()
+    if freddo.any():
+        zz, xx = np.nonzero(freddo)
+        lontano = np.hypot(zz - v.z, xx - v.x).mean()
+        assert lontano > vicino, (vicino, lontano)
 
 
 def test_le_colate_si_fermano_in_pianura():

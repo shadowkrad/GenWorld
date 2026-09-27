@@ -204,7 +204,7 @@ class TestPianificazione(unittest.TestCase):
     def test_tutto_insieme(self):
         cls, h, livello = pianura(300)
         siti = [(150, 150, 55), (60, 60, 22)]
-        ed, h2, vie, muro, citta, banchi = C.pianifica(cls, h, livello, siti, 62, seed=9)
+        ed, h2, vie, muro, citta, banchi, _u = C.pianifica(cls, h, livello, siti, 62, seed=9)
         self.assertEqual(len(citta), 2)
         self.assertGreater(len(ed), 30)
         self.assertTrue(citta[0].e_citta)
@@ -214,7 +214,7 @@ class TestPianificazione(unittest.TestCase):
 
     def test_le_mura_circondano_e_hanno_le_porte(self):
         cls, h, livello = pianura(300)
-        ed, _, vie, muro, citta, _b = C.pianifica(
+        ed, _, vie, muro, citta, _b, _u = C.pianifica(
             cls, h, livello, [(150, 150, 55)], 62, seed=9)
         self.assertTrue(citta[0].murata)
         self.assertGreater(int((muro == 1).sum()), 100, "cinta troppo corta")
@@ -233,7 +233,7 @@ class TestPianificazione(unittest.TestCase):
         """Il banco sta sul selciato, sul bordo della piazza. La prima
         versione lo cercava su terreno libero e non ne apriva mai nessuno."""
         cls, h, livello = pianura(300)
-        ed, _, vie, muro, citta, banchi = C.pianifica(
+        ed, _, vie, muro, citta, banchi, _u = C.pianifica(
             cls, h, livello, [(150, 150, 55)], 62, seed=9)
         self.assertGreaterEqual(len(banchi), 3, "mercato non aperto")
         pz, px = citta[0].piazza
@@ -243,7 +243,7 @@ class TestPianificazione(unittest.TestCase):
 
     def test_i_banchi_non_stanno_dentro_le_case(self):
         cls, h, livello = pianura(300)
-        ed, _, _, _, _, banchi = C.pianifica(
+        ed, _, _, _, _, banchi, _u = C.pianifica(
             cls, h, livello, [(150, 150, 55)], 62, seed=9)
         for b in banchi:
             for e in ed:
@@ -254,7 +254,7 @@ class TestPianificazione(unittest.TestCase):
     def test_i_mestieri_dipendono_dal_posto(self):
         """Le botteghe stanno al centro, non sparse a caso."""
         cls, h, livello = pianura(300)
-        ed, _, _, _, citta, _ = C.pianifica(
+        ed, _, _, _, citta, _, _u = C.pianifica(
             cls, h, livello, [(150, 150, 55)], 62, seed=9)
         pz, px = citta[0].piazza
         con = [e for e in ed if e.mestiere]
@@ -267,7 +267,7 @@ class TestPianificazione(unittest.TestCase):
 
     def test_senza_siti_non_succede_niente(self):
         cls, h, livello = pianura(120)
-        ed, h2, vie, muro, citta, banchi = C.pianifica(cls, h, livello, [], 62, seed=1)
+        ed, h2, vie, muro, citta, banchi, _u = C.pianifica(cls, h, livello, [], 62, seed=1)
         self.assertEqual(ed, [])
         self.assertFalse(vie.any())
         self.assertFalse(muro.any())
@@ -276,3 +276,200 @@ class TestPianificazione(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestCintaLeggibile(unittest.TestCase):
+    """Negli screenshot le mura sembravano macerie sparse. Due cause: una
+    cella sola di spessore - che e' connessa solo in diagonale, quindi sul
+    terreno si vedono cubi che si toccano per lo spigolo - e nessuna torre."""
+
+    def scenario(self):
+        lato = 200
+        cls = np.full((lato, lato), PIANURA, np.uint8)
+        h = np.full((lato, lato), 80, np.int32)
+        livello = np.full((lato, lato), 62.0, np.float32)
+        ed, nuova_h, vie, muro, citta, banchi, _u = C.pianifica(
+            cls, h, livello, [(100, 100, 55)], livello_mare=62, seed=5)
+        return muro, citta
+
+    def test_la_cinta_e_spessa_almeno_due(self):
+        muro, citta = self.scenario()
+        if not any(c.murata for c in citta):
+            self.skipTest("nessuna citta' murata in questo scenario")
+        cinta = muro > 0
+        # ogni cella di cinta deve avere almeno un vicino di cinta in
+        # orizzontale o verticale: la connessione diagonale non basta
+        su = np.roll(cinta, 1, 0); giu = np.roll(cinta, -1, 0)
+        sx = np.roll(cinta, 1, 1); dx = np.roll(cinta, -1, 1)
+        sola = cinta & ~(su | giu | sx | dx)
+        self.assertEqual(int(sola.sum()), 0,
+                         "ci sono celle di cinta attaccate solo in diagonale")
+
+    def test_ci_sono_le_torri(self):
+        muro, citta = self.scenario()
+        if not any(c.murata for c in citta):
+            self.skipTest("nessuna citta' murata in questo scenario")
+        self.assertGreater(int((muro == 3).sum()), 8, "cinta senza torri")
+
+    def test_le_porte_restano_varchi(self):
+        muro, citta = self.scenario()
+        if not any(c.murata for c in citta):
+            self.skipTest("nessuna citta' murata in questo scenario")
+        self.assertGreater(int((muro == 2).sum()), 0)
+        # una porta non e' anche torre
+        self.assertEqual(int(((muro == 2) & (muro == 3)).sum()), 0)
+
+
+class TestSpianaAbitato(unittest.TestCase):
+
+    def test_toglie_la_rugosita_ma_non_la_pendenza(self):
+        rng = np.random.default_rng(1)
+        pendenza = np.arange(120, dtype=np.float32)[None, :] * 0.6
+        h = (pendenza + rng.normal(0, 2.0, (120, 120))).round().astype(np.int32)
+        area = np.zeros((120, 120), bool)
+        area[30:90, 30:90] = True
+        niente = np.zeros((120, 120), bool)
+        prima = h.copy()
+        C.spiana_abitato(h, area, niente)
+        dentro = area
+        def rugosita(a):
+            from scipy.ndimage import uniform_filter
+            v = a.astype(np.float32)
+            return float(np.abs(v - uniform_filter(v, 3))[dentro].mean())
+        self.assertLess(rugosita(h), rugosita(prima) * 0.6)
+        # la pendenza generale resta
+        self.assertGreater(float(h[60, 85] - h[60, 35]), 20)
+
+    def test_non_tocca_l_acqua(self):
+        h = np.full((80, 80), 100, np.int32)
+        h[:, 40] = 70
+        area = np.ones((80, 80), bool)
+        intoccabile = np.zeros((80, 80), bool)
+        intoccabile[:, 39:42] = True
+        C.spiana_abitato(h, area, intoccabile)
+        self.assertTrue((h[:, 39:42] == np.array([100, 70, 100])[None, :]).all())
+
+
+class TestTerrazze(unittest.TestCase):
+    """Un paese in collina non segue il pendio: lo terrazza. Prima lo
+    seguiva, e il risultato erano cinquanta case a cinquanta quote diverse
+    con dei muretti casuali in mezzo."""
+
+    def pendio(self, pendenza=0.8, lato=140):
+        h = (np.arange(lato, dtype=np.float32)[None, :] * pendenza
+             + np.zeros((lato, 1), np.float32))
+        rng = np.random.default_rng(3)
+        return np.round(h + rng.normal(0, 1.5, (lato, lato))).astype(np.int32)
+
+    def area(self, lato=140):
+        a = np.zeros((lato, lato), bool)
+        a[30:110, 30:110] = True
+        return a
+
+    def test_il_terreno_diventa_a_ripiani(self):
+        h = self.pendio()
+        prima = h.copy()
+        area = self.area()
+        C.terrazza_abitato(h, area, np.zeros_like(area))
+        quote = h[40:100, 40:100]
+        # le quote devono raggrupparsi sui multipli del passo
+        resti = quote % C.PASSO_TERRAZZA
+        sul_ripiano = float((resti == 0).mean())
+        self.assertGreater(sul_ripiano, 0.75,
+                           f"solo il {sul_ripiano:.0%} sta su un ripiano")
+        prima_resti = float((prima[40:100, 40:100] % C.PASSO_TERRAZZA == 0).mean())
+        self.assertGreater(sul_ripiano, prima_resti * 2)
+
+    def test_i_ripiani_sono_piani(self):
+        h = self.pendio()
+        area = self.area()
+        C.terrazza_abitato(h, area, np.zeros_like(area))
+        gz, gx = np.gradient(h[40:100, 40:100].astype(np.float32))
+        piatte = float((np.hypot(gz, gx) < 0.1).mean())
+        self.assertGreater(piatte, 0.4, "nessun ripiano piano")
+
+    def test_la_pendenza_generale_resta(self):
+        """Terrazzare non vuol dire spianare: un paese in pendenza e' bello,
+        un altopiano artificiale no."""
+        h = self.pendio()
+        area = self.area()
+        C.terrazza_abitato(h, area, np.zeros_like(area))
+        self.assertGreater(int(h[70, 105] - h[70, 35]), 40)
+
+    def test_l_acqua_non_si_terrazza(self):
+        h = self.pendio()
+        area = self.area()
+        intoccabile = np.zeros_like(area)
+        intoccabile[:, 60:64] = True
+        prima = h.copy()
+        C.terrazza_abitato(h, area, intoccabile)
+        self.assertTrue((h[:, 60:64] == prima[:, 60:64]).all())
+
+    def test_le_strade_tornano_percorribili(self):
+        """Le terrazze fanno bene alle case e male alle strade: una via che
+        incontra un salto di quattro blocchi diventa una parete."""
+        h = self.pendio()
+        area = self.area()
+        C.terrazza_abitato(h, area, np.zeros_like(area))
+        vie = np.zeros(h.shape, np.uint8)
+        vie[68:72, 35:105] = 1
+        dopo_terrazza = int(np.abs(np.diff(h[70, 40:100])).max())
+        C.raccorda_vie(h, vie, np.zeros_like(area))
+        dopo_raccordo = int(np.abs(np.diff(h[70, 40:100])).max())
+        self.assertLess(dopo_raccordo, dopo_terrazza,
+                        f"salto lungo la via: {dopo_terrazza} -> {dopo_raccordo}")
+        self.assertLessEqual(dopo_raccordo, 2)
+
+    def test_le_scarpate_sono_i_fronti_dei_gradoni(self):
+        h = self.pendio()
+        area = self.area()
+        C.terrazza_abitato(h, area, np.zeros_like(area))
+        sc = C.scarpate(h, area)
+        self.assertGreater(int(sc.sum()), 50)
+        self.assertEqual(int(sc[~area].sum()), 0)
+
+
+class TestCintaSullaRiva(unittest.TestCase):
+    """Negli screenshot le mura scendevano in acqua e continuavano dentro il
+    mare a gradoni. Una citta' di mare le mura dalla parte del mare non le ha
+    mai avute: il mare e' gia' la difesa."""
+
+    def scenario(self, pendenza=0.0):
+        lato = 160
+        cls = np.full((lato, lato), PIANURA, np.uint8)
+        cls[:, 120:] = MARE
+        h = np.full((lato, lato), 80, np.int32)
+        h[:, 120:] = 58
+        if pendenza:
+            h = (80 + np.arange(lato, dtype=np.float32)[None, :] * pendenza
+                 + np.zeros((lato, 1), np.float32)).round().astype(np.int32)
+            h[:, 120:] = 58
+        sedimi = np.zeros((lato, lato), bool)
+        sedimi[40:110, 40:115] = True
+        vie = np.zeros((lato, lato), np.uint8)
+        vie[70:74, 20:118] = C.ASSE
+        return cls, h, sedimi, vie
+
+    def test_non_arriva_all_acqua(self):
+        cls, h, sedimi, vie = self.scenario()
+        muro, porta, punti, torre = C.mura(
+            sedimi, vie, sedimi, cls, [(72, 30)], altezze=h)
+        zs, xs = np.nonzero(muro)
+        self.assertTrue(muro.any(), "nessuna cinta")
+        self.assertLess(int(xs.max()), 120 - 2,
+                        "la cinta arriva sulla battigia")
+
+    def test_non_si_costruisce_sul_dirupo(self):
+        cls, h, sedimi, vie = self.scenario(pendenza=3.0)
+        muro, porta, punti, torre = C.mura(
+            sedimi, vie, sedimi, cls, [(72, 30)], altezze=h,
+            pendenza_massima=1.0)
+        gz, gx = np.gradient(h.astype(np.float32))
+        pend = np.hypot(gz, gx)
+        if muro.any():
+            self.assertLessEqual(float(pend[muro > 0].max()), 1.0 + 1e-6)
+
+    def test_senza_altezze_si_comporta_come_prima(self):
+        cls, h, sedimi, vie = self.scenario()
+        muro, _, _, _ = C.mura(sedimi, vie, sedimi, cls, [(72, 30)])
+        self.assertTrue(muro.any())

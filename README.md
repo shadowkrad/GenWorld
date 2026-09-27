@@ -18,17 +18,48 @@ ponti e monumenti restano a dimensione giocabile. Il rapporto fra le due e' il
 Niente case mignon: il generatore di edifici non ha accesso alla scala del
 terreno, quindi non puo' sbagliare.
 
+## Licenza
+
+Nessuna, per ora: il codice e' visibile ma tutti i diritti sono riservati.
+Se ti serve riusarlo, chiedi.
+
 ## Installazione
+
+Doppio clic su `GenWorld.bat`: al primo avvio si costruisce l'ambiente da
+solo. Il resto di questa sezione serve solo se qualcosa va storto.
+
+### La versione di Python conta: dalla 3.10 alla 3.12
+
+Non la 3.13, non la 3.14. Il motivo e' una catena di due anelli:
+`amulet-core` richiede `numpy` della serie 1, e l'ultimo numpy della serie 1
+(1.26.4) ha i pacchetti gia' compilati fino a Python 3.12. Con un Python piu'
+nuovo pip non trova il pacchetto pronto, prova a compilare numpy dai
+sorgenti, cerca il compilatore di Visual Studio, non lo trova e si ferma con
+
+```
+ERROR: Unknown compiler(s): [['icl'], ['cl'], ['cc'], ['gcc'], ...]
+```
+
+che sembra un problema di GenWorld e non lo e'. `GenWorld.bat` cerca da solo
+un 3.12, 3.11, 3.10 o 3.9 fra quelli installati, e se non ne trova nessuno lo
+dice invece di far partire una compilazione destinata a fallire. Le versioni
+convivono: si puo' tenere anche il Python nuovo per tutto il resto.
+
+Se l'ambiente e' gia' stato creato con un interprete troppo nuovo,
+`GenWorld.bat` se ne accorge e lo rifa' da capo.
+
+### A mano
 
 Lo **stimatore di fedelta'** non ha dipendenze: basta Python 3.10+.
 
-Per **scrivere mondi** serve `amulet-core`, che pero' richiede `numpy<2` e
-rompe altri pacchetti se installato nell'ambiente di sistema. Va in un venv
-dedicato, **fuori dalla cartella Google Drive** (un venv sono migliaia di file
-e li sincronizzerebbe tutti):
+Per **scrivere mondi** serve `amulet-core`, che rompe altri pacchetti se
+installato nell'ambiente di sistema. Va in un venv dedicato, **fuori dalla
+cartella Google Drive** (un venv sono migliaia di file e li sincronizzerebbe
+tutti):
 
 ```bat
-py -m venv C:\venvs\genworld
+py -3.12 -m venv C:\venvs\genworld
+C:\venvs\genworld\Scripts\pip install "numpy<2"
 C:\venvs\genworld\Scripts\pip install amulet-core pillow scipy PySide6-Essentials
 ```
 
@@ -518,6 +549,316 @@ Due difetti, trovati guardando:
 Su Arda: 26 poderi, 4 frutteti, 1.872 celle arate, 36 alberi da frutto, 350
 cespugli di bacche, e zero celle di campo attraversate da una strada.
 
+## Il fondale
+
+Misurato su Arda prima di `batimetria.py`: il **53% di tutta l'acqua** stava a
+esattamente y=54, un piano unico a otto blocchi di profondita' che copriva
+meta' del mare; un altro 7% a y=30. Non erano un fondale, erano due terrazze, e
+fra l'una e l'altra un muro - 2.836 celle con un salto di piu' di otto blocchi
+in una cella sola, con punte di 67.
+
+La causa era che la profondita' non si calcolava, si **tagliava**: l'altimetria
+imponeva un tetto (-3 al mare, -12 all'oceano) e sotto non c'era niente che
+generasse rilievo, quindi tutto si appiattiva contro il tetto. La profondita'
+discendeva dalla CLASSE, e la rupe era il confine fra due classi.
+
+Ora discende dalla **distanza dalla costa**, che e' quello che la determina
+anche in mare vero, e ha tre regimi: piattaforma continentale dolce fino a una
+decina di blocchi, scarpata ripida distesa su decine di celle invece che su
+una, piana abissale profonda e quasi piatta. Il rilievo fBm cresce con la
+profondita', cosi' le spiagge non diventano un terreno accidentato e al largo
+ci sono dorsali e fosse.
+
+Un dettaglio che conta: la distanza dalla costa, presa com'e', disegna anelli
+concentrici attorno a ogni isolotto. Si deforma con un rumore largo - lo stesso
+gesto del raggio deformato del cono vulcanico. Il difetto e' la regolarita',
+non il rumore che manca.
+
+Su Arda: profondita' media 11 blocchi, massima 48, 48 quote distinte, la piu'
+diffusa copre il 14% dell'acqua. Zero muri al largo.
+
+## Il sottosuolo, e il mondo che finiva a y=0
+
+Censito sul mondo generato: il sottosuolo era **62% pietra e niente altro**.
+Niente caverne, niente minerali, niente ardesia. Si scavava e si trovava pietra
+fino alla bedrock, per sempre.
+
+`sottosuolo.py` fa tre cose con tre meccaniche diverse. Le **caverne** sono
+cunicoli, non bolle: si scavano con dei "vermi", cammini casuali in tre
+dimensioni con inerzia e raggio variabile. Un rumore 3D darebbe caverne a
+groviera, tutte uguali; un cunicolo si percorre. I **minerali** sono grumi
+piccoli a fasce di quota, generati per chunk in modo deterministico - compresi
+quelli dei chunk vicini, che sporgono qui: e' la stessa regola degli alberi,
+filtrare per centro invece che per ingombro taglia a meta' tutto quello che sta
+sul confine. L'**ardesia** e' una fascia, non una riga: sotto y=0 la pietra
+diventa deepslate con una decina di blocchi di mescolanza.
+
+La regola che tiene insieme tutto: non si scava mai sopra `terreno - 5`. Cinque
+blocchi di cappello garantiscono che una caverna non sfondi il prato e,
+soprattutto, che non apra un buco sotto il mare.
+
+### E poi il modulo funzionava e il deepslate non c'era
+
+Scritto il modulo, il censimento continuava a dire **zero ardesia**. I minerali
+c'erano, le rocce c'erano, le caverne erano pianificate - 45.174 celle di
+cunicolo fra y=-58 e y=63 - e sotto y=0 non c'era niente di niente.
+
+Il colpevole non era `sottosuolo`. Era `mondo.py`. Il `level.dat` che scrive
+amulet ha un `WorldGenSettings` che amulet **stesso** non sa rileggere
+(`...["type"] was not a StringTag or CompoundTag`), e quando non lo sa rileggere
+ripiega sui limiti di prima della 1.18: y da 0 a 256. Il livello si apriva con
+quei limiti e nel salvataggio buttava via, senza dire niente, ogni sub-chunk
+negativo. Spariva tutto: la bedrock a -64, l'ardesia, le caverne profonde, i
+minerali del fondo.
+
+E il controllo di andata e ritorno non se ne accorgeva, perche' alla chiusura il
+`level.dat` lo riscriviamo noi, giusto, e da quel momento in poi rileggendo il
+mondo i limiti tornavano corretti. In memoria i sub-chunk da -4 a -1 c'erano;
+sul disco no; e chi rileggeva arrivava sempre dopo la riscrittura.
+
+Il rimedio e' una riga spostata: il `level.dat` si scrive **prima** di aprire il
+livello, non dopo averlo chiuso. Piu' un controllo esplicito all'apertura, che
+si rifiuta di cominciare se il livello dichiara un y minimo sbagliato, e un test
+che guarda quanto scende la pietra finita **sul disco**.
+
+E' la terza volta che amulet scrive male qualcosa di essenziale - `level.dat`,
+`entities/`, ora i limiti del mondo - e la morale e' sempre la stessa, gia'
+scritta piu' su: rileggere quello che si e' scritto non basta, se si rilegge
+solo la parte a cui si sta pensando.
+
+Su Arda, adesso: 19,5% deepslate, ardesia, minerali profondi al loro posto, e
+il 2,3% del sottosuolo sotto y=48 e' vuoto - sono le caverne.
+
+## Le montagne a strati
+
+Le montagne di Arda avevano due difetti, visti in gioco. Erano un blocco solo
+dalla base alla cima - `stone` e basta - e la loro superficie era a righe
+verticali, come un gelato alla crema.
+
+Le righe erano **il dithering della quantizzazione applicato dove non serve**.
+Il dithering cura le terrazze, e le terrazze esistono solo sui pendii dolci,
+dove la superficie attraversa un intero ogni molte celle. Su un fianco che
+scende di tre blocchi per cella di gradini non ce ne sono gia': li' il
+dithering non toglie niente e aggiunge mezzo blocco di disturbo a ogni colonna.
+Adesso la forza del dithering scende a zero oltre il blocco per cella: la cura
+si applica al malato.
+
+Il blocco solo e' `stratigrafia.py`. Una montagna vera e' fatta a strati, e due
+proprieta' contano piu' di tutte. **Sono globali**: lo stesso banco di arenaria
+si ritrova su due versanti opposti della stessa valle, alla stessa quota, ed e'
+questo che fa leggere un paesaggio come un paesaggio invece che come rumore
+colorato. Quindi la tavola degli strati e' una sola per tutta la mappa,
+indicizzata dalla quota. E **non sono piatti**: si aggiunge uno scostamento per
+colonna preso da un rumore largo, e nelle sezioni si vede la piega.
+
+Poi due regole di superficie. Dove il pendio e' una parete non cresce niente -
+niente erba, niente neve, solo roccia nuda: e' cosi' che si ottengono le pareti,
+senza generarle, semplicemente non coprendole di erba. E la neve non comincia a
+una quota netta: fra il limite inferiore e quello superiore e' a chiazze, col
+manto sottile invece del blocco pieno, e la linea delle nevi si alza o si
+abbassa di trenta blocchi col clima - senza, si imbiancano anche le montagne in
+mezzo al deserto.
+
+## Cinque difetti visti in gioco, e uno trovato cercandone un altro
+
+Una passeggiata dentro Arda, e cinque cose che dall'alto non si vedevano.
+
+**Il crepaccio col fiume sospeso.** In mezzo a una citta' si apriva una trincea
+vuota con dentro, in bilico su un cordone di terra largo una cella, un
+fiumiciattolo. E' stato il difetto piu' grave e la riga piu' corta: nello scavo
+delle rive si leggeva `livello` **nella cella di riva**, dove pero' vale il
+livello del mare, perche' quella cella non e' fiume. Cosi' la sponda di un corso
+che scorre a quota 133 veniva scavata fino a 64. Lungo ogni fiume alto si apriva
+una trincea di settanta blocchi. Il livello da usare e' quello del fiume vicino,
+e si prende dilatando il pelo dell'acqua sulla fascia di riva. Misura: le celle
+di sponda da alzare sono passate da 4.252, in media di quindici blocchi, a 648
+in media di tre.
+
+Due regole di contorno per lo stesso problema: un alveo non si alza mai sopra il
+terreno intorno - un letto rialzato con l'acqua in cima e' un acquedotto - e il
+pelo dell'acqua non puo' stare piu' di un blocco sopra il terreno vero. Fra un
+fiume che in un punto scende di due blocchi tutti insieme, cioe' una cascata, e
+un acquedotto di terra che attraversa un paese, si sceglie la cascata. E infine
+un puntello finale sulle sponde, applicato **dopo** citta', campi e strade,
+perche' nessuno di loro sa dove passa l'acqua e tutti hanno il permesso di
+muovere le quote.
+
+**Le case tirate.** Muri lisci senza finestre vere, tetti spioventi poveri,
+vicoli larghi un blocco e profondi dodici fra case di tre piani. Adesso i muri
+sono a **graticcio**: montanti verticali ogni tre o quattro blocchi, un corrente
+orizzontale a ogni solaio, zoccolo di pietra al piano terra, e in mezzo il
+tamponamento. Le finestre sono alte due e incassate fra i montanti - quelle di
+prima erano un vetro solo a mezza altezza, che da fuori si legge come un
+puntino. C'e' il comignolo, con il fuoco dentro la canna due blocchi sotto la
+bocca, cosi' il fumo esce davvero. E la fondazione scende finche' non trova del
+pieno, perche' il raccordo del lotto lascia il bordo piu' basso e con un solo
+strato la casa appoggiava sull'aria.
+
+Il tetto era **a padiglione**, cioe' una piramide: sta bene su una villa, non su
+una casa di paese, e dall'alto da' un paese di tegole a rombi tutte uguali. Ora
+e' a due falde, con un colmo vero fatto di una trave e due timpani murati alle
+testate. Due dettagli costati un giro di prove ciascuno: la campata deve essere
+**dispari**, altrimenti le due falde si incontrano su due file e in cima resta
+una scanalatura lunga quanto la casa; e la falda comincia **sotto** il filo di
+gronda, altrimenti fra la testa del muro e la falda resta una feritoia aperta su
+tutti e due i lati lunghi, e da dentro si vede il cielo.
+
+Infine la densita': la schiera resta, ma solo nel cuore vero della citta', e il
+terzo piano e' tornato a essere un'eccezione.
+
+**Le trincee fra le case.** Non le fa una casa sola: le fa la somma di
+cinquanta terrazzamenti indipendenti. Ogni casa si spiana alla mediana del
+proprio sedime, due sedimi vicini su un pendio hanno mediane diverse di
+parecchi blocchi, e quello che resta in mezzo e' un muretto. La cura sta a
+monte: si toglie la rugosita' dal terreno dell'abitato **prima** di
+distribuire i lotti, cosi' le mediane dei sedimi vicini si assomigliano. Non si
+spiana a tavoletta - un paese in pendenza e' bello - si toglie la rugosita', non
+la pendenza. Piu' un raccordo di lotto passato da tre celle a cinque, con una
+curva a S invece di una rampa.
+
+**Le mura sparse.** Spezzoni di pietra in giro che non si capiva se fossero la
+cinta o delle costruzioni. La cinta era spessa **una cella**, e una cella sola
+e' connessa solo in diagonale: sul terreno sono cubi che si toccano per lo
+spigolo, ci si passa in mezzo, e da lontano sembra muratura caduta a caso. Ora
+e' spessa due, alta sette invece di cinque, ha le fondamenta - prima partiva
+dalla quota del terreno e dove il terreno accanto scendeva restava appesa - e ha
+le **torri**, sia a intervalli lungo l'anello sia a fianco di ogni porta.
+
+**La lava a mattoncini.** Le colate erano `magma_block` dall'orlo del cratere
+alla punta: una striscia di mattonelle arancioni sempre uguali. Una colata non
+e' fatta di una materia sola. Adesso `colate()` ritorna l'**avanzamento** invece
+di una maschera, e sull'avanzamento si leggono tre fasi: vicino alla bocca e'
+liquida e si vede la lava, a meta' ha la crosta e si vede il magma, in punta e'
+basalto freddo. Il cono ha anche un manto a chiazze - basalto, basalto levigato,
+blackstone, tufo - perche' un vulcano vero e' fatto di colate di eta' diverse.
+
+E le colate uscivano a raggiera, perche' partivano da angoli estratti a sorte e
+poi tagliavano i valloni di traverso: sul fianco di un cono la pendenza generale
+e' molto piu' forte di quella del vallone. L'orlo di un cratere vero non e' una
+circonferenza, ha delle **selle**, e la lava esce da li'. Partendo dal punto
+basso la colata e' gia' dentro il vallone, e l'inerzia ce la tiene.
+
+## Case da template
+
+Il generatore parametrico fa case corrette e anonime. Corrette perche' non
+sbagliano mai un tetto e non restano mai appese in aria; anonime perche' una
+funzione di cinque parametri produce cinque parametri di varieta', e cinquanta
+case in fila si riconoscono come cinquanta volte la stessa casa.
+
+`template.py` prende la strada opposta: la casa la disegna una persona, dentro
+Minecraft, e il programma si limita a posarla. Il formato e' quello che
+Minecraft stesso scrive con il **blocco struttura** - `.nbt`, gzip, con
+`size`, `palette` e `blocks` - quindi non c'e' niente da imparare e niente da
+convertire: si costruisce, si salva, si butta il file in `templates/case/`.
+Per ogni lotto si pesca a caso fra i modelli che ci stanno dentro e che
+possono guardare la strada; dove non ne entra nessuno si torna al generatore
+parametrico, che nel lotto entra sempre perche' e' il lotto a dargli le
+misure. Su Arda: 38 case su 60 vengono da template.
+
+Tre cose non ovvie, che sono poi il grosso del modulo.
+
+**La traduzione.** Nel file i blocchi hanno i nomi di gioco
+(`minecraft:oak_stairs`); il mondo che scriviamo parla il namespace universale
+di amulet. Fra i due c'e' PyMCTranslate, ed e' la trappola di `oak_log` vista
+da dentro. Qui pero' la traduzione e' obbligata dal formato, quindi la si fa
+una volta sola al caricamento e si tengono gli id di palette.
+
+**La rotazione.** Girare una struttura non e' girare un array: un tronco con
+`axis=x` diventa `axis=z`, una scala che guarda a nord guarda a est, uno
+steccato collegato a ovest si collega a nord, un cartello gira di quattro
+sedicesimi. Le proprieta' che portano una direzione vanno ruotate insieme ai
+blocchi, altrimenti si ottiene una casa dalla pianta giusta fatta tutta di
+pezzi storti - e dall'alto non si vede.
+
+**Il vuoto.** Una struttura salva anche l'aria, ed e' giusto che la si riposi:
+serve a svuotare la stanza. Ma `structure_void` vuol dire il contrario - "qui
+non toccare niente" - e va saltato, altrimenti il blocco struttura non serve a
+niente quando si vuole una casa di pianta non rettangolare.
+
+`esempi/esporta_template.py` esporta le case parametriche in questo formato.
+Serve a due cose: avere qualcosa in `templates/case/` appena si scarica il
+progetto, e dare un punto di partenza da modificare - e' molto piu' facile
+sistemare una casa che disegnarne una da zero. `templates/case/README.md`
+spiega come farsene di proprie col blocco struttura.
+
+### Cosa e' cambiato attorno
+
+Le case da template hanno costretto a rivedere la pianta urbana, e sono i
+cambiamenti che si notano di piu'.
+
+Un template ha le sue misure, e o il lotto gliele da' o quel modello non si
+usa mai. Il passo degli isolati e' salito da 11-20 celle a 14-24: con isolati
+da undici, fra la sede stradale e le due celle di distacco, al lotto ne
+restavano tre o quattro di profondita'. Il lotto minimo e' salito da quattro
+celle a sei - un sedime di quattro per quattro non e' una casa, e' un
+ripostiglio con dentro una stanza di due per due - e il paese ha perso i
+casotti che lo riempivano. La profondita' massima del lotto e' invece scesa a
+nove, apposta: un isolato ha due file di case schiena contro schiena, e con
+lotti profondi tredici la prima fila si mangiava tutto l'isolato.
+
+## Le terrazze
+
+La spianata dolce dell'abitato toglieva la rugosita' ma lasciava la pendenza,
+e su un fianco ripido non bastava: le case restavano a cinquanta quote diverse
+con dei gradini casuali in mezzo.
+
+Un paese vero in collina non segue il pendio: lo **terrazza**. Pochi ripiani
+piani, ciascuno alto qualche blocco, e fra l'uno e l'altro una scarpata o un
+muro di sostegno. Tecnicamente e' una quantizzazione - si sfoca il terreno e
+si arrotonda al multiplo del passo - e i bordi dei ripiani vengono da soli
+lungo le curve di livello, che e' esattamente dove un contadino avrebbe messo
+il muretto. Un ripiano non puo' allontanarsi dal terreno vero piu' di un
+passo, altrimenti in fondo a una conca si scava un pozzo.
+
+Le terrazze fanno bene alle case e male alle strade: una via che incontra un
+salto di quattro blocchi diventa una parete. Quindi subito dopo si risfoca il
+terreno lungo la sede stradale, e il salto si distribuisce su qualche cella.
+L'ordine e' obbligato - terrazze, strade, case - perche' il raccordo delle
+rampe muove il terreno e una casa gia' posata si ritroverebbe il pavimento
+storto.
+
+I fronti dei gradoni si vestono di pietra: un muro di sostegno si legge come
+una cosa costruita, un taglio di terra nuda sembra un difetto del terreno. Su
+Arda sono 1.343 celle.
+
+## La cinta si ferma sulla riva
+
+Negli screenshot le mura scendevano fino in acqua e continuavano dentro il
+mare, a gradoni, come muratura buttata giu' dalla scogliera. Togliere le sole
+celle d'acqua non bastava: il guaio era l'ultimo tratto, quello sulla battigia
+e sul fianco della falesia, dove un muro alto sette blocchi viene su a pezzi.
+
+Una citta' di mare, del resto, le mura dalla parte del mare non le ha mai
+avute: il mare e' gia' la difesa, e dove si apre il porto il muro smette.
+Quindi si toglie la fascia di cinta a ridosso dell'acqua, e il varco che resta
+e' il fronte a mare. E non si costruisce sul dirupo: sopra 1,6 blocchi di
+pendenza per cella la cinta salta, perche' un muro appoggiato a un pendio cosi'
+e' una fila di cubi sfalsati, non una cortina.
+
+## La quota dipende da quanto e' largo il rilievo
+
+Un deserto pieno di guglie: cime alte come tre montagne e larghe come una
+casa. La quota dipendeva solo dal colore, e una macchia di cinque pixel di
+"montagna" diventava, sfocata, un picco di centoventi blocchi su quindici
+celle - quattro blocchi di salita per cella.
+
+In natura la quota di un massiccio dipende dalla sua **larghezza**: una catena
+larga chilometri regge tremila metri, un affioramento largo cento metri no. Si
+misura la larghezza con la distanza dal bordo del rilievo e si ripiega sulla
+quota di collina dove il rilievo e' troppo stretto per reggere la sua. Piu' il
+guadagno verticale abbassato (62 -> 46 blocchi a rugosita' piena), le quote di
+montagna e neve ridotte, e la spinta di rugosita' sfocata a 3,5 invece che a 2,
+perche' a due celle una grana fine si traduceva in guglie da un pixel.
+
+E la costa non e' un muro: la terra non puo' salire piu' di tre blocchi e
+mezzo per cella allontanandosi dalla riva. Misurato su Arda prima: terra a
+quota 109 con il mare a 60 nella cella accanto. Restano le falesie - tre
+blocchi e mezzo per cella sono ripidissimi - ma smettono di essere verticali.
+
+Su Arda: quota massima da 189 a 139, pendenza massima fuori dai vulcani da
+36,4 a 8,9 blocchi per cella, scalini del fondale oltre otto blocchi da 2.589
+a 3.
+
 ## Struttura
 
 ```
@@ -530,34 +871,41 @@ genworld/
   livello_dat.py  costruzione e verifica del level.dat
   mondo.py        scrittura Anvil per chunk in streaming
   anteprima.py    renderer top-down PNG del mondo generato
-  rumore.py       fBm, dettaglio modulato dalla pendenza, quantizzazione ditherata
+  rumore.py       fBm, dettaglio modulato dalla pendenza, dithering selettivo
   mappa.py        import di mappe disegnate: classi, rugosita', quote dedotte
   normalizza.py   Lab, ritaglio cornice, bilanciamento, famiglia di mappa
   classi_auto.py  classificazione adattiva relativa (k-means in Lab)
   classi_guidate.py  classificazione da campioni, classe DECORO
   profilo.py      profilo di lettura: rettangolo, campioni, maschera dipinta
   erosione.py     erosione idraulica a gocce, vettoriale
-  fiumi.py        deflusso D8, accumulo, livellamento dei corsi
+  fiumi.py        deflusso D8, accumulo, livellamento dei corsi, puntello delle sponde
+  batimetria.py   fondale: piattaforma, scarpata, piana abissale
+  sottosuolo.py   caverne a cunicolo, filoni di minerale, fascia di ardesia
+  stratigrafia.py banchi di roccia, pareti scoperte, linea delle nevi
   vegetazione.py  semina a griglia sfalsata, alberi per specie
   edifici.py      generatore parametrico, modificatore palafitta
   insediamenti.py scelta dei siti, lotti, terrazzamento
   strade.py       griglia di costo, A*, sede stradale, ponti
   vulcani.py      coni, valloni, cratere, lago di lava, colate
-  citta.py        pianta organica, isolati, lotti sul fronte strada, mura
+  citta.py        pianta organica, isolati, terrazze, lotti, mura e torri
+  template.py     case da .nbt di blocco struttura: lettura, rotazione, posa
   entita.py       abitanti e scrittura a mano dei file entities/*.mca
   agricoltura.py  poderi, canali, recinti, frutteti a filari
   biomi.py        clima: freddo per quota e latitudine, tavolozza dei biomi
   motore.py       la pipeline: analizza, pianifica, scrivi
   gui.py          la finestra (PySide6)
-tests/            196 test
+tests/            293 test
 esempi/
   spike_piatto.py generazione di prova 256x256 + anteprima
   genera_mappa.py riga di comando sopra il motore, a lotti
   prova_vulcani.py confronto visivo delle rugosita' del cono
   prova_citta.py  disegna la pianta urbana per guardarla
+  esporta_template.py  esporta le case parametriche in .nbt
   scatto_gui.py   fotografa la finestra senza schermo
 input/
   mappa_arda.png  mappa fantasy di prova
+templates/
+  case/           i .nbt usati come case (vedi il README li' dentro)
 GenWorld.bat      avvio con doppio clic (crea l'ambiente al primo giro)
 crea_exe.bat      impacchetta un .exe con PyInstaller (sperimentale)
 avvia_gui.py      punto di ingresso per PyInstaller

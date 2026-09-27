@@ -98,6 +98,14 @@ def quantizza(altezze: np.ndarray, forza: float = 1.0, seed: int = 0) -> np.ndar
     La soluzione e' ditherare la soglia di arrotondamento: si sposta il confine
     fra un intero e l'altro con rumore ad alta frequenza di ampiezza ~1 blocco.
     Il gradino si frastaglia e sparisce, senza spostare la quota media.
+
+    MA SOLO DOVE SERVE. Il dithering e' la cura di un difetto che esiste solo
+    sui pendii dolci, dove la superficie attraversa un intero ogni molte celle.
+    Su un fianco di montagna che scende di tre blocchi per cella di gradini non
+    ce ne sono gia': li' il dithering non toglie niente e aggiunge mezzo blocco
+    di disturbo a ogni colonna, cioe' le righe verticali - quell'aspetto a
+    "gelato alla crema" che si vede sulle cime. La forza quindi scende a zero
+    dove la pendenza supera il blocco per cella: la cura si applica al malato.
     """
     lato = altezze.shape[0]
     # due ottave molto fini: dettaglio a 2-4 blocchi, non a decine
@@ -109,7 +117,22 @@ def quantizza(altezze: np.ndarray, forza: float = 1.0, seed: int = 0) -> np.ndar
     lo, hi = float(fine.min()), float(fine.max())
     if hi > lo:
         fine = (fine - lo) / (hi - lo)
-    return np.floor(altezze + 0.5 + forza * (fine - 0.5)).astype(np.int32)
+    f = forza * _peso_dither(altezze)
+    return np.floor(altezze + 0.5 + f * (fine - 0.5)).astype(np.int32)
+
+
+# Sopra questa pendenza (blocchi di quota per cella di pianta) la
+# quantizzazione non produce terrazze, quindi il dithering e' solo rumore.
+PENDENZA_LISCIA = 0.35
+PENDENZA_RIPIDA = 1.30
+
+
+def _peso_dither(altezze: np.ndarray) -> np.ndarray:
+    """1 sui pendii dolci, 0 su quelli ripidi, con una rampa in mezzo."""
+    gz, gx = np.gradient(altezze.astype(np.float32))
+    p = np.hypot(gz, gx)
+    t = (p - PENDENZA_LISCIA) / (PENDENZA_RIPIDA - PENDENZA_LISCIA)
+    return 1.0 - np.clip(t, 0.0, 1.0)
 
 
 # NOTA. Qui c'era una metrica automatica di terrazzamento. Ne sono state

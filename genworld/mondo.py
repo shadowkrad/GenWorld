@@ -86,7 +86,28 @@ class ScrittoreMondo:
         )
         fmt.close()
 
+        # Il level.dat va rifatto ADESSO, non alla chiusura.
+        #
+        # Quello che scrive amulet ha un `WorldGenSettings` che amulet stesso
+        # non sa rileggere ("...["type"] was not a StringTag or CompoundTag"),
+        # e quando non lo sa rileggere ripiega sui limiti di prima della 1.18:
+        # y da 0 a 256. Il livello aperto qui sotto ereditava quei limiti e
+        # **buttava via in silenzio tutto quello che stava sotto y=0**: niente
+        # bedrock a -64, niente ardesia, niente caverne profonde, niente
+        # minerali del fondo. In memoria i sub-chunk da -4 a -1 c'erano, sul
+        # disco no, e rileggendo il mondo finito i limiti erano di nuovo
+        # giusti - perche' nel frattempo il level.dat l'avevamo rifatto noi -
+        # quindi il controllo di andata e ritorno non vedeva niente.
+        #
+        # Scrivendolo prima, `load_level` legge i limiti veri (-64..320).
+        livello_dat.scrivi(os.path.join(self.percorso, "level.dat"), self.imp)
+
         self._livello = amulet.load_level(self.percorso)
+        limiti = self._livello.bounds(DIMENSIONE).min
+        if limiti[1] > Y_MIN:
+            raise RuntimeError(
+                f"il livello si e' aperto con y minimo {limiti[1]} invece di "
+                f"{Y_MIN}: tutto il sottosuolo andrebbe perso")
         return self
 
     def __exit__(self, *exc) -> None:

@@ -1,9 +1,21 @@
+# PYTHON: dalla 3.10 alla 3.12. NON la 3.13 o la 3.14.
+#
+#   amulet-core richiede numpy della serie 1, e l'ultimo numpy della serie 1
+#   (1.26.4) ha le ruote gia' compilate fino a cp312. Con un Python piu'
+#   nuovo pip non trova la ruota, prova a compilare numpy dai sorgenti,
+#   cerca il compilatore di Visual Studio e si ferma con
+#       ERROR: Unknown compiler(s): [['icl'], ['cl'], ['cc'], ...]
+#   che sembra un problema di GenWorld e non lo e'. GenWorld.bat cerca da
+#   solo un interprete adatto fra quelli installati.
+
 # Stimatore di fedelta' (genworld.scale / fidelity / report / cli):
 #   nessuna dipendenza, solo Python 3.10+
 
 # Scrittura mondi e anteprima (genworld.mondo / livello_dat / anteprima):
 amulet-core>=1.9
 pillow>=10
+
+numpy<2
 
 # NOTA: amulet-core richiede numpy<2. Installalo in un ambiente virtuale
 # dedicato, non nell'ambiente di sistema, per non rompere altri pacchetti.

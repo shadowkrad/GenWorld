@@ -167,11 +167,21 @@ def _progetta_lotto(cls, h, livello, cz, cx, livello_mare, rng) -> E.Edificio | 
     )
 
 
-def _terrazza(h: np.ndarray, ed: E.Edificio, raccordo: int = 3) -> None:
+def _terrazza(h: np.ndarray, ed: E.Edificio, raccordo: int = 5,
+              intoccabile: np.ndarray | None = None) -> None:
     """Spiana il lotto e raccorda i bordi.
 
     Senza raccordo il lotto spianato diventa un piedistallo squadrato in mezzo
     al pendio, che e' peggio della casa storta.
+
+    Il raccordo e' passato da 3 a 5 celle dopo aver guardato una citta' di
+    Arda dall'alto: fra due case a quote diverse restava un salto di cinque o
+    sei blocchi smaltito in tre celle, cioe' una parete. Cinquanta case cosi'
+    non sono un paese in pendenza, sono un paese di trincee.
+
+    `intoccabile` e' la maschera di cio' che il raccordo non deve toccare -
+    in pratica l'acqua e le sue sponde. Un raccordo che abbassa una riva
+    lascia il fiume sospeso in aria: e' successo, si vede nello screenshot.
     """
     if ed.palafitta:
         return
@@ -183,7 +193,12 @@ def _terrazza(h: np.ndarray, ed: E.Edificio, raccordo: int = 3) -> None:
     dx = np.maximum(np.maximum(ed.x - xx, xx - (ed.x1 - 1)), 0)
     dz = np.maximum(np.maximum(ed.z - zz, zz - (ed.z1 - 1)), 0)
     d = np.maximum(dx, dz).astype(np.float32)
-    peso = np.clip(1.0 - d / (raccordo + 1.0), 0.0, 1.0)
+    # curva a S invece che rampa lineare: il raccordo deve attaccarsi al
+    # terreno con pendenza nulla, altrimenti il gradino si sposta solo in fuori
+    t = np.clip(1.0 - d / (raccordo + 1.0), 0.0, 1.0)
+    peso = t * t * (3.0 - 2.0 * t)
+    if intoccabile is not None:
+        peso = np.where(intoccabile[z0:z1, x0:x1], 0.0, peso)
     porzione = h[z0:z1, x0:x1].astype(np.float32)
     h[z0:z1, x0:x1] = np.round(porzione * (1 - peso) + ed.base * peso).astype(np.int32)
 

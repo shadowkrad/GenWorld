@@ -33,6 +33,7 @@ class FintaTavolozza:
     def scala(self, materiale, verso, meta="bottom"): return 80
     def porta(self, materiale, verso, meta): return 70 if meta == "lower" else 71
     def staccionata(self, materiale): return 72
+    def trave(self, materiale, asse): return 73 if asse == "x" else 74
 
     def b(self, nome, **proprieta): return self.ARREDO.get(nome, 69)
 
@@ -222,3 +223,93 @@ class TestPianificazione(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTettoADueFalde(unittest.TestCase):
+    """Il tetto era a padiglione - una piramide - e sta bene su una villa,
+    non su una casa di paese. Questi test tengono ferme le tre cose che
+    rendono un tetto a due falde un tetto e non un mucchio di scale."""
+
+    def costruisci(self, **kw):
+        ed = casa(x=2, z=2, larghezza=11, profondita=8, base=8, piani=2,
+                  gronda=1, **kw)
+        out = np.zeros((16, 40, 16), np.int32)
+        out[:, :8, :] = 1
+        E.costruisci(out, 0, 0, 0, ed, FintaTavolozza())
+        return ed, out
+
+    def test_c_e_un_colmo_e_non_una_scanalatura(self):
+        """Con la campata pari le due falde si incontrano su due file e in
+        cima resta un solco lungo quanto la casa."""
+        ed, out = self.costruisci()
+        cima = ed.base + ed.piani * ed.altezza_piano
+        colmo = cima - ed.gronda + ed.falde - 1
+        riga = out[3:12, colmo, :]
+        self.assertTrue((riga != 0).any(), "niente di niente sul colmo")
+        # il colmo e' una trave, non due scale che si scontrano
+        self.assertIn(73, set(out[:, colmo, :].ravel().tolist()))
+
+    def test_niente_feritoia_fra_muro_e_falda(self):
+        """La falda partiva sopra il filo di gronda e restava aperta una
+        fessura lungo tutti e due i lati lunghi: da dentro si vedeva il
+        cielo."""
+        ed, out = self.costruisci()
+        cima = ed.base + ed.piani * ed.altezza_piano
+        # sul filo del muro lungo, appena sopra l'ultimo corso, ci deve
+        # essere il tetto
+        for gx in range(ed.x + 1, ed.x1 - 1):
+            self.assertNotEqual(int(out[gx, cima, ed.z]), 0,
+                                f"buco sopra il muro in x={gx}")
+
+    def test_i_timpani_sono_murati(self):
+        """Le testate sotto la falda sono muro, non aria: senza, la casa ha
+        due pareti triangolari mancanti."""
+        ed, out = self.costruisci()
+        cima = ed.base + ed.piani * ed.altezza_piano
+        muro = FintaTavolozza().blocco[(ed.stile, "muro")]
+        testata = out[ed.x, cima:cima + ed.falde, ed.z + 1:ed.z1 - 1]
+        self.assertGreater(int((testata == muro).sum()), 3)
+
+    def test_la_campata_del_tetto_e_dispari(self):
+        for larg, prof, g in ((11, 8, 1), (9, 9, 0), (8, 10, 1), (7, 7, 1)):
+            ed = casa(larghezza=larg, profondita=prof, gronda=g)
+            corto = min(larg, prof) + 2 * g
+            atteso = (corto - 1 if corto % 2 == 0 else corto) // 2 + 1
+            self.assertEqual(ed.falde, atteso, (larg, prof, g))
+
+
+class TestGraticcioEFondazione(unittest.TestCase):
+
+    def test_la_facciata_non_e_una_parete_liscia(self):
+        ed = casa(x=2, z=2, larghezza=11, profondita=8, base=8, piani=1)
+        out = np.zeros((16, 40, 16), np.int32)
+        out[:, :8, :] = 1
+        tav = FintaTavolozza()
+        E.costruisci(out, 0, 0, 0, ed, tav)
+        facciata = out[ed.x:ed.x1, ed.base:ed.base + ed.altezza_piano, ed.z]
+        self.assertGreaterEqual(len(set(facciata.ravel().tolist())), 4,
+                                "la facciata e' fatta di un materiale solo")
+
+    def test_le_finestre_sono_alte_due(self):
+        ed = casa(x=2, z=2, larghezza=11, profondita=8, base=8, piani=1)
+        out = np.zeros((16, 40, 16), np.int32)
+        out[:, :8, :] = 1
+        tav = FintaTavolozza()
+        E.costruisci(out, 0, 0, 0, ed, tav)
+        colonne = [gx for gx in range(ed.x + 1, ed.x1 - 1)
+                   if out[gx, ed.base + 1, ed.z] == tav.vetro
+                   and out[gx, ed.base + 2, ed.z] == tav.vetro]
+        self.assertGreaterEqual(len(colonne), 2)
+
+    def test_la_casa_non_resta_appesa_sul_bordo(self):
+        """Il raccordo del lotto lascia il bordo piu' basso: con un solo
+        strato di basamento la casa appoggiava sull'aria."""
+        ed = casa(x=2, z=2, larghezza=9, profondita=9, base=10, piani=1)
+        out = np.zeros((16, 40, 16), np.int32)
+        out[:, :7, :] = 1                  # terreno tre blocchi piu' in basso
+        tav = FintaTavolozza()
+        E.costruisci(out, 0, 0, 0, ed, tav)
+        basamento = tav.blocco[(ed.stile, "basamento")]
+        for gy in range(7, ed.base):
+            self.assertEqual(int(out[ed.x + 4, gy, ed.z + 4]), basamento,
+                             f"vuoto sotto la casa a y={gy}")
