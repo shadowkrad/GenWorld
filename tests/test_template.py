@@ -219,6 +219,95 @@ class TestAssegnazionePerVillaggio(unittest.TestCase):
         self.assertEqual(a, b)
 
 
+class TestBlocchiRecenti(unittest.TestCase):
+    """I blocchi di versioni piu' recenti della 1.21.4 non si traducono e in
+    gioco sparivano: nei template scaricati erano centinaia, buchi dentro le
+    case. `_ripara` li sostituisce col parente piu' vicino."""
+
+    def test_lo_scaffale_diventa_una_libreria(self):
+        for nome in ("spruce_shelf", "minecraft:oak_shelf", "pale_oak_shelf"):
+            self.assertEqual(T._ripara(nome, {"facing": "north"}), ("bookshelf", {}))
+
+    def test_la_catena_conserva_l_asse(self):
+        self.assertEqual(T._ripara("iron_chain", {"axis": "x"}),
+                         ("chain", {"axis": "x", "waterlogged": "false"}))
+
+    def test_la_lanterna_di_rame_resta_una_lanterna_appesa_o_no(self):
+        n, p = T._ripara("waxed_oxidized_copper_lantern", {"hanging": "true"})
+        self.assertEqual((n, p["hanging"]), ("lantern", "true"))
+
+    def test_le_scale_di_cinabro_conservano_direzione_e_forma(self):
+        n, p = T._ripara("polished_cinnabar_stairs",
+                         {"facing": "west", "half": "top", "shape": "inner_left"})
+        self.assertEqual(n, "red_nether_brick_stairs")
+        self.assertEqual((p["facing"], p["half"], p["shape"]), ("west", "top", "inner_left"))
+
+    def test_un_blocco_sconosciuto_non_ha_una_regola(self):
+        self.assertIsNone(T._ripara("un_blocco_mai_visto", {}))
+
+    @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non disponibile")
+    def test_ogni_sostituto_si_traduce(self):
+        ver = T.traduttore()
+        for nome in ("spruce_shelf", "iron_chain", "copper_lantern", "waxed_copper_bars",
+                     "oxidized_copper_chest", "copper_golem_statue", "oxidized_lightning_rod",
+                     "bush", "firefly_bush", "leaf_litter", "wildflowers", "cactus_flower",
+                     "grass", "polished_cinnabar_slab", "cinnabar", "sulfur_bricks",
+                     "sulfur_spike", "poplar_trapdoor"):
+            r = T._ripara(nome, {})
+            self.assertIsNotNone(r, nome)
+            self.assertTrue(T.traduci_blocco(ver, r[0], r[1])[2], f"{nome} -> {r}")
+
+    @unittest.skipUnless(TRADUTTORE and os.path.isdir(os.path.join(RADICE, "templates", "strutture")),
+                         "PyMCTranslate o templates/strutture non disponibili")
+    def test_le_case_scaricate_non_perdono_piu_blocchi(self):
+        """Solo `large-house-big` (una costruzione con la mod Create) ha ancora
+        blocchi senza equivalente vanilla: tutte le altre si traducono per
+        intero."""
+        modelli = T.carica_cartella(os.path.join(RADICE, "templates", "strutture"))
+        self.assertGreater(len(modelli), 10)
+        persi = {m.nome: sorted(m.non_tradotti) for m in modelli if m.non_tradotti}
+        self.assertEqual(set(persi), {"large-house-big-e9mmigr5"}, persi)
+
+
+class TestAffondo(unittest.TestCase):
+    """Un template con uno strato di terra sotto il pavimento va interrato."""
+
+    def modello(self, strato0):
+        celle = np.full((3, 2, 3), -1, np.int32)
+        celle[:, 0, :] = np.array(strato0).reshape(3, 3)
+        celle[:, 1, :] = 0
+        return T.Modello(nome="p", celle=celle,
+                         tavolozza=[("planks", {}), ("grass_block", {}), ("stone", {})])
+
+    def test_uno_strato_di_erba_va_interrato(self):
+        self.assertEqual(self.modello([1] * 9).affondo, 1)
+
+    def test_un_pavimento_di_pietra_no(self):
+        self.assertEqual(self.modello([2] * 9).affondo, 0)
+
+    def test_una_pianta_mista_sotto_il_60_per_cento_no(self):
+        self.assertEqual(self.modello([1, 1, 1, 1, 2, 2, 2, 2, 2]).affondo, 0)
+
+    def test_uno_zoccolo_di_piu_strati_si_interra_di_tutti(self):
+        celle = np.full((3, 5, 3), -1, np.int32)
+        celle[:, 0:3, :] = 1                     # tre strati di erba
+        celle[:, 3, :] = 0                       # il pavimento
+        celle[:, 4, :] = 0
+        m = T.Modello(nome="p", celle=celle,
+                      tavolozza=[("planks", {}), ("grass_block", {})])
+        self.assertEqual(m.affondo, 3)
+
+    def test_l_affondo_ha_un_tetto(self):
+        celle = np.full((3, 12, 3), 1, np.int32)         # tutta terra
+        m = T.Modello(nome="p", celle=celle, tavolozza=[("planks", {}), ("dirt", {})])
+        self.assertEqual(m.affondo, T.AFFONDO_MAX)
+
+    def test_uno_strato_vuoto_non_si_interra(self):
+        m = self.modello([1] * 9)
+        m.celle[:, 0, :] = -1
+        self.assertEqual(m.affondo, 0)
+
+
 class TestAndataERitorno(unittest.TestCase):
     """Si esportano le case parametriche in `.nbt` e si rileggono: e' l'unico
     controllo che tocca davvero il formato, la traduzione e la rotazione

@@ -90,6 +90,9 @@ class Modello:
     # promette il README - il vincolo e' un'aggiunta esplicita, non un
     # obbligo.
     stili: frozenset[str] = field(default_factory=frozenset)
+    # nomi di gioco dei blocchi che PyMCTranslate non conosce e che nessuna
+    # regola di `_ripara` sa sostituire: in gioco non compaiono (buchi).
+    non_tradotti: frozenset[str] = field(default_factory=frozenset)
 
     @property
     def dx(self) -> int: return int(self.celle.shape[0])
@@ -101,6 +104,29 @@ class Modello:
     def ingombro(self, quarti: int) -> tuple[int, int]:
         return (self.dz, self.dx) if quarti % 2 else (self.dx, self.dz)
 
+    @property
+    def affondo(self) -> int:
+        """Di quanti strati va interrato il modello perche' il suo primo strato
+        di costruzione combaci col terreno.
+
+        Molti template scaricati sono stati salvati con uno o piu' strati di
+        terra sotto il pavimento (erba, terra, sabbia; certi manieri hanno un
+        intero zoccolo di sei). Posato con y=0 sul primo blocco libero, quello
+        zoccolo faceva da piattaforma e la casa risultava sollevata. Si contano
+        gli strati consecutivi dal basso che sono per lo piu' terreno (oltre il
+        60% delle celle piene), fino a `AFFONDO_MAX`: il modello si abbassa di
+        tanti, e la sua erba prende il posto di quella del lotto.
+        """
+        terreno = np.array([n in _TERRENO for n, _ in self.tavolozza] + [False])
+        strati = 0
+        for y in range(min(self.dy, AFFONDO_MAX)):
+            strato = self.celle[:, y, :]
+            pieno = strato >= 0
+            if not pieno.any() or terreno[strato[pieno]].mean() <= 0.6:
+                break
+            strati += 1
+        return strati
+
 
 # --------------------------------------------------------------------------
 # Lettura
@@ -108,6 +134,78 @@ class Modello:
 
 NORD, EST, SUD, OVEST = range(4)
 _VERSO = {"north": NORD, "east": EST, "south": SUD, "west": OVEST}
+
+# blocchi che fanno da terreno negli strati piu' bassi di un template
+AFFONDO_MAX = 8            # quanto sotto il primo blocco libero puo' scendere
+_TERRENO = frozenset({"grass_block", "dirt", "coarse_dirt", "podzol", "rooted_dirt",
+                      "sand", "red_sand", "gravel", "mycelium", "grass_path",
+                      "dirt_path"})
+
+_LEGNI = ("oak", "spruce", "birch", "jungle", "acacia", "dark_oak", "mangrove",
+          "cherry", "bamboo", "crimson", "warped", "pale_oak", "poplar")
+
+
+def _ripara(nome: str, prop: dict) -> tuple[str, dict] | None:
+    """Un blocco di una versione piu' recente di quella di riferimento, che
+    PyMCTranslate non traduce (e che in gioco sparirebbe lasciando un buco),
+    nel suo parente piu' vicino che esiste. Ritorna (nome di gioco,
+    proprieta' di gioco) oppure None se non c'e' una regola.
+
+    E' un equivalente, non un ritocco estetico: una lanterna di rame resta una
+    lanterna, uno scaffale (1.21.9) diventa una libreria, una catena di ferro
+    (`iron_chain`, si chiamava `chain`) la sua catena. Le proprieta' che
+    portano una direzione si conservano.
+    """
+    n = nome.split(":", 1)[-1]
+    if n.endswith("_shelf"):
+        return "bookshelf", {}
+    if n == "iron_chain" or n.endswith("_iron_chain") or n == "chain":
+        return "chain", {"axis": prop.get("axis", "y"), "waterlogged": "false"}
+    if n.endswith("copper_lantern"):
+        return "lantern", {"hanging": prop.get("hanging", "false"),
+                           "waterlogged": "false"}
+    if n.endswith("copper_bars"):
+        return "iron_bars", {"east": "false", "north": "false", "south": "false",
+                             "west": "false", "waterlogged": "false"}
+    if n.endswith("copper_chest"):
+        return "chest", {"facing": prop.get("facing", "north"), "type": "single",
+                         "waterlogged": "false"}
+    if "copper_golem_statue" in n:
+        return "copper_block", {}
+    if n.endswith("lightning_rod"):
+        return "lightning_rod", {"facing": prop.get("facing", "up"),
+                                 "powered": "false", "waterlogged": "false"}
+    if n in ("bush", "firefly_bush"):
+        return "oak_leaves", {"distance": "1", "persistent": "true",
+                              "waterlogged": "false"}
+    if n == "leaf_litter":
+        return "moss_carpet", {}
+    if n == "wildflowers":
+        return "dandelion", {}
+    if n == "cactus_flower":
+        return "pink_tulip", {}
+    if n == "grass":                       # il vecchio nome di `short_grass`
+        return "short_grass", {}
+    if "cinnabar" in n:
+        if n.endswith("_slab"):
+            return "red_nether_brick_slab", {"type": prop.get("type", "bottom"),
+                                             "waterlogged": "false"}
+        if n.endswith("_stairs"):
+            return "red_nether_brick_stairs", {
+                "facing": prop.get("facing", "north"), "half": prop.get("half", "bottom"),
+                "shape": prop.get("shape", "straight"), "waterlogged": "false"}
+        return "red_nether_bricks", {}
+    if n == "sulfur_spike":
+        return "pointed_dripstone", {"thickness": "tip", "vertical_direction": "up",
+                                     "waterlogged": "false"}
+    if "sulfur" in n:
+        return "yellow_terracotta", {}
+    for legno in _LEGNI:
+        if n.startswith(legno + "_") and n.endswith("_trapdoor"):
+            return "oak_trapdoor", {k: prop[k] for k in
+                                    ("facing", "half", "open", "powered") if k in prop} | {
+                "waterlogged": "false"}
+    return None
 
 
 def carica(percorso: str, versione=(1, 21, 4)) -> Modello:
@@ -133,6 +231,7 @@ def carica(percorso: str, versione=(1, 21, 4)) -> Modello:
 
     tavolozza: list[tuple[str, dict]] = []
     vuoto: set[int] = set()
+    non_tradotti: set[str] = set()
     for i, voce in enumerate(tavola):
         nome = str(voce["Name"])
         prop = {k: str(v) for k, v in dict(voce.get("Properties", {})).items()}
@@ -140,12 +239,18 @@ def carica(percorso: str, versione=(1, 21, 4)) -> Modello:
             vuoto.add(i)
             tavolozza.append(("air", {}))
             continue
-        spazio, _, _ = ver.block.to_universal(
-            Block(*nome.split(":", 1) if ":" in nome else ("minecraft", nome),
-                  _prop_nbt(prop)))
-        tavolozza.append((spazio.base_name,
-                          {k: str(v.py_str if hasattr(v, "py_str") else v)
-                           for k, v in spazio.properties.items()}))
+        base, proprieta, tradotto = traduci_blocco(ver, nome, prop)
+        if not tradotto:
+            # un blocco piu' recente della versione di riferimento: si cerca
+            # il suo parente piu' vicino invece di lasciare un buco
+            rip = _ripara(nome, prop)
+            if rip is not None:
+                b2, p2, ok2 = traduci_blocco(ver, rip[0], rip[1])
+                if ok2:
+                    base, proprieta, tradotto = b2, p2, True
+        if not tradotto:
+            non_tradotti.add(nome.split(":", 1)[-1])
+        tavolozza.append((base, proprieta))
 
     celle = np.full((dx, dy, dz), -1, np.int32)
     for voce in radice.get("blocks", []):
@@ -157,7 +262,8 @@ def carica(percorso: str, versione=(1, 21, 4)) -> Modello:
             celle[px, py, pz] = stato
 
     m = Modello(nome=os.path.splitext(os.path.basename(percorso))[0],
-                celle=celle, tavolozza=tavolozza)
+                celle=celle, tavolozza=tavolozza,
+                non_tradotti=frozenset(non_tradotti))
     m.porta = _trova_porta(m)
     return m
 

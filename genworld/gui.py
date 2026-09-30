@@ -565,6 +565,7 @@ class Finestra(QWidget):
         self.cimiteri = self._cursore(f, "Cimiteri", 0, 300, 100, suffisso="%")
         self.portali = self._cursore(f, "Portali", 0, 300, 100, suffisso="%")
         self.arredi = self._cursore(f, "Arredi", 0, 300, 100, suffisso="%")
+        self.isolate = self._cursore(f, "Case isolate", 0, 300, 100, suffisso="%")
         self.erosione = self._cursore(f, "Erosione", 0, 100, 0, suffisso="%")
         self.strade = QCheckBox("Strade e ponti")
         self.strade.setChecked(True)
@@ -717,6 +718,7 @@ class Finestra(QWidget):
             cimiteri=self.cimiteri.value() / 100.0,
             portali=self.portali.value() / 100.0,
             arredi=self.arredi.value() / 100.0,
+            isolate=self.isolate.value() / 100.0,
             versione=self.versione.currentData() or (1, 21, 4),
         )
 

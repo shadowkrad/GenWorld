@@ -189,10 +189,10 @@ class TestCaricaInfoSuFileVeri(unittest.TestCase):
         generazione vera la aggiusta."""
         percorso = os.path.join(TEMPLATES, "cimiteri", "cementerio-grav-9ggj8p63.nbt")
         m = TM.carica(percorso)
-        nomi_grezzi = {n for n, _ in m.tavolozza}
+        # `template.carica` ripara ormai da se' i blocchi piu' recenti della
+        # versione di riferimento (`template._ripara`): niente da segnalare
+        self.assertEqual(m.non_tradotti, frozenset())
         from genworld.avamposti import _BLOCCHI_RECENTI
-        self.assertTrue(nomi_grezzi & set(_BLOCCHI_RECENTI),
-                        "il test presuppone un cimitero coi blocchi non tradotti")
 
         info = VT.carica_info(percorso)
         self.assertEqual(set(info.ignoti) & set(_BLOCCHI_RECENTI), set())
