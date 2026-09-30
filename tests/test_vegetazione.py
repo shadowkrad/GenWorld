@@ -134,6 +134,28 @@ class TestDisegno(unittest.TestCase):
         V.disegna(out2, 0, 0, 0, self.albero(8, 8, V.ARBUSTO, 1), [0], tav)
         self.assertEqual(int((out2 == 31).sum()), 1)
 
+    def test_la_cima_e_di_foglie_non_di_tronco(self):
+        """Difetto visto in gioco: su alcuni alberi il tronco spuntava dalla
+        cima della chioma. Nell'abete il tronco arrivava fino all'apice, dove
+        la sagoma ha una sola foglia, e siccome si disegna per ultimo vinceva
+        su di essa. Il blocco piu' alto della colonna centrale deve essere
+        una foglia, per ogni specie e ogni altezza."""
+        tav = FintaTavolozza()
+        for sp, foglia in ((V.QUERCIA, 20), (V.BETULLA, 21), (V.ABETE, 22)):
+            lo, hi = V.ALTEZZA[sp]
+            for alt in range(lo, hi + 1):
+                out = np.zeros((16, 160, 16), np.uint32)
+                V.disegna(out, 0, 0, 0, self.albero(8, 8, sp, alt), [0], tav)
+                colonna = out[8, :, 8]
+                cima = int(np.nonzero(colonna)[0].max())
+                self.assertEqual(int(colonna[cima]), foglia,
+                                 f"specie {sp} alt {alt}: in cima c'e' {colonna[cima]}")
+
+    def test_il_tronco_dell_abete_arriva_sotto_l_apice(self):
+        out = np.zeros((16, 160, 16), np.uint32)
+        V.disegna(out, 0, 0, 0, self.albero(8, 8, V.ABETE, 10), [0], FintaTavolozza())
+        self.assertTrue((out[8, 70:79, 8] == 12).all(), "tronco interrotto")
+
     def test_abete_conico(self):
         """Dall'alto verso il basso la chioma deve allargarsi, non restringersi."""
         out = np.zeros((16, 160, 16), np.uint32)

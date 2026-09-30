@@ -408,8 +408,13 @@ def disegna(
             for dx, dz in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
                 posa(x + dx, base + alt, z + dz, foglie)
 
-        # il tronco per ultimo: deve vincere sulle foglie
-        for k in range(alt):
+        # il tronco per ultimo: deve vincere sulle foglie. Ma non fino
+        # all'apice: nell'abete la sagoma finisce con UNA foglia a
+        # `base + alt - 1`, e un tronco alto `alt` la sostituiva - in gioco la
+        # cima di certi abeti era un blocco di legno nudo. Nelle latifoglie
+        # il tronco arriva a `alt - 1` e la cima e' un blocco piu' su.
+        alt_tronco = alt - 1 if sp == ABETE else alt
+        for k in range(alt_tronco):
             posa(x, base + k, z, tronco, solo_aria=False)
         messi += 1
 
