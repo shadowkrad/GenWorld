@@ -44,6 +44,7 @@ from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                                QVBoxLayout, QWidget)
 
 from . import mappa as M
+from . import template as TM
 from .fidelity import Stima, stima as calcola_stima
 from .livello_dat import versioni_supportate
 from .motore import LIVELLO_MARE, Analisi, Opzioni, analizza, genera
@@ -786,6 +787,11 @@ class Finestra(QWidget):
         if not os.path.exists(op.immagine):
             QMessageBox.warning(self, "GenWorld", "Immagine non trovata.")
             return
+        if op.villaggi > 0 and TM.conta_file(op.templates) == 0:
+            r = QMessageBox.question(self, "GenWorld",
+                                     TM.AVVISO_SENZA_CASE + "\n\nProcedo?")
+            if r != QMessageBox.Yes:
+                return
         if os.path.exists(op.uscita):
             r = QMessageBox.question(
                 self, "GenWorld",

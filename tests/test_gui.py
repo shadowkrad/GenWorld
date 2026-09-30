@@ -124,6 +124,21 @@ class TestFinestra(unittest.TestCase):
         self.assertEqual(terr.quota_max_m, 1000.0)
         self.assertEqual(insediamenti, [])
 
+    def test_senza_case_la_finestra_avvisa_prima_di_generare(self):
+        """Un clone pulito non ha template: il programma non deve produrre
+        villaggi vuoti senza dirlo."""
+        from unittest import mock
+        from PySide6.QtWidgets import QMessageBox
+        chiese = []
+        self.f.percorso.setText(os.path.join(RADICE, "input", "README.md"))
+        with mock.patch("genworld.gui.QMessageBox.question",
+                        side_effect=lambda *a, **k: chiese.append(a[2]) or QMessageBox.No), \
+                mock.patch("genworld.gui.TM.conta_file", return_value=0), \
+                mock.patch("os.path.exists", return_value=True):
+            self.f._genera()
+        self.assertTrue(chiese and "Nessun template" in chiese[0])
+        self.assertIsNone(self.f.lavoro, "non doveva partire dopo il no")
+
     def test_il_menu_template_apre_il_visualizzatore(self):
         """"un menu' che apre la vista per i template da visualizzare" -
         la richiesta dell'utente, parola per parola."""
