@@ -1468,6 +1468,68 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
                     out[lx, fondo:y, lz] = pilastro
 
 
+def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
+                      modelli: list, cat, cat_ar, tav_ed, scelte: dict) -> None:
+    """Le costruzioni di un chunk, nell'ordine che conta: case (con le loro
+    fondazioni) e banchi, poi le case isolate, poi gli arredi. Ognuno occupa
+    solo cio' che e' rimasto libero dopo quello prima."""
+    if tav_ed is not None:
+        # gli edifici dopo gli alberi: una casa vince su un ramo
+        propr_c = (fetta(piano.proprietario, sx, sz)
+                  if piano.proprietario is not None else None)
+        for k in piano.indice_edifici.get((sx // 16, sz // 16), ()):
+            ed = piano.edifici[k]
+            if k in scelte:
+                mi, quarti = scelte[k]
+                ix, iz = modelli[mi].ingombro(quarti)
+                px = ed.x + (ed.larghezza - ix) // 2
+                pz = ed.z + (ed.profondita - iz) // 2
+                # `vietato_c` marca le colonne che appartengono al
+                # LOTTO di un ALTRO edificio (o a un banco): la
+                # gronda di questa casa non disegna sopra quella
+                # vicina, che apparirebbe "a meta'". Non e'
+                # `protetto_c`: qui non si protegge il sottosuolo, si
+                # protegge un edificio dall'altro.
+                vietato_c = (None if propr_c is None else
+                            (propr_c != -1) & (propr_c != k))
+                # molti template hanno uno strato di terra sotto il
+                # pavimento: interrato di uno, la loro erba prende il
+                # posto di quella del lotto invece di fare da zoccolo
+                base_c = ed.base - modelli[mi].affondo
+                TM.fondazione(blocchi, -64, sx, sz, cat, mi, quarti,
+                              px, pz, base_c,
+                              tav_ed.blocco[(ed.stile, "basamento")],
+                              tav_ed.aria, vietato=vietato_c)
+                TM.costruisci(blocchi, -64, sx, sz, cat, mi, quarti,
+                              px, pz, base_c, vietato=vietato_c)
+                if ed.mestiere:
+                    E.posto_di_lavoro(blocchi, -64, sx, sz, ed, tav_ed)
+            # se il lotto non e' in `scelte` resta senza casa: se ne
+            # occupano gli arredi (`arredi.py`), non un generatore
+            # parametrico di riserva, che non esiste piu'.
+        for k in piano.indice_banchi.get((sx // 16, sz // 16), ()):
+            E.costruisci_banco(blocchi, -64, sx, sz, piano.banchi[k],
+                               tav_ed)
+    if cat is not None and tav_ed is not None:
+        # le case isolate: stessa posa di quelle dei villaggi
+        for k in piano.indice_isolate.get((sx // 16, sz // 16), ()):
+            ci = piano.isolate[k]
+            base_c = ci.base - modelli[ci.modello].affondo
+            TM.fondazione(blocchi, -64, sx, sz, cat, ci.modello, ci.quarti,
+                          ci.x, ci.z, base_c,
+                          tav_ed.blocco[(ci.stile, "basamento")],
+                          tav_ed.aria)
+            TM.costruisci(blocchi, -64, sx, sz, cat, ci.modello, ci.quarti,
+                          ci.x, ci.z, base_c)
+    if cat_ar is not None:
+        # gli arredi dopo le case e i banchi: un lampione o un giardino
+        # occupano solo cio' che e' rimasto libero
+        for k in piano.indice_arredi.get((sx // 16, sz // 16), ()):
+            ar = piano.arredi[k]
+            TM.costruisci(blocchi, -64, sx, sz, cat_ar, ar.modello, 0,
+                          ar.x, ar.z, ar.base)
+
+
 def scrivi(op: Opzioni, a: Analisi, piano: Piano,
            avanza: Avanzamento = _nulla,
            da: int = 0, quanti: int = 0,
@@ -1644,61 +1706,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 quali = V.alberi_vicini(piano.indice_alberi, sx // 16, sz // 16)
                 if quali:
                     V.disegna(blocchi, -64, sx, sz, piano.alberi, quali, tav)
-            if tav_ed is not None:
-                # gli edifici dopo gli alberi: una casa vince su un ramo
-                propr_c = (fetta(piano.proprietario, sx, sz)
-                          if piano.proprietario is not None else None)
-                for k in piano.indice_edifici.get((sx // 16, sz // 16), ()):
-                    ed = piano.edifici[k]
-                    if k in scelte:
-                        mi, quarti = scelte[k]
-                        ix, iz = modelli[mi].ingombro(quarti)
-                        px = ed.x + (ed.larghezza - ix) // 2
-                        pz = ed.z + (ed.profondita - iz) // 2
-                        # `vietato_c` marca le colonne che appartengono al
-                        # LOTTO di un ALTRO edificio (o a un banco): la
-                        # gronda di questa casa non disegna sopra quella
-                        # vicina, che apparirebbe "a meta'". Non e'
-                        # `protetto_c`: qui non si protegge il sottosuolo, si
-                        # protegge un edificio dall'altro.
-                        vietato_c = (None if propr_c is None else
-                                    (propr_c != -1) & (propr_c != k))
-                        # molti template hanno uno strato di terra sotto il
-                        # pavimento: interrato di uno, la loro erba prende il
-                        # posto di quella del lotto invece di fare da zoccolo
-                        base_c = ed.base - modelli[mi].affondo
-                        TM.fondazione(blocchi, -64, sx, sz, cat, mi, quarti,
-                                      px, pz, base_c,
-                                      tav_ed.blocco[(ed.stile, "basamento")],
-                                      tav_ed.aria, vietato=vietato_c)
-                        TM.costruisci(blocchi, -64, sx, sz, cat, mi, quarti,
-                                      px, pz, base_c, vietato=vietato_c)
-                        if ed.mestiere:
-                            E.posto_di_lavoro(blocchi, -64, sx, sz, ed, tav_ed)
-                    # se il lotto non e' in `scelte` resta senza casa: se ne
-                    # occupano gli arredi (`arredi.py`), non un generatore
-                    # parametrico di riserva, che non esiste piu'.
-                for k in piano.indice_banchi.get((sx // 16, sz // 16), ()):
-                    E.costruisci_banco(blocchi, -64, sx, sz, piano.banchi[k],
-                                       tav_ed)
-            if cat is not None and tav_ed is not None:
-                # le case isolate: stessa posa di quelle dei villaggi
-                for k in piano.indice_isolate.get((sx // 16, sz // 16), ()):
-                    ci = piano.isolate[k]
-                    base_c = ci.base - modelli[ci.modello].affondo
-                    TM.fondazione(blocchi, -64, sx, sz, cat, ci.modello, ci.quarti,
-                                  ci.x, ci.z, base_c,
-                                  tav_ed.blocco[(ci.stile, "basamento")],
-                                  tav_ed.aria)
-                    TM.costruisci(blocchi, -64, sx, sz, cat, ci.modello, ci.quarti,
-                                  ci.x, ci.z, base_c)
-            if cat_ar is not None:
-                # gli arredi dopo le case e i banchi: un lampione o un giardino
-                # occupano solo cio' che e' rimasto libero
-                for k in piano.indice_arredi.get((sx // 16, sz // 16), ()):
-                    ar = piano.arredi[k]
-                    TM.costruisci(blocchi, -64, sx, sz, cat_ar, ar.modello, 0,
-                                  ar.x, ar.z, ar.base)
+            _posa_costruzioni(blocchi, piano, sx, sz, modelli, cat, cat_ar,
+                              tav_ed, scelte)
             bio_c = (id_bioma[fetta(a.biomi, sx, sz)]
                      if id_bioma is not None else None)
             # Bottino dei forzieri: si cerca il blocco DOPO che le case sono
