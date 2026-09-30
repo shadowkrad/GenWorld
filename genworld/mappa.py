@@ -96,6 +96,14 @@ def carica(percorso: str, lato: int | None = None,
     quanto sembri: le mappe disegnate hanno quasi sempre una cornice o una
     vignettatura chiara, e il bianco sbiadito del bordo viene classificato come
     neve, producendo una calotta glaciale lungo i margini del mondo.
+
+    Se `lato` e' dato, il ridimensionamento MANTIENE LE PROPORZIONI: il lato
+    piu' lungo dell'immagine diventa `lato`, l'altro si accorcia di
+    conseguenza. Prima si forzava un resize a `(lato, lato)`: una mappa
+    rettangolare veniva quindi stirata a incastro nel quadrato e usciva
+    visibilmente deformata - segnalato dall'utente. L'array tornato puo'
+    quindi non essere quadrato; e' compito di chi lo usa (vedi
+    `motore.analizza`) collocarlo nel mondo quadrato invece di stirarlo.
     """
     im = Image.open(percorso).convert("RGB")
     if ritaglio > 0:
@@ -103,7 +111,10 @@ def carica(percorso: str, lato: int | None = None,
         dx, dy = int(w * ritaglio), int(h * ritaglio)
         im = im.crop((dx, dy, w - dx, h - dy))
     if lato is not None:
-        im = im.resize((lato, lato), Image.LANCZOS)
+        w, h = im.size
+        scala = lato / max(w, h)
+        nw, nh = max(1, round(w * scala)), max(1, round(h * scala))
+        im = im.resize((nw, nh), Image.LANCZOS)
     return np.asarray(im).astype(np.float32) / 255.0
 
 

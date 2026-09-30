@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from genworld import citta as C  # noqa: E402
 from genworld import edifici as E  # noqa: E402
-from genworld.mappa import MARE, PIANURA  # noqa: E402
+from genworld.mappa import FIUME, MARE, PIANURA  # noqa: E402
 
 
 def pianura(lato=200, quota=75):
@@ -198,6 +198,20 @@ class TestLotti(unittest.TestCase):
         fuori = piani[d >= np.median(d)].mean()
         self.assertGreater(centro, fuori)
 
+    def test_i_lotti_grandi_possono_superare_il_vecchio_tetto(self):
+        """Con `FRONTE_MAX_*`/`FONDO_MAX` troppo bassi (13/9, il valore di
+        prima) quasi nessun template scaricato entrava mai in un lotto, e
+        `template.scegli()` finiva per ripetere sempre lo stesso modello
+        piccolo - non un difetto di scelta, un tetto troppo basso per il
+        catalogo (vedi il commento sopra le costanti). Qui non serve un
+        isolato grandissimo: dove il blocco lo permette, il lotto deve poter
+        crescere oltre il vecchio limite - altrimenti la costante e' stata
+        abbassata di nuovo per errore."""
+        oltre = [e for e in self.edifici if e.larghezza > 13 or e.profondita > 9]
+        self.assertGreater(len(oltre), 0,
+                           "nessun lotto supera il vecchio tetto 13/9: "
+                           "FRONTE_MAX_*/FONDO_MAX sono stati riabbassati?")
+
 
 class TestPianificazione(unittest.TestCase):
 
@@ -304,6 +318,22 @@ class TestCintaLeggibile(unittest.TestCase):
         sola = cinta & ~(su | giu | sx | dx)
         self.assertEqual(int(sola.sum()), 0,
                          "ci sono celle di cinta attaccate solo in diagonale")
+
+    def test_la_cinta_e_spessa_almeno_tre(self):
+        """Due era meglio di una ma ancora un cordolo, non un muro - vista in
+        gioco. Su un lato dritto, lontano da angoli e porte, ci vogliono
+        almeno tre celle piene attraversando la cinta."""
+        lato = 200
+        cls = np.full((lato, lato), PIANURA, np.uint8)
+        sedimi = np.zeros((lato, lato), bool)
+        sedimi[60:140, 60:140] = True
+        vie = np.zeros((lato, lato), np.uint8)
+        muro, porta, punti, torre = C.mura(sedimi, vie, sedimi, cls, [])
+        self.assertTrue(muro.any())
+        riga = muro[100, :60]                 # lato sinistro, meta' altezza
+        sinistra = np.nonzero(riga)[0]
+        self.assertGreaterEqual(len(sinistra), 3,
+                                f"cinta spessa {len(sinistra)} invece di 3")
 
     def test_ci_sono_le_torri(self):
         muro, citta = self.scenario()
@@ -428,6 +458,43 @@ class TestTerrazze(unittest.TestCase):
         self.assertGreater(int(sc.sum()), 50)
         self.assertEqual(int(sc[~area].sum()), 0)
 
+    def test_la_cinta_non_e_un_pettine(self):
+        """Le mura non hanno una quota propria: ogni colonna parte dal
+        terreno sotto di se'. Sul terreno grezzo (con la stessa grana fine
+        del dither) due merli vicini nascevano a quote diverse anche l'uno
+        accanto all'altro, e la cinta sembrava un mucchio di macerie invece
+        di un muro."""
+        h = self.pendio()
+        anello = np.zeros_like(h, dtype=bool)
+        anello[70:74, 30:110] = True   # un tratto di cinta che attraversa il pendio
+        prima = int(np.abs(np.diff(h[71, 40:100])).max())
+        C.raccorda_mura(h, anello, np.zeros_like(anello))
+        dopo = int(np.abs(np.diff(h[71, 40:100])).max())
+        self.assertLess(dopo, prima,
+                        f"grana sotto la cinta: {prima} -> {dopo}")
+        self.assertLessEqual(dopo, 1)
+
+    def test_la_cinta_non_tocca_l_acqua(self):
+        h = self.pendio()
+        anello = np.zeros_like(h, dtype=bool)
+        anello[70:74, 30:110] = True
+        intoccabile = np.zeros_like(anello)
+        intoccabile[:, 60:64] = True
+        prima = h.copy()
+        C.raccorda_mura(h, anello, intoccabile)
+        self.assertTrue((h[:, 60:64] == prima[:, 60:64]).all())
+
+    def test_la_cinta_lascia_stare_il_resto_della_mappa(self):
+        """Solo l'anello e un piccolo alone intorno: non tutta la mappa."""
+        h = self.pendio()
+        anello = np.zeros_like(h, dtype=bool)
+        anello[70:74, 30:110] = True
+        prima = h.copy()
+        C.raccorda_mura(h, anello, np.zeros_like(anello))
+        lontano = np.ones_like(anello)
+        lontano[65:79, 25:115] = False   # anello + un margine largo
+        self.assertTrue((h[lontano] == prima[lontano]).all())
+
 
 class TestCintaSullaRiva(unittest.TestCase):
     """Negli screenshot le mura scendevano in acqua e continuavano dentro il
@@ -473,3 +540,76 @@ class TestCintaSullaRiva(unittest.TestCase):
         cls, h, sedimi, vie = self.scenario()
         muro, _, _, _ = C.mura(sedimi, vie, sedimi, cls, [(72, 30)])
         self.assertTrue(muro.any())
+
+
+class TestCintaSulFiume(unittest.TestCase):
+    """Un fiume che attraversa l'abitato non e' come il mare: non e' una
+    difesa naturale, e' solo un corso d'acqua che passa in mezzo. Prima
+    prendeva lo stesso trattamento del mare (fascia larga tolta dalla cinta,
+    pensata per il fronte a mare) e apriva un buco ingiustificato nel mezzo
+    della cinta - segnalato dall'utente come "un effetto poco normale"."""
+
+    LARGHEZZA_FIUME = 4
+
+    def scenario(self):
+        lato = 200
+        cls = np.full((lato, lato), PIANURA, np.uint8)
+        c0 = 100 - self.LARGHEZZA_FIUME // 2
+        c1 = c0 + self.LARGHEZZA_FIUME
+        cls[:, c0:c1] = FIUME               # un fiume verticale, attraversa tutto
+        sedimi = np.zeros((lato, lato), bool)
+        sedimi[40:160, 40:160] = True       # l'abitato a cavallo del fiume
+        vie = np.zeros((lato, lato), np.uint8)
+        return cls, sedimi, vie, c0, c1
+
+    def test_il_fiume_ha_un_varco_vero_non_un_buco_senza_spiegazione(self):
+        cls, sedimi, vie, c0, c1 = self.scenario()
+        muro, porta, punti, torre = C.mura(sedimi, vie, sedimi, cls, [])
+        self.assertTrue(muro.any(), "nessuna cinta")
+        # il varco sul fiume esiste, ed e' sul fiume
+        sul_fiume = porta & (cls == FIUME)
+        self.assertTrue(sul_fiume.any(), "nessun varco sul fiume")
+        # largo quanto il fiume (+ lo spessore della cinta), non una fascia
+        # larga come quella pensata per il fronte a mare (riva=4 di margine
+        # PER LATO, che su un fiume di 4 celle darebbe un buco di 12+ celle)
+        zs, xs = np.nonzero(sul_fiume)
+        self.assertLessEqual(int(xs.max()) - int(xs.min()) + 1,
+                             self.LARGHEZZA_FIUME + 2,
+                             "il varco e' piu' largo del fiume stesso")
+
+    def test_la_cinta_resta_piena_lontano_dal_fiume(self):
+        """Il lato della cinta che il fiume attraversa (il fronte nord),
+        lontano dal punto preciso in cui lo attraversa, non deve avere
+        buchi: solo il mare fa sparire un intero fronte di cinta, un fiume
+        che passa in mezzo no."""
+        cls, sedimi, vie, c0, c1 = self.scenario()
+        muro, porta, punti, torre = C.mura(sedimi, vie, sedimi, cls, [])
+        zs, xs = np.nonzero(muro)
+        z_top = int(zs.min())         # il fronte nord, dove il fiume esce
+        # colonne lontane dal fiume (che sta a c0..c1, circa x=98..101)
+        striscia = muro[z_top:z_top + 4, 40:90]
+        self.assertGreater(int(striscia.sum()), 20,
+                           "la cinta e' sparita anche lontano dal fiume")
+
+    def test_la_cinta_piu_porta_resta_un_anello_chiuso(self):
+        cls, sedimi, vie, c0, c1 = self.scenario()
+        muro, porta, punti, torre = C.mura(sedimi, vie, sedimi, cls, [])
+        sistema = (muro > 0) | porta
+        _, quanti = label(sistema, np.ones((3, 3)))
+        self.assertEqual(quanti, 1, f"{quanti} pezzi di cinta, non un anello")
+
+    def test_il_mare_invece_si_comporta_come_prima(self):
+        """Regressione: il fronte a mare deve continuare a perdere la fascia
+        larga di cinta - questo test non deve cambiare risultato per via
+        della correzione sul fiume, che tocca solo FIUME."""
+        lato = 160
+        cls = np.full((lato, lato), PIANURA, np.uint8)
+        cls[:, 120:] = MARE
+        sedimi = np.zeros((lato, lato), bool)
+        sedimi[40:110, 40:115] = True
+        vie = np.zeros((lato, lato), np.uint8)
+        muro, porta, punti, torre = C.mura(sedimi, vie, sedimi, cls, [])
+        zs, xs = np.nonzero(muro)
+        self.assertTrue(muro.any())
+        self.assertLess(int(xs.max()), 120 - 2,
+                        "la cinta arriva sulla battigia")

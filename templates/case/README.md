@@ -1,10 +1,20 @@
 # Case da template
 
+**Questa cartella NON e' inclusa di default.** La GUI e `esempi/genera_mappa.py`
+usano di default solo `templates/strutture` (case vere, scaricate o disegnate
+a mano). I file `.nbt` qui dentro sono le case del *vecchio* generatore
+parametrico, esportate da `esempi/esporta_template.py` - cioe' esattamente le
+case "generate dal sistema" che si volevano evitare. Servono solo come punto
+di partenza per chi vuole farsi le proprie case modificandole: caricale con
+un blocco struttura, sistemale, risalvale con lo stesso nome, e solo a quel
+punto aggiungi di nuovo questa cartella a `--templates` (o al codice della
+GUI) se le vuoi in gioco.
+
 I file `.nbt` di questa cartella sono case. GenWorld le legge tutte all'avvio
 e, per ogni lotto che progetta, ne pesca una a caso fra quelle che ci stanno
-dentro e che possono guardare la strada. Dove non ci sta nessun template si
-torna al generatore parametrico, che nel lotto entra sempre perche' e' il
-lotto a dargli le misure.
+dentro e che possono guardare la strada. Dove non ci sta nessun template (e
+la cartella non e' inclusa) il lotto resta senza casa: non c'e' piu' un
+generatore parametrico di riserva.
 
 Aggiungere una casa vuol dire mettere un file qui. Toglierne una vuol dire
 cancellarlo. Non c'e' nient'altro da configurare.

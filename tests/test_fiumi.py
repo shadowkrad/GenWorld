@@ -138,6 +138,21 @@ class TestDaTerreno(unittest.TestCase):
         alta = F.da_terreno(h, mare, soglia=200, lunghezza_minima=3)[0].sum()
         self.assertGreaterEqual(int(bassa), int(alta))
 
+    def test_larghezza_base_allarga_il_fiume(self):
+        """L'accumulo D8 e' un filo largo una cella per costruzione - senza
+        allargamento un fiume qualunque, anche uno che porta molta acqua,
+        resta largo un pixel. E' il "poco largo al cospetto della realta'"
+        visto in gioco."""
+        n = 64
+        z, x = np.meshgrid(np.arange(n), np.arange(n), indexing="ij")
+        h = (120 - z + 3 * np.sin(x / 3.0)).astype(np.float32)
+        mare = np.zeros((n, n), bool); mare[-14:, :] = True
+        stretto = F.da_terreno(h, mare, soglia=40, lunghezza_minima=5,
+                               larghezza_base=0)[0].sum()
+        largo = F.da_terreno(h, mare, soglia=40, lunghezza_minima=5,
+                             larghezza_base=1)[0].sum()
+        self.assertGreater(int(largo), int(stretto))
+
 
 if __name__ == "__main__":
     unittest.main()
@@ -188,3 +203,45 @@ class TestSpondeInQuota(unittest.TestCase):
         self.assertEqual(int(nuovo[10, 18]), 100)   # alzata a contenere
         self.assertEqual(int(nuovo[10, 30]), 100)   # lontano non si tocca
         self.assertEqual(int(nuovo[10, 20]), 100)   # il letto non si tocca
+
+
+class TestFiumeALivelloDelTerreno(unittest.TestCase):
+    """Nato da uno screenshot dopo il fix delle sponde di terra: il fiume
+    aveva ancora l'aspetto di un fossato incassato, con le rive a un'unica
+    quota piatta e uno scalino netto verso il terreno vero. Qui si verifica
+    che il pelo resti vicino alla quota circostante e che la riva digradi
+    invece di essere un terrazzo a un solo livello."""
+
+    def scena(self, n=60):
+        h = np.full((n, n), 100.0, np.float32)
+        fiumi = np.zeros((n, n), bool)
+        fiumi[:, 30] = True
+        mare = np.zeros((n, n), bool)
+        mare[:2, :] = True
+        return h, fiumi, mare
+
+    def test_il_pelo_resta_vicino_alla_quota_circostante(self):
+        """Con l'incassamento ridotto il pelo non deve stare a due o piu'
+        blocchi sotto il terreno intorno, come prima di questo fix."""
+        h, fiumi, mare = self.scena()
+        livello, _ = F.livella(fiumi, h, mare, livello_mare=62)
+        centro = float(livello[30, 30])
+        self.assertGreater(centro, float(h[30, 30]) - 1.5,
+                           "il pelo dell'acqua e' ancora incassato di piu' "
+                           "di un blocco e mezzo sotto il terreno intorno")
+
+    def test_la_riva_digrada_invece_di_essere_un_terrazzo(self):
+        """Le celle della fascia di riva a distanze diverse dal fiume non
+        devono finire tutte alla stessa quota (il "fossato dai bordi
+        verticali" dello screenshot): devono crescere via via che ci si
+        allontana dal fiume."""
+        h, fiumi, mare = self.scena()
+        _, nuovo = F.livella(fiumi, h, mare, livello_mare=62, scavo_rive=3)
+        riga = nuovo[30, 27:31]              # dal bordo della fascia al fiume
+        # non tutte uguali: una vera china, non un gradino a un solo livello
+        self.assertGreater(len(set(np.round(riga, 2).tolist())), 1)
+        vicino_al_fiume, lontano = float(nuovo[30, 29]), float(nuovo[30, 27])
+        self.assertLessEqual(vicino_al_fiume, lontano + 1e-6,
+                             "la sponda vicino all'acqua deve stare piu' "
+                             "bassa (o uguale) di quella lontana, non il "
+                             "contrario")

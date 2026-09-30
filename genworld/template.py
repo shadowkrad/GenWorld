@@ -34,6 +34,7 @@ serve a niente quando si vuole una casa di pianta non rettangolare.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 
@@ -83,6 +84,12 @@ class Modello:
     # (nome universale, proprieta') per ogni indice
     tavolozza: list[tuple[str, dict]]
     porta: int | None = None          # verso della porta nel modello (0..3)
+    # In quali stili (bosco/montagna/deserto/prato) ha senso comparire.
+    # Vuoto = nessun vincolo: compare ovunque. E' cosi' che un file buttato
+    # dentro la cartella senza toccare nient'altro funziona subito, come
+    # promette il README - il vincolo e' un'aggiunta esplicita, non un
+    # obbligo.
+    stili: frozenset[str] = field(default_factory=frozenset)
 
     @property
     def dx(self) -> int: return int(self.celle.shape[0])
@@ -180,18 +187,49 @@ def _trova_porta(m: Modello) -> int | None:
     return None
 
 
+def carica_stili(percorso: str) -> dict[str, frozenset[str]]:
+    """Legge `stili.json` da una cartella di template, se c'e'.
+
+    Formato: {"nome_file_senza_estensione": ["bosco", "prato"], ...}. Un file
+    non nominato nel manifesto non ha vincoli - vedi il commento su
+    `Modello.stili`. Un manifesto assente o rotto non e' un errore: vuol dire
+    solo che quella cartella non ha vincoli di stile.
+    """
+    percorso_json = os.path.join(percorso, "stili.json")
+    if not os.path.isfile(percorso_json):
+        return {}
+    try:
+        with open(percorso_json, encoding="utf-8") as f:
+            grezzo = json.load(f)
+        return {nome: frozenset(stili) for nome, stili in grezzo.items()}
+    except Exception as guaio:                           # noqa: BLE001
+        print(f"  stili.json ignorato in {percorso}: {guaio}")
+        return {}
+
+
 def carica_cartella(percorso: str, versione=(1, 21, 4)) -> list[Modello]:
     """Tutti i `.nbt` di una cartella. Un file rotto non ferma gli altri."""
     if not os.path.isdir(percorso):
         return []
+    stili = carica_stili(percorso)
     fuori: list[Modello] = []
     for nome in sorted(os.listdir(percorso)):
         if not nome.lower().endswith(".nbt"):
             continue
         try:
-            fuori.append(carica(os.path.join(percorso, nome), versione))
+            m = carica(os.path.join(percorso, nome), versione)
+            m.stili = stili.get(m.nome, frozenset())
+            fuori.append(m)
         except Exception as guaio:                      # noqa: BLE001
             print(f"  template saltato: {nome} ({guaio})")
+    return fuori
+
+
+def carica_cartelle(percorsi: list[str], versione=(1, 21, 4)) -> list[Modello]:
+    """Come `carica_cartella`, ma unendo piu' cartelle in un unico catalogo."""
+    fuori: list[Modello] = []
+    for percorso in percorsi:
+        fuori.extend(carica_cartella(percorso, versione))
     return fuori
 
 
@@ -235,45 +273,81 @@ class Catalogo:
 
 def scegli(modelli: list[Modello], larghezza: int, profondita: int,
            verso_porta: int, rng: np.random.Generator,
-           altezza_massima: int = 24) -> tuple[int, int] | None:
+           altezza_massima: int = 24, stile: str | None = None
+           ) -> tuple[int, int] | None:
     """Un modello che entra nel lotto, girato in modo da guardare la strada.
 
-    Ritorna (indice, quarti di giro) oppure None se non entra niente - e in
-    quel caso chi chiama torna al generatore parametrico, che nel lotto ci
-    entra sempre perche' e' il lotto a dargli le misure.
+    Lo stile e' un vincolo rigido, non una preferenza: una casa deserto non
+    deve mai spuntare in un bosco. Un modello senza `stili` (il caso comune,
+    vedi `Modello.stili`) passa sempre. L'orientamento e la misura invece
+    sono vincoli morbidi - vedi i due fallback sotto. Non esiste piu' un
+    generatore parametrico a cui tornare quando niente entra: le case sono
+    tutte da template, quindi la scelta deve arrendersi per ultima, non per
+    prima. Ritorna None solo se lo stile richiesto non ha NESSUN modello
+    (caso che con almeno un template universale per stile non succede mai).
     """
-    candidati: list[tuple[int, int]] = []
-    for k, m in enumerate(modelli):
+    ok_stile = [k for k, m in enumerate(modelli)
+                if not m.stili or stile is None or stile in m.stili]
+    if not ok_stile:
+        return None
+
+    def _giusti(k: int):
+        m = modelli[k]
         if m.dy > altezza_massima:
-            continue
+            return
         for quarti in range(4):
             ix, iz = m.ingombro(quarti)
             if ix > larghezza or iz > profondita:
                 continue
             if m.porta is not None and (m.porta + quarti) % 4 != verso_porta:
                 continue
-            candidati.append((k, quarti))
+            yield quarti
+
+    candidati = [(k, q) for k in ok_stile for q in _giusti(k)]
     if not candidati:
         # nessuno guarda dalla parte giusta: meglio una casa girata male che
-        # un buco nella fila di case
-        for k, m in enumerate(modelli):
-            if m.dy > altezza_massima:
-                continue
-            for quarti in range(4):
-                ix, iz = m.ingombro(quarti)
-                if ix <= larghezza and iz <= profondita:
-                    candidati.append((k, quarti))
+        # un buco nella fila di case. Lo stile invece resta rigido anche qui.
+        candidati = [(k, quarti) for k in ok_stile for quarti in range(4)
+                    if modelli[k].dy <= altezza_massima
+                    and modelli[k].ingombro(quarti)[0] <= larghezza
+                    and modelli[k].ingombro(quarti)[1] <= profondita]
     if not candidati:
-        return None
+        # nemmeno il piu' piccolo dei modelli giusti per stile entra nel
+        # lotto (lotto minuscolo, o l'unico modello dello stile e' grande -
+        # capita col deserto, che per ora ha una sola casa). Meglio una casa
+        # vera che sporge un po' fuori dal lotto che un buco nella fila, e
+        # meglio ancora del generatore parametrico che non c'e' piu': si
+        # prende il modello con la minor eccedenza rispetto al lotto.
+        def _eccesso(k: int, quarti: int) -> int:
+            ix, iz = modelli[k].ingombro(quarti)
+            return max(0, ix - larghezza) + max(0, iz - profondita)
+        tutti = [(k, quarti) for k in ok_stile for quarti in range(4)
+                if modelli[k].dy <= altezza_massima]
+        if not tutti:
+            # neanche per altezza: nessun modello dello stile giusto entra
+            # sotto il limite di altezza. Non dovrebbe succedere con un
+            # limite ragionevole, ma non e' un errore, solo un lotto senza
+            # casa - come i buchi che l'orientamento gia' tollerava.
+            return None
+        minimo = min(_eccesso(k, q) for k, q in tutti)
+        candidati = [(k, q) for k, q in tutti if _eccesso(k, q) == minimo]
     return candidati[int(rng.integers(0, len(candidati)))]
 
 
 def costruisci(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
-               k: int, quarti: int, x: int, z: int, base: int) -> None:
+               k: int, quarti: int, x: int, z: int, base: int,
+               vietato: np.ndarray | None = None) -> None:
     """Posa il modello dentro l'array di chunk (16, H, 16).
 
     `x`, `z` sono l'angolo minimo in coordinate di mappa; `base` e' la quota
     del pavimento, cioe' dove va lo strato y=0 del modello.
+
+    `vietato` (16x16, opzionale) marca le colonne [lx, lz] che appartengono
+    al lotto di un ALTRO edificio (vedi `proprietario` in
+    `motore.pianifica()`): un modello puo' sporgere oltre il proprio lotto
+    (l'ultimo ripiego di `scegli()`, "meglio una casa vera che sporge un
+    po'"), ma non deve mai sporgere DENTRO quello del vicino - altrimenti la
+    seconda casa disegnata mangia un pezzo di quella disegnata per prima.
     """
     celle = cat.celle(k, quarti)
     ids = cat.id_palette(k, quarti)
@@ -295,6 +369,12 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
 
     ax0, az0 = x + lx0 - ox, z + lz0 - oz
     ay0 = base + ly0 - y0
+    if vietato is not None:
+        sotto = vietato[ax0:ax0 + (lx1 - lx0), az0:az0 + (lz1 - lz0)]
+        if sotto.any():
+            dentro = dentro & ~sotto[:, None, :]
+            if not dentro.any():
+                return
     bersaglio = out[ax0:ax0 + (lx1 - lx0),
                     ay0:ay0 + (ly1 - ly0),
                     az0:az0 + (lz1 - lz0)]
@@ -303,12 +383,16 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
 
 def fondazione(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
                k: int, quarti: int, x: int, z: int, base: int,
-               blocco: int, aria: int, giu: int = 8) -> None:
+               blocco: int, aria: int, giu: int = 8,
+               vietato: np.ndarray | None = None) -> None:
     """Riempie il vuoto sotto il modello.
 
     Il lotto e' spianato, ma il raccordo lascia il bordo un po' piu' basso, e
     una casa di template non ha il basamento che si costruisce da sola come
     quella parametrica: senza questo, lungo un lato appoggia sull'aria.
+
+    `vietato`: stessa maschera di `costruisci()` - niente basamento sotto il
+    lotto di un altro edificio.
     """
     celle = cat.celle(k, quarti)
     dx, _, dz = celle.shape
@@ -320,6 +404,8 @@ def fondazione(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
         for pz in range(dz):
             lz = z + pz - oz
             if not (0 <= lz < 16):
+                continue
+            if vietato is not None and vietato[lx, lz]:
                 continue
             for d in range(1, giu + 1):
                 ly = base - d - y0

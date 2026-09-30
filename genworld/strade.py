@@ -218,7 +218,9 @@ def pianifica(
 
     tipo[strada] = STRADA
     if vie is not None:
-        # dentro le mura si lastrica: una capitale con le vie sterrate no
+        # i viali di rango >= secondaria restano una classe a parte - serve
+        # a `motore._posa_strada` per distinguerli dai vicoli - ma non sono
+        # piu' lastricati di pietra: vedi il commento li' per il perche'.
         tipo[(vie >= 2) & ~ponte] = LASTRICATO
     tipo[ponte] = PONTE
     bordo = ponte & ~binary_dilation(~strada, iterations=0) if False else None

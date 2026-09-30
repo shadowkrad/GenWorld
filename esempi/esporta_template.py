@@ -134,7 +134,24 @@ def una_casa(larg, prof, piani, stile, mestiere, seme):
     lato_x = larg + 2 * margine
     lato_z = prof + 2 * margine
     out = np.full((lato_x, alto, lato_z), tav.aria, np.int32)
+
+    # Un pavimento finto, SOLO per fermare lo scavo delle fondamenta.
+    #
+    # edifici.costruisci() scende fino a sei blocchi sotto ogni cella del
+    # sedime finche' non trova del pieno - va bene su un lotto vero, gia'
+    # spianato, dove il terreno e' li' a un blocco o due. Qui sotto non c'era
+    # NIENTE: tutta aria fino al fondo dell'array. Risultato, ogni casa
+    # esportata si portava dietro un pozzo di sei blocchi di cobblestone per
+    # tutto il sedime - piu' cobblestone che pareti vere - ed e' quello che
+    # si vedeva come "casa fatta di un blocco grigio unico" nell'anteprima.
+    #
+    # Due blocchi sotto il pavimento basta a farlo fermare dopo un solo
+    # strato, come su un lotto vero: lo si toglie subito dopo, prima del
+    # ritaglio, cosi' non finisce nel file.
+    terreno = ed.base - 2
+    out[:, terreno, :] = tav.blocco[(stile, "basamento")]
     E.costruisci(out, 0, 0, 0, ed, tav)
+    out[:, terreno, :] = tav.aria
 
     # ritaglio: via l'aria di contorno, ma si tiene il piano di posa a y=base-1
     pieno = out != tav.aria

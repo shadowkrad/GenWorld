@@ -110,13 +110,22 @@ class Profilo:
         return sum(len(v) for v in self.campioni.values())
 
     def leggi_immagine(self, percorso: str, lato: int) -> np.ndarray:
-        """Carica l'immagine applicando il rettangolo di interesse."""
+        """Carica l'immagine applicando il rettangolo di interesse.
+
+        Come `mappa.carica()`: il ridimensionamento mantiene le proporzioni
+        (il ROI puo' non essere quadrato quanto il mondo) invece di stirare
+        l'immagine a incastro - l'array tornato puo' quindi non essere
+        quadrato."""
         im = Image.open(percorso).convert("RGB")
         if self.roi:
             w, h = im.size
             x0, y0, x1, y1 = self.roi
             im = im.crop((int(x0 * w), int(y0 * h), int(x1 * w), int(y1 * h)))
-        return np.asarray(im.resize((lato, lato), Image.LANCZOS)).astype(np.float32) / 255.0
+        w, h = im.size
+        scala = lato / max(w, h)
+        nw, nh = max(1, round(w * scala)), max(1, round(h * scala))
+        im = im.resize((nw, nh), Image.LANCZOS)
+        return np.asarray(im).astype(np.float32) / 255.0
 
     def _campioni_nel_ritaglio(self) -> dict[int, list[tuple[float, float]]]:
         """Riporta i punti dalle coordinate dell'originale a quelle del ritaglio."""
