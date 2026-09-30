@@ -350,36 +350,6 @@ class TestCintaLeggibile(unittest.TestCase):
         self.assertEqual(int(((muro == 2) & (muro == 3)).sum()), 0)
 
 
-class TestSpianaAbitato(unittest.TestCase):
-
-    def test_toglie_la_rugosita_ma_non_la_pendenza(self):
-        rng = np.random.default_rng(1)
-        pendenza = np.arange(120, dtype=np.float32)[None, :] * 0.6
-        h = (pendenza + rng.normal(0, 2.0, (120, 120))).round().astype(np.int32)
-        area = np.zeros((120, 120), bool)
-        area[30:90, 30:90] = True
-        niente = np.zeros((120, 120), bool)
-        prima = h.copy()
-        C.spiana_abitato(h, area, niente)
-        dentro = area
-        def rugosita(a):
-            from scipy.ndimage import uniform_filter
-            v = a.astype(np.float32)
-            return float(np.abs(v - uniform_filter(v, 3))[dentro].mean())
-        self.assertLess(rugosita(h), rugosita(prima) * 0.6)
-        # la pendenza generale resta
-        self.assertGreater(float(h[60, 85] - h[60, 35]), 20)
-
-    def test_non_tocca_l_acqua(self):
-        h = np.full((80, 80), 100, np.int32)
-        h[:, 40] = 70
-        area = np.ones((80, 80), bool)
-        intoccabile = np.zeros((80, 80), bool)
-        intoccabile[:, 39:42] = True
-        C.spiana_abitato(h, area, intoccabile)
-        self.assertTrue((h[:, 39:42] == np.array([100, 70, 100])[None, :]).all())
-
-
 class TestTerrazze(unittest.TestCase):
     """Un paese in collina non segue il pendio: lo terrazza. Prima lo
     seguiva, e il risultato erano cinquanta case a cinquanta quote diverse

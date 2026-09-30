@@ -233,8 +233,6 @@ _CACHE_MODELLI: dict[tuple, Modello] = {}
 
 
 def _leggi(percorso: str, versione) -> Modello:
-    import PyMCTranslate
-    from amulet.api.block import Block
     from amulet_nbt import load as nbt_load
 
     radice = nbt_load(percorso).compound
@@ -521,77 +519,6 @@ def assegna(modelli: list[Modello], edifici: list, rng: np.random.Generator,
     return fuori
 
 
-def scegli(modelli: list[Modello], larghezza: int, profondita: int,
-           verso_porta: int, rng: np.random.Generator,
-           altezza_massima: int = 24, stile: str | None = None,
-           sporgere: bool = True
-           ) -> tuple[int, int] | None:
-    """Un modello che entra nel lotto, girato in modo da guardare la strada.
-
-    Lo stile e' un vincolo rigido, non una preferenza: una casa deserto non
-    deve mai spuntare in un bosco. Un modello senza `stili` (il caso comune,
-    vedi `Modello.stili`) passa sempre. L'orientamento e la misura invece
-    sono vincoli morbidi - vedi i due fallback sotto. Non esiste piu' un
-    generatore parametrico a cui tornare quando niente entra: le case sono
-    tutte da template, quindi la scelta deve arrendersi per ultima, non per
-    prima. Ritorna None solo se lo stile richiesto non ha NESSUN modello
-    (caso che con almeno un template universale per stile non succede mai).
-
-    Con `sporgere=False` l'ultimo ripiego (il modello che eccede il lotto)
-    non c'e': se nessun modello entra per intero ritorna None. E' quello che
-    usa il motore, tramite `assegna`: una casa tagliata non ha rimedio, un
-    lotto senza casa si riempie con un arredo.
-    """
-    ok_stile = [k for k, m in enumerate(modelli)
-                if not m.stili or stile is None or stile in m.stili]
-    if not ok_stile:
-        return None
-
-    def _giusti(k: int):
-        m = modelli[k]
-        if m.dy > altezza_massima:
-            return
-        for quarti in range(4):
-            ix, iz = m.ingombro(quarti)
-            if ix > larghezza or iz > profondita:
-                continue
-            if m.porta is not None and (m.porta + quarti) % 4 != verso_porta:
-                continue
-            yield quarti
-
-    candidati = [(k, q) for k in ok_stile for q in _giusti(k)]
-    if not candidati:
-        # nessuno guarda dalla parte giusta: meglio una casa girata male che
-        # un buco nella fila di case. Lo stile invece resta rigido anche qui.
-        candidati = [(k, quarti) for k in ok_stile for quarti in range(4)
-                    if modelli[k].dy <= altezza_massima
-                    and modelli[k].ingombro(quarti)[0] <= larghezza
-                    and modelli[k].ingombro(quarti)[1] <= profondita]
-    if not candidati and not sporgere:
-        return None
-    if not candidati:
-        # nemmeno il piu' piccolo dei modelli giusti per stile entra nel
-        # lotto (lotto minuscolo, o l'unico modello dello stile e' grande -
-        # capita col deserto, che per ora ha una sola casa). Meglio una casa
-        # vera che sporge un po' fuori dal lotto che un buco nella fila, e
-        # meglio ancora del generatore parametrico che non c'e' piu': si
-        # prende il modello con la minor eccedenza rispetto al lotto.
-        def _eccesso(k: int, quarti: int) -> int:
-            ix, iz = modelli[k].ingombro(quarti)
-            return max(0, ix - larghezza) + max(0, iz - profondita)
-        tutti = [(k, quarti) for k in ok_stile for quarti in range(4)
-                if modelli[k].dy <= altezza_massima]
-        if not tutti:
-            # neanche per altezza: nessun modello dello stile giusto entra
-            # sotto il limite di altezza. Non dovrebbe succedere con un
-            # limite ragionevole, ma non e' un errore, solo un lotto senza
-            # casa - come i buchi che l'orientamento gia' tollerava.
-            return None
-        minimo = min(_eccesso(k, q) for k, q in tutti)
-        candidati = [(k, q) for k, q in tutti if _eccesso(k, q) == minimo]
-    return candidati[int(rng.integers(0, len(candidati)))]
-
-
 def costruisci(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
                k: int, quarti: int, x: int, z: int, base: int,
                vietato: np.ndarray | None = None) -> None:
@@ -602,9 +529,8 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
 
     `vietato` (16x16, opzionale) marca le colonne [lx, lz] che appartengono
     al lotto di un ALTRO edificio (vedi `proprietario` in
-    `motore.pianifica()`): un modello puo' sporgere oltre il proprio lotto
-    (l'ultimo ripiego di `scegli()`, "meglio una casa vera che sporge un
-    po'"), ma non deve mai sporgere DENTRO quello del vicino - altrimenti la
+    `motore.pianifica()`): un modello puo' sporgere oltre il proprio sedime
+    (la gronda), ma non deve mai sporgere DENTRO il lotto del vicino - altrimenti la
     seconda casa disegnata mangia un pezzo di quella disegnata per prima.
     """
     celle = cat.celle(k, quarti)

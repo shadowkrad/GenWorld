@@ -1,0 +1,19 @@
+# Solo configurazione degli strumenti: il progetto non si installa con pip, si
+# lancia con GenWorld.bat.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-p no:cacheprovider"
+
+[tool.coverage.run]
+source = ["genworld"]
+
+[tool.ruff]
+target-version = "py310"
+
+[tool.ruff.lint]
+# F = errori veri (import e variabili inutili), E9 = sintassi, B = trappole
+# comuni, BLE = except troppo larghi. B905 (zip strict) e BLE001 (except
+# Exception) sono accettati: nella GUI un errore non deve chiudere la finestra.
+select = ["F", "E9", "B", "BLE"]
+ignore = ["B905", "BLE001"]

@@ -68,7 +68,9 @@ class TestRotazioneProprieta(unittest.TestCase):
         self.assertEqual(T.ruota_proprieta(p, 1), p)
 
 
-class TestScelta(unittest.TestCase):
+class TestCandidati(unittest.TestCase):
+    """Quali modelli possono stare in un lotto: entrano per intero, con la
+    porta verso la strada se possibile, dello stile giusto, non troppo alti."""
 
     def modello(self, dx, dz, porta=0, dy=10, stili=frozenset()):
         return T.Modello(nome=f"{dx}x{dz}",
@@ -77,73 +79,58 @@ class TestScelta(unittest.TestCase):
 
     def test_entra_solo_quello_che_ci_sta(self):
         ms = [self.modello(7, 7), self.modello(13, 9)]
-        rng = np.random.default_rng(0)
-        s = T.scegli(ms, 8, 8, 0, rng)
-        self.assertIsNotNone(s)
-        self.assertEqual(s[0], 0)
+        self.assertEqual({k for k, _ in T.candidati_lotto(ms, 8, 8, 0)}, {0})
 
-    def test_nessuno_entra_si_prende_il_meno_peggio(self):
-        """Non c'e' piu' un generatore parametrico a cui tornare: se niente
-        entra nel lotto si prende comunque un modello vero, quello con la
-        minor eccedenza, invece di lasciare il lotto vuoto."""
-        rng = np.random.default_rng(0)
-        s = T.scegli([self.modello(13, 9)], 8, 8, 0, rng)
-        self.assertIsNotNone(s)
-        self.assertEqual(s[0], 0)
-
-    def test_fra_due_che_non_entrano_vince_la_minor_eccedenza(self):
-        ms = [self.modello(20, 20), self.modello(10, 10)]
-        rng = np.random.default_rng(0)
-        s = T.scegli(ms, 8, 8, 0, rng)
-        self.assertIsNotNone(s)
-        self.assertEqual(s[0], 1)          # 10x10 sfora di meno di 20x20
+    def test_nessuno_entra_nessun_candidato(self):
+        """Niente sporgenze: una casa piu' grande del lotto verrebbe tagliata
+        dove incontra quello del vicino."""
+        self.assertEqual(T.candidati_lotto([self.modello(13, 9)], 8, 8, 0), [])
 
     def test_la_porta_guarda_la_strada(self):
         ms = [self.modello(7, 9, porta=T.NORD)]
-        rng = np.random.default_rng(0)
         for verso in range(4):
-            s = T.scegli(ms, 12, 12, verso, rng)
-            self.assertIsNotNone(s)
-            k, quarti = s
-            self.assertEqual((ms[k].porta + quarti) % 4, verso)
+            cand = T.candidati_lotto(ms, 12, 12, verso)
+            self.assertTrue(cand)
+            for k, quarti in cand:
+                self.assertEqual((ms[k].porta + quarti) % 4, verso)
 
     def test_meglio_girata_male_che_un_buco_nella_fila(self):
         """Se nessuna rotazione fa guardare la porta dalla parte giusta, si
         costruisce lo stesso: un vuoto in una schiera si vede di piu'."""
         ms = [self.modello(12, 7, porta=T.NORD)]
-        rng = np.random.default_rng(0)
         # 12x7 entra solo a 0 e 2 quarti; la porta chiede EST
-        s = T.scegli(ms, 12, 8, T.EST, rng)
-        self.assertIsNotNone(s)
+        cand = T.candidati_lotto(ms, 12, 8, T.EST)
+        self.assertTrue(cand)
+        self.assertTrue(all((ms[k].porta + q) % 4 != T.EST for k, q in cand))
 
     def test_una_casa_troppo_alta_si_scarta(self):
         ms = [self.modello(7, 7, dy=40)]
-        self.assertIsNone(T.scegli(ms, 20, 20, 0, np.random.default_rng(0),
-                                   altezza_massima=24))
+        self.assertEqual(T.candidati_lotto(ms, 20, 20, 0, altezza_massima=24), [])
 
     def test_una_casa_fuori_stile_non_compare(self):
         """A differenza dell'orientamento, lo stile e' un vincolo rigido: una
         casa deserto non deve mai spuntare in un lotto bosco, nemmeno se e'
         l'unica che entrerebbe nel lotto."""
         ms = [self.modello(7, 7, stili=frozenset({"deserto"}))]
-        rng = np.random.default_rng(0)
-        self.assertIsNone(T.scegli(ms, 8, 8, 0, rng, stile="bosco"))
-        self.assertIsNotNone(T.scegli(ms, 8, 8, 0, rng, stile="deserto"))
+        self.assertEqual(T.candidati_lotto(ms, 8, 8, 0, stile="bosco"), [])
+        self.assertTrue(T.candidati_lotto(ms, 8, 8, 0, stile="deserto"))
 
     def test_una_casa_senza_stili_compare_ovunque(self):
         """Il caso comune: un modello senza `stili` non ha vincoli, cosi' un
         file buttato nella cartella senza toccare altro funziona subito."""
         ms = [self.modello(7, 7)]
-        rng = np.random.default_rng(0)
         for stile in ("bosco", "montagna", "deserto", "prato", None):
-            self.assertIsNotNone(T.scegli(ms, 8, 8, 0, rng, stile=stile))
+            self.assertTrue(T.candidati_lotto(ms, 8, 8, 0, stile=stile))
 
     def test_lo_stile_resta_rigido_anche_nel_fallback_di_orientamento(self):
         """Il fallback 'meglio girata male' vale per l'orientamento, non deve
         far passare uno stile sbagliato."""
         ms = [self.modello(12, 7, porta=T.NORD, stili=frozenset({"deserto"}))]
-        rng = np.random.default_rng(0)
-        self.assertIsNone(T.scegli(ms, 12, 8, T.EST, rng, stile="bosco"))
+        self.assertEqual(T.candidati_lotto(ms, 12, 8, T.EST, stile="bosco"), [])
+
+    def test_i_modelli_gia_usati_si_escludono(self):
+        ms = [self.modello(7, 7), self.modello(6, 6)]
+        self.assertEqual({k for k, _ in T.candidati_lotto(ms, 8, 8, 0, escludi={0})}, {1})
 
 
 @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
@@ -161,12 +148,6 @@ class TestAssegnazionePerVillaggio(unittest.TestCase):
         return Edificio(x=0, z=0, larghezza=larghezza, profondita=profondita,
                         base=64, gronda=gronda, palafitta=palafitta,
                         villaggio=villaggio, porta=0)
-
-    def test_senza_sporgere_un_lotto_troppo_piccolo_non_ha_casa(self):
-        rng = np.random.default_rng(0)
-        self.assertIsNone(T.scegli([self.modello(13, 9)], 8, 8, 0, rng,
-                                   sporgere=False))
-        self.assertEqual(T.candidati_lotto([self.modello(13, 9)], 8, 8, 0), [])
 
     def test_i_candidati_entrano_tutti_per_intero(self):
         ms = [self.modello(7, 7), self.modello(9, 12), self.modello(20, 20)]
@@ -352,7 +333,7 @@ class TestCache(unittest.TestCase):
             self.assertNotEqual((prima.dx, prima.dy, prima.dz), (dopo.dx, dopo.dy, dopo.dz))
 
     def test_un_file_che_manca_da_l_errore_di_sempre(self):
-        with self.assertRaises(Exception):
+        with self.assertRaises(Exception):  # noqa: B017 (NBTLoadError e' privato di amulet)
             T.carica("/percorso/che/non/esiste.nbt")
 
 

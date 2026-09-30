@@ -327,8 +327,8 @@ def indice_per_chunk(miniere: list[Miniera], passo: int = 16) -> dict:
         # margine di RAGGIO_INGRESSO (la capanna d'ingresso, vedi
         # `_carica_ingresso`): senza, un pozzo vicino al bordo di un chunk
         # registra la miniera solo li', e la capanna che sporge nel chunk
-        # accanto non verrebbe mai disegnata - "smezzata" come le case da
-        # template prima di `estendi_indice_per_modello`.
+        # accanto non verrebbe mai disegnata - "smezzata", il difetto che
+        # ebbero le case da template.
         celle = {((mn.x + dx) // passo, (mn.z + dz) // passo)
                 for dx in (-RAGGIO_INGRESSO, RAGGIO_INGRESSO)
                 for dz in (-RAGGIO_INGRESSO, RAGGIO_INGRESSO)}
@@ -483,8 +483,8 @@ def _carica_ingresso(out, tav, mn: Miniera, ox: int, oz: int, y0: int,
     sulla colonna del pozzo: la capanna e' 5x5, quindi un pozzo vicino al
     bordo di un chunk la mette a cavallo di due. Funziona solo se
     `indice_per_chunk` registra la miniera anche nel chunk vicino - senza
-    quel margine si vedrebbe "smezzata" esattamente come le case da
-    template senza `insediamenti.estendi_indice_per_modello`.
+    quel margine si vedrebbe "smezzata", il difetto che ebbero le case da
+    template.
 
     Non conosce l'altezza vera del terreno colonna per colonna (`h_c` non
     arriva qui, solo `mn.y_superficie`, la quota nel punto del pozzo): su un

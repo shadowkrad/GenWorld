@@ -581,16 +581,15 @@ class TestSicurezzaFileEstranei(unittest.TestCase):
                              f"{nome} non e' marcato escluso in stili.json")
 
     def test_uno_stile_escluso_non_viene_mai_scelto(self):
-        """Prova diretta su `template.scegli()`: un modello con
+        """Prova diretta su `template.candidati_lotto()`: un modello con
         `stili={'_escluso'}` non deve mai comparire fra i candidati per
         nessuno dei quattro stili veri."""
         finto = TM.Modello(nome="finto-escluso",
                            celle=np.zeros((3, 3, 3), np.int32),
                            tavolozza=[("air", {})], stili=frozenset({"_escluso"}))
-        rng = np.random.default_rng(0)
         for stile in ("bosco", "montagna", "deserto", "prato"):
-            s = TM.scegli([finto], 10, 10, 0, rng, stile=stile)
-            self.assertIsNone(s, f"il modello escluso e' stato scelto per {stile}")
+            self.assertEqual(TM.candidati_lotto([finto], 10, 10, 0, stile=stile), [],
+                             f"il modello escluso e' stato scelto per {stile}")
 
 
 if __name__ == "__main__":

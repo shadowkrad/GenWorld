@@ -418,16 +418,17 @@ class TestScrittura(unittest.TestCase):
             modelli = TM.carica_cartelle([TEMPLATES])
             k_forzato = next(i for i, m in enumerate(modelli)
                              if "abandoned-house" in m.nome)
-            scegli_vero = TM.scegli
+            assegna_vera = TM.assegna
 
-            def forzato(modelli, larghezza, profondita, verso_porta, rng, **kw):
-                return (k_forzato, 0)
+            def forzato(modelli, edifici, rng, **kw):
+                return {i: (k_forzato, 0) for i, e in enumerate(edifici)
+                        if not e.palafitta}
 
-            TM.scegli = forzato
+            TM.assegna = forzato
             try:
                 st = genera(op)
             finally:
-                TM.scegli = scegli_vero
+                TM.assegna = assegna_vera
             self.assertEqual(st["restano"], 0)
 
             lv = amulet.load_level(op.uscita)
