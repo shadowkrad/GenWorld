@@ -21,12 +21,19 @@ from __future__ import annotations
 
 import numpy as np
 
-from .mappa import (DESERTO, FORESTA, MONTAGNA, NEVE, PIANURA, PRATERIA,
-                    SPIAGGIA)
+from .mappa import (ACQUA, DESERTO, FORESTA, MONTAGNA, NEVE, PIANURA,
+                    PRATERIA, SPIAGGIA)
 from .rumore import fbm
 
 # specie
-QUERCIA, BETULLA, ABETE, CACTUS, ARBUSTO, CESPUGLIO, MELO, CILIEGIO, BACCHE = range(9)
+(QUERCIA, BETULLA, ABETE, CACTUS, ARBUSTO, CESPUGLIO, MELO, CILIEGIO, BACCHE,
+ DENTE_DI_LEONE, PAPAVERO, TULIPANO, FIORDALISO, ALLIUM, GIGLIO_VALLE,
+ FUNGO_MARRONE, FUNGO_ROSSO, CANNA) = range(18)
+
+# i fiori a un blocco solo: stesso trattamento di arbusto/cespuglio nel
+# disegno, distinti solo per varieta' e per come si mescolano per classe
+FIORI = (DENTE_DI_LEONE, PAPAVERO, TULIPANO, FIORDALISO, ALLIUM, GIGLIO_VALLE)
+FUNGHI = (FUNGO_MARRONE, FUNGO_ROSSO)
 
 NOMI_SPECIE = {
     QUERCIA: "quercia", BETULLA: "betulla", ABETE: "abete",
@@ -35,6 +42,10 @@ NOMI_SPECIE = {
     # cadere davvero. Il ciliegio invece c'e' dalla 1.20 ed e' l'unico
     # albero che sembra un frutteto anche quando non lo e'.
     MELO: "melo", CILIEGIO: "ciliegio", BACCHE: "bacche",
+    DENTE_DI_LEONE: "dente_di_leone", PAPAVERO: "papavero",
+    TULIPANO: "tulipano", FIORDALISO: "fiordaliso", ALLIUM: "allium",
+    GIGLIO_VALLE: "giglio_valle", FUNGO_MARRONE: "fungo_marrone",
+    FUNGO_ROSSO: "fungo_rosso", CANNA: "canna",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -49,11 +60,18 @@ DENSITA = {
     SPIAGGIA: 0.0008,
 }
 
-# Specie per classe, con i rispettivi pesi.
+# Specie per classe, con i rispettivi pesi. I fiori entrano nel PRATO e nella
+# RADURA di bosco con colori diversi apposta - un prato viola di allium
+# dappertutto si legge finto quanto un bosco tutto quercia - e restano fuori
+# da montagna, neve e deserto, dove in Minecraft non nascono naturalmente.
 MISCELA = {
-    FORESTA:  [(QUERCIA, 0.55), (BETULLA, 0.25), (ABETE, 0.20)],
-    PRATERIA: [(QUERCIA, 0.70), (BETULLA, 0.20), (CESPUGLIO, 0.10)],
-    PIANURA:  [(QUERCIA, 0.65), (CESPUGLIO, 0.35)],
+    FORESTA:  [(QUERCIA, 0.50), (BETULLA, 0.22), (ABETE, 0.18),
+               (GIGLIO_VALLE, 0.06), (FUNGO_MARRONE, 0.03), (FUNGO_ROSSO, 0.01)],
+    PRATERIA: [(QUERCIA, 0.55), (BETULLA, 0.15), (CESPUGLIO, 0.08),
+               (DENTE_DI_LEONE, 0.08), (PAPAVERO, 0.06), (TULIPANO, 0.04),
+               (FIORDALISO, 0.02), (ALLIUM, 0.02)],
+    PIANURA:  [(QUERCIA, 0.55), (CESPUGLIO, 0.25), (DENTE_DI_LEONE, 0.10),
+               (PAPAVERO, 0.10)],
     MONTAGNA: [(ABETE, 0.85), (CESPUGLIO, 0.15)],
     NEVE:     [(ABETE, 1.0)],
     DESERTO:  [(CACTUS, 0.55), (ARBUSTO, 0.45)],
@@ -64,7 +82,15 @@ MATERIALE = {QUERCIA: "oak", BETULLA: "birch", ABETE: "spruce",
              MELO: "oak", CILIEGIO: "cherry"}
 ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            CACTUS: (2, 5), ARBUSTO: (1, 2), CESPUGLIO: (1, 2),
-           MELO: (4, 6), CILIEGIO: (5, 7), BACCHE: (1, 2)}
+           MELO: (4, 6), CILIEGIO: (5, 7), BACCHE: (1, 2),
+           DENTE_DI_LEONE: (1, 2), PAPAVERO: (1, 2), TULIPANO: (1, 2),
+           FIORDALISO: (1, 2), ALLIUM: (1, 2), GIGLIO_VALLE: (1, 2),
+           FUNGO_MARRONE: (1, 2), FUNGO_ROSSO: (1, 2), CANNA: (1, 4)}
+
+# Dove puo' crescere la canna da zucchero: SOLO sul bordo dell'acqua, come in
+# Minecraft davvero - non e' una questione di classe di terreno ma di essere
+# a un blocco esatto da un fiume, un lago o il mare.
+CANNA_CLASSI = (SPIAGGIA, PIANURA, PRATERIA, FORESTA)
 
 # Ingombro orizzontale massimo, in blocchi dal centro. Serve a sapere quali
 # alberi di chunk vicini possono sporgere dentro questo.
@@ -168,6 +194,66 @@ def semina(
     }
 
 
+def semina_canna(
+    cls: np.ndarray,
+    altezze: np.ndarray,
+    livello_mare: int = 62,
+    passo: int = 2,
+    probabilita: float = 0.35,
+    seed: int = 0,
+) -> dict[str, np.ndarray]:
+    """Canna da zucchero: solo sul bordo dell'acqua, un blocco esatto di
+    distanza, come cresce davvero in Minecraft. Non e' una questione di
+    densita' per classe come gli alberi - e' una questione di ADIACENZA, e
+    per questo e' una semina a parte invece di un'altra riga in `MISCELA`.
+    """
+    rng = np.random.default_rng(seed + 991)
+    H, W = cls.shape
+    acqua = np.isin(cls, ACQUA)
+    # bordo = terra affacciata sull'acqua, spostando la maschera d'acqua di
+    # un blocco nelle quattro direzioni e guardando dove tocca terra
+    bordo = np.zeros_like(acqua)
+    bordo[1:, :] |= acqua[:-1, :]
+    bordo[:-1, :] |= acqua[1:, :]
+    bordo[:, 1:] |= acqua[:, :-1]
+    bordo[:, :-1] |= acqua[:, 1:]
+    bordo &= ~acqua & np.isin(cls, CANNA_CLASSI)
+
+    gx, gz = np.meshgrid(np.arange(0, W - 1, passo),
+                         np.arange(0, H - 1, passo), indexing="xy")
+    gx = gx.ravel(); gz = gz.ravel()
+    n = gx.size
+    x = np.clip(gx + rng.integers(0, passo, n), 0, W - 1)
+    z = np.clip(gz + rng.integers(0, passo, n), 0, H - 1)
+
+    tieni = bordo[z, x] & (altezze[z, x] > livello_mare)
+    tieni &= rng.random(n) < probabilita
+    x, z = x[tieni], z[tieni]
+    if x.size == 0:
+        vuoto = np.zeros(0, np.int32)
+        return {"x": vuoto, "z": vuoto, "y": vuoto, "specie": vuoto,
+                "altezza": vuoto, "seme": vuoto}
+
+    return {
+        "x": x.astype(np.int32), "z": z.astype(np.int32),
+        "y": altezze[z, x].astype(np.int32),
+        "specie": np.full(x.size, CANNA, np.int32),
+        "altezza": rng.integers(1, 4, x.size).astype(np.int32),
+        "seme": rng.integers(0, 2 ** 31 - 1, x.size).astype(np.int64),
+    }
+
+
+def unisci(*gruppi: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Concatena piu' risultati di semina (alberi + canna) in un elenco
+    solo, cosi' l'indice per chunk e il disegno lavorano su una lista sola
+    invece di doverne conoscere il numero."""
+    chiavi = ("x", "z", "y", "specie", "altezza", "seme")
+    if not gruppi:
+        vuoto = np.zeros(0, np.int32)
+        return {k: vuoto for k in chiavi}
+    return {k: np.concatenate([g[k] for g in gruppi]) for k in chiavi}
+
+
 def indice_per_chunk(alberi: dict, lato: int, passo_chunk: int = 16) -> dict:
     """Raggruppa gli alberi per chunk, una volta sola.
 
@@ -217,6 +303,19 @@ class Tavolozza:
         self.arbusto = s.blocco("plant", plant_type="dead_bush")
         self.erba_alta = s.blocco("plant", plant_type="grass")
         self.felce = s.blocco("plant", plant_type="fern")
+        self.canna = s.blocco("sugar_cane", age="0")
+        self.fiore = {
+            DENTE_DI_LEONE: s.blocco("plant", plant_type="dandelion"),
+            PAPAVERO: s.blocco("plant", plant_type="poppy"),
+            TULIPANO: s.blocco("plant", plant_type="red_tulip"),
+            FIORDALISO: s.blocco("plant", plant_type="cornflower"),
+            ALLIUM: s.blocco("plant", plant_type="allium"),
+            GIGLIO_VALLE: s.blocco("plant", plant_type="lily_of_the_valley"),
+        }
+        self.fungo = {
+            FUNGO_MARRONE: s.blocco("brown_mushroom"),
+            FUNGO_ROSSO: s.blocco("red_mushroom"),
+        }
         self.aria = s.id_aria
 
 
@@ -266,6 +365,19 @@ def disegna(
             continue
         if sp == BACCHE:
             posa(x, base, z, tav.bacche)
+            messi += 1
+            continue
+        if sp in FIORI:
+            posa(x, base, z, tav.fiore[sp])
+            messi += 1
+            continue
+        if sp in FUNGHI:
+            posa(x, base, z, tav.fungo[sp])
+            messi += 1
+            continue
+        if sp == CANNA:
+            for k in range(alt):
+                posa(x, base + k, z, tav.canna)
             messi += 1
             continue
 

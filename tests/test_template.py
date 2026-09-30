@@ -70,10 +70,10 @@ class TestRotazioneProprieta(unittest.TestCase):
 
 class TestScelta(unittest.TestCase):
 
-    def modello(self, dx, dz, porta=0, dy=10):
+    def modello(self, dx, dz, porta=0, dy=10, stili=frozenset()):
         return T.Modello(nome=f"{dx}x{dz}",
                          celle=np.zeros((dx, dy, dz), np.int32),
-                         tavolozza=[("air", {})], porta=porta)
+                         tavolozza=[("air", {})], porta=porta, stili=stili)
 
     def test_entra_solo_quello_che_ci_sta(self):
         ms = [self.modello(7, 7), self.modello(13, 9)]
@@ -81,7 +81,22 @@ class TestScelta(unittest.TestCase):
         s = T.scegli(ms, 8, 8, 0, rng)
         self.assertIsNotNone(s)
         self.assertEqual(s[0], 0)
-        self.assertIsNone(T.scegli([ms[1]], 8, 8, 0, rng))
+
+    def test_nessuno_entra_si_prende_il_meno_peggio(self):
+        """Non c'e' piu' un generatore parametrico a cui tornare: se niente
+        entra nel lotto si prende comunque un modello vero, quello con la
+        minor eccedenza, invece di lasciare il lotto vuoto."""
+        rng = np.random.default_rng(0)
+        s = T.scegli([self.modello(13, 9)], 8, 8, 0, rng)
+        self.assertIsNotNone(s)
+        self.assertEqual(s[0], 0)
+
+    def test_fra_due_che_non_entrano_vince_la_minor_eccedenza(self):
+        ms = [self.modello(20, 20), self.modello(10, 10)]
+        rng = np.random.default_rng(0)
+        s = T.scegli(ms, 8, 8, 0, rng)
+        self.assertIsNotNone(s)
+        self.assertEqual(s[0], 1)          # 10x10 sfora di meno di 20x20
 
     def test_la_porta_guarda_la_strada(self):
         ms = [self.modello(7, 9, porta=T.NORD)]
@@ -105,6 +120,30 @@ class TestScelta(unittest.TestCase):
         ms = [self.modello(7, 7, dy=40)]
         self.assertIsNone(T.scegli(ms, 20, 20, 0, np.random.default_rng(0),
                                    altezza_massima=24))
+
+    def test_una_casa_fuori_stile_non_compare(self):
+        """A differenza dell'orientamento, lo stile e' un vincolo rigido: una
+        casa deserto non deve mai spuntare in un lotto bosco, nemmeno se e'
+        l'unica che entrerebbe nel lotto."""
+        ms = [self.modello(7, 7, stili=frozenset({"deserto"}))]
+        rng = np.random.default_rng(0)
+        self.assertIsNone(T.scegli(ms, 8, 8, 0, rng, stile="bosco"))
+        self.assertIsNotNone(T.scegli(ms, 8, 8, 0, rng, stile="deserto"))
+
+    def test_una_casa_senza_stili_compare_ovunque(self):
+        """Il caso comune: un modello senza `stili` non ha vincoli, cosi' un
+        file buttato nella cartella senza toccare altro funziona subito."""
+        ms = [self.modello(7, 7)]
+        rng = np.random.default_rng(0)
+        for stile in ("bosco", "montagna", "deserto", "prato", None):
+            self.assertIsNotNone(T.scegli(ms, 8, 8, 0, rng, stile=stile))
+
+    def test_lo_stile_resta_rigido_anche_nel_fallback_di_orientamento(self):
+        """Il fallback 'meglio girata male' vale per l'orientamento, non deve
+        far passare uno stile sbagliato."""
+        ms = [self.modello(12, 7, porta=T.NORD, stili=frozenset({"deserto"}))]
+        rng = np.random.default_rng(0)
+        self.assertIsNone(T.scegli(ms, 12, 8, T.EST, rng, stile="bosco"))
 
 
 @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
@@ -150,6 +189,46 @@ class TestAndataERitorno(unittest.TestCase):
         m = self.modelli[0]
         self.assertEqual(m.ingombro(0), (m.dx, m.dz))
         self.assertEqual(m.ingombro(1), (m.dz, m.dx))
+
+
+class TestManifestoStili(unittest.TestCase):
+    """`stili.json` e' facoltativo: una cartella che non ce l'ha si comporta
+    come prima (nessun vincolo)."""
+
+    def test_cartella_senza_manifesto(self):
+        self.assertEqual(T.carica_stili("/percorso/che/non/esiste"), {})
+
+    def test_manifesto_letto_e_applicato(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "stili.json"), "w") as f:
+                json.dump({"casa": ["deserto", "prato"]}, f)
+            self.assertEqual(T.carica_stili(d), {"casa": frozenset({"deserto", "prato"})})
+
+    @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
+    def test_carica_cartella_applica_gli_stili_del_manifesto(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(
+                [sys.executable, os.path.join(RADICE, "esempi", "esporta_template.py"),
+                 "--cartella", d, "--quante", "1"],
+                check=True, capture_output=True)
+            nome = os.listdir(d)[0][:-4]
+            with open(os.path.join(d, "stili.json"), "w") as f:
+                json.dump({nome: ["deserto"]}, f)
+            modelli = T.carica_cartella(d)
+            self.assertEqual(modelli[0].stili, frozenset({"deserto"}))
+
+    @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
+    def test_carica_cartelle_unisce_piu_cartelle(self):
+        with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+            for d, n in ((d1, 2), (d2, 3)):
+                subprocess.run(
+                    [sys.executable, os.path.join(RADICE, "esempi", "esporta_template.py"),
+                     "--cartella", d, "--quante", str(n)],
+                    check=True, capture_output=True)
+            modelli = T.carica_cartelle([d1, d2])
+            self.assertEqual(len(modelli), 5)
 
 
 class FintoScrittore:
@@ -216,6 +295,40 @@ class TestPosa(unittest.TestCase):
         self.assertEqual(int(out[4, 5, 4]), 5)
         self.assertEqual(int(out[4, 3, 4]), 5)
         self.assertEqual(int(out[4, 2, 4]), 7)        # il terreno non si tocca
+
+    def test_vietato_impedisce_di_disegnare_sopra_il_lotto_vicino(self):
+        """Il difetto segnalato dall'utente: un modello che sporge oltre il
+        proprio lotto non deve mai scrivere sopra quello di un ALTRO
+        edificio, o la casa disegnata per seconda "mangia" un pezzo di
+        quella disegnata per prima."""
+        cat, m = self.catalogo()
+        out = np.full((16, 20, 16), 99, np.uint32)
+        vietato = np.zeros((16, 16), bool)
+        vietato[6, 6] = True     # proprio dove cadrebbe il secondo tronco
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 4, 4, 5, vietato=vietato)
+        ids = cat.id_palette(0, 0)
+        self.assertEqual(int(out[4, 5, 4]), int(ids[1]))   # la prima cella, permessa
+        self.assertEqual(int(out[6, 5, 6]), 99)            # la seconda, bloccata
+
+    def test_vietato_non_tocca_le_altre_colonne(self):
+        cat, m = self.catalogo()
+        out = np.full((16, 20, 16), 99, np.uint32)
+        vietato = np.zeros((16, 16), bool)   # nessuna colonna vietata
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 4, 6, 5, vietato=vietato)
+        ids = cat.id_palette(0, 0)
+        self.assertEqual(int(out[4, 5, 6]), int(ids[1]))
+        self.assertEqual(int(out[6, 5, 6]), int(ids[2]))
+
+    def test_vietato_ferma_anche_la_fondazione(self):
+        cat, m = self.catalogo()
+        out = np.full((16, 20, 16), 0, np.uint32)
+        out[:, :3, :] = 7
+        vietato = np.zeros((16, 16), bool)
+        vietato[4, 4] = True
+        T.fondazione(out, 0, 0, 0, cat, 0, 0, 4, 4, 6, blocco=5, aria=0,
+                     vietato=vietato)
+        self.assertEqual(int(out[4, 5, 4]), 0)   # non riempita: la colonna e' vietata
+        self.assertEqual(int(out[4, 3, 4]), 0)
 
 
 if __name__ == "__main__":

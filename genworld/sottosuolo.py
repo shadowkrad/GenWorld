@@ -195,21 +195,31 @@ class Tavolozza:
         self.scavabile = tuple(dict.fromkeys(self.scavabile + tuple(ids)))
 
 
-def _grumo(out, rng, off_x, off_z, y0, h_c, blocco, quanti, y_min, y_max,
-           solo_pietra):
-    """Un grumo di blocchi attorno a un punto, dentro la pietra.
+def grumo(out, gx, gz, gy, y0, h_c, blocco, quanti, solo_pietra,
+         protetto=None) -> None:
+    """Un grumo di blocchi centrato su (gx, gz, gy), dentro la pietra.
 
-    `off_x`/`off_z` spostano il centro nel sistema del chunk vicino che lo ha
-    generato: cosi' un grumo nato a un blocco dal confine sporge qui dentro
-    invece di essere tagliato di netto.
+    `gx`/`gz` sono coordinate LOCALI di chunk e possono uscire da `0..16`:
+    i blocchi che cadono fuori si scartano, ed e' cosi' che un grumo nato a
+    un passo dal confine (o al centro di una caverna in un chunk vicino)
+    sporge qui dentro invece di essere tagliato di netto. `gy` e' la quota
+    assoluta, `y0` l'origine verticale di `out`.
 
-    `solo_pietra` e' la garanzia che non si buchino case, caverne o terreno di
-    superficie: si sostituisce soltanto quello che e' pietra o ardesia.
+    `solo_pietra` e' la garanzia che non si buchino case, caverne o terreno
+    di superficie: si sostituisce soltanto quello che e' pietra o ardesia.
+
+    `protetto` (16x16, opzionale) e' la stessa maschera colonnare usata
+    altrove (`protetto_c`): quando data, un grumo non scrive nelle colonne
+    protette - serve a `miniere._carica_giacimento`, dove tutta la colonna
+    (scavo compreso) deve restare intatta sotto una struttura gia' disegnata
+    in superficie, la stessa regola che `_carica_segmento` applica gia' al
+    filone lungo il tunnel.
+
+    Pubblica apposta: la usano anche `posa()` per i filoni lungo le caverne
+    e `miniere.posa()` per i giacimenti lungo i condotti artificiali - un
+    grumo e' un grumo, che nasca da solo o accanto a un cunicolo.
     """
     H = out.shape[1]
-    gx = int(rng.integers(0, 16)) + off_x
-    gz = int(rng.integers(0, 16)) + off_z
-    gy = int(rng.integers(y_min, y_max + 1))
     raggio = max(1.0, (quanti / 4.2) ** (1 / 3) + 0.4)
     r = int(np.ceil(raggio))
     for dx in range(-r, r + 1):
@@ -219,6 +229,8 @@ def _grumo(out, rng, off_x, off_z, y0, h_c, blocco, quanti, y_min, y_max,
                     continue
                 lx, lz = gx + dx, gz + dz
                 if not (0 <= lx < 16 and 0 <= lz < 16):
+                    continue
+                if protetto is not None and protetto[lx, lz]:
                     continue
                 ly = gy + dy - y0
                 if not (1 <= ly < H):
@@ -230,9 +242,30 @@ def _grumo(out, rng, off_x, off_z, y0, h_c, blocco, quanti, y_min, y_max,
                 out[lx, ly, lz] = blocco
 
 
+def _grumo(out, rng, off_x, off_z, y0, h_c, blocco, quanti, y_min, y_max,
+           solo_pietra):
+    """Sceglie un centro a caso dentro (o a cavallo di) il chunk e chiama
+    `grumo()` - il campo ambientale di minerali e rocce, non legato a
+    nessuna caverna."""
+    gx = int(rng.integers(0, 16)) + off_x
+    gz = int(rng.integers(0, 16)) + off_z
+    gy = int(rng.integers(y_min, y_max + 1))
+    grumo(out, gx, gz, gy, y0, h_c, blocco, quanti, solo_pietra)
+
+
 def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
-         y0: int, caverne: dict, quali, seed: int = 0) -> None:
-    """Ardesia, minerali e caverne dentro l'array di chunk (16, H, 16)."""
+         y0: int, caverne: dict, quali, seed: int = 0,
+         protetto_c: np.ndarray | None = None) -> None:
+    """Ardesia, minerali e caverne dentro l'array di chunk (16, H, 16).
+
+    `protetto_c` (16x16, opzionale) segna le colonne dove sopra c'e' gia'
+    una struttura disegnata - mura, strade, campi, case (vedi `protetto` in
+    `motore.pianifica()`). Le caverne si pianificano su tutta la mappa senza
+    sapere dove sorgera' un insediamento, e si scavano DOPO che quella
+    struttura e' gia' stata scritta nel chunk: senza questa maschera un
+    cunicolo che passa sotto una cinta muraria toglie la roccia di
+    fondazione e lascia il muro appeso sul vuoto.
+    """
     H = out.shape[1]
     ys = np.arange(y0, y0 + H, dtype=np.int32)[None, :, None]
 
@@ -284,6 +317,10 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
                 lz = cz + dz - oz
                 if not (0 <= lz < 16):
                     continue
+                if protetto_c is not None and protetto_c[lx, lz]:
+                    # qui sopra c'e' gia' una struttura: niente scavo in
+                    # questa colonna, a nessuna quota.
+                    continue
                 tetto = int(h_c[lx, lz]) - CAPPELLO
                 for dy in range(-ir, ir + 1):
                     if dx * dx + dy * dy + dz * dz > r * r:
@@ -298,6 +335,31 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
                     ly = gy - y0
                     if 1 <= ly < H:
                         out[lx, ly, lz] = tav.aria
+
+        # --- minerali lungo la caverna ------------------------------------
+        # Senza questo, il campo ambientale di minerali (sopra) e i cunicoli
+        # sono due sistemi che non si parlano: capita un lungo cunicolo
+        # vuoto e un filone sepolto dall'altra parte della mappa. "caverne
+        # dove ci sono minerali da scavare" vuol dire che scavare nella
+        # parete di un cunicolo deve avere senso piu' spesso che altrove -
+        # non sempre, altrimenti ogni caverna diventa una miniera a cielo
+        # aperto e il filone smette di essere un ritrovamento.
+        rng_f = np.random.default_rng(_seme(cx, cz, seed) ^ (cy & 0xFFFF))
+        if rng_f.random() < 0.06:
+            candidati = [m for m in MINERALI if m.y_min <= cy <= m.y_max]
+            if candidati:
+                pesi = np.array([m.per_chunk for m in candidati], np.float64)
+                scelto = candidati[int(rng_f.choice(len(candidati),
+                                                     p=pesi / pesi.sum()))]
+                ang = float(rng_f.random() * 2 * np.pi)
+                dist = r + float(rng_f.uniform(1.5, 3.5))
+                gx = int(round(cx - ox + np.cos(ang) * dist))
+                gz = int(round(cz - oz + np.sin(ang) * dist))
+                gy = int(round(cy + rng_f.normal(0, 1.0)))
+                profondo = gy < QUOTA_ARDESIA - FASCIA_ARDESIA // 2
+                quanti = int(rng_f.integers(scelto.grumo[0], scelto.grumo[1] + 1))
+                grumo(out, gx, gz, gy, y0, h_c,
+                     tav.minerale[(scelto.nome, profondo)], quanti, solo_pietra)
 
 
 def _seme(x: int, z: int, seed: int) -> int:

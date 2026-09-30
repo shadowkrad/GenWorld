@@ -32,7 +32,8 @@ from scipy.spatial import Delaunay
 
 from . import edifici as E
 from .entita import MESTIERI
-from .mappa import ACQUA, FORESTA, MONTAGNA, NEVE, PIANURA, PRATERIA, SPIAGGIA
+from .mappa import (ACQUA, FIUME, FORESTA, MARINO, MONTAGNA, NEVE, PIANURA,
+                    PRATERIA, SPIAGGIA)
 from .rumore import fbm
 
 ABITABILI = (PIANURA, PRATERIA, FORESTA, SPIAGGIA)
@@ -338,6 +339,35 @@ LATO = {E.NORD: (0, 1), E.SUD: (0, 1), E.OVEST: (1, 0), E.EST: (1, 0)}
 # misura sotto la quale nessun template di casa entra.
 LATO_MINIMO = 6
 
+# Il tetto massimo che un lotto puo' raggiungere (poi `_rettangolo` cerca il
+# piu' grande che ci sta davvero, fino a qui - un isolato piccolo resta
+# piccolo comunque). Con 13/9 quasi nessuno dei template scaricati
+# (`templates/strutture`) entrava - la maggior parte e' piu' larga o piu'
+# profonda - e `template.scegli()` finiva quasi sempre sull'unico modello
+# che ci stava: non un bug di scelta, un tetto troppo basso per il catalogo.
+#
+# Misurato su Arda vera (832x832, 39 modelli contando le rotazioni): con
+# 13/9 sceglieva sempre lo stesso template su 36 case (1 modello distinto).
+# Con questi valori diventano 6 modelli distinti su 28 case - le case
+# restano comunque per lo piu' piccole (la maggioranza degli isolati e'
+# stretta di suo, non solo per via del tetto) ma quelle nei blocchi piu'
+# larghi ora possono davvero diventare piu' grandi, invece di restare
+# tagliate allo stesso modello minuscolo. Alzare ulteriormente il tetto
+# (provato fino a 22/18) non migliora la varieta' - anzi la fa scendere,
+# perche' toglie spazio a piu' lotti di quanti template in piu' fa entrare -
+# quindi non basta da solo a risolvere la ripetizione: il resto e' la forma
+# stessa degli isolati, non questo tetto.
+#
+# La PROFONDITA' resta comunque piu' bassa del fronte apposta: un isolato ha
+# due file di case, una per lato, schiena contro schiena, e un lotto troppo
+# profondo mangia l'isolato intero lasciando la seconda fila senza spazio
+# (misurato anni fa: a profondita' 13, 1.956 lotti scartati su 2.100. Qui
+# si arriva a 15 comunque, ma solo perche' e' anche il punto sopra al quale
+# la varieta' smette di migliorare - vedi sopra).
+FRONTE_MAX_CENTRO = 18
+FRONTE_MAX_PERIFERIA = 15
+FONDO_MAX = 15
+
 
 def _rettangolo(occupato: np.ndarray, area: np.ndarray, cz: int, cx: int,
                 verso: int, fronte_max: int, fondo_max: int,
@@ -431,15 +461,11 @@ def lotti(area: np.ndarray, vie: np.ndarray, cls: np.ndarray, h: np.ndarray,
         if verso is None:
             continue
 
-        # il fronte e' quello che conta, la profondita' e' quel che avanza
-        # Alzati da 8/11 a 10/13 per i template: un modello di casa ha le sue
-        # misure, e il lotto o gliele da' o quel modello non si usa mai.
-        fronte_max = 10 if t > 0.6 else 13
-        # La PROFONDITA' resta contenuta apposta: un isolato ha due file di
-        # case, una per lato, schiena contro schiena. Con lotti profondi
-        # tredici la prima fila si mangiava tutto l'isolato e la seconda non
-        # nasceva - 1.956 lotti scartati per mancanza di spazio su 2.100.
-        misura = _rettangolo(occupato, area, cz, cx, verso, fronte_max, 9)
+        # il fronte e' quello che conta, la profondita' e' quel che avanza -
+        # vedi `FRONTE_MAX_CENTRO`/`FRONTE_MAX_PERIFERIA`/`FONDO_MAX` sopra
+        # per il perche' di questi valori.
+        fronte_max = FRONTE_MAX_PERIFERIA if t > 0.6 else FRONTE_MAX_CENTRO
+        misura = _rettangolo(occupato, area, cz, cx, verso, fronte_max, FONDO_MAX)
         if misura is None:
             continue
         x0, z0, larg, prof = misura
@@ -602,7 +628,9 @@ def mura(area: np.ndarray, vie: np.ndarray, sedimi: np.ndarray,
          altezze: np.ndarray | None = None, riva: int = 4,
          pendenza_massima: float = 1.6,
          ) -> tuple[np.ndarray, np.ndarray, list[tuple[int, int]], np.ndarray]:
-    """Cinta attorno all'abitato. Ritorna (muro, porta, punti delle porte).
+    """Cinta attorno all'abitato. Ritorna (muro, porta, punti delle porte,
+    torri). `porta` include sia i varchi delle strade sia, quando un fiume
+    attraversa l'abitato, il varco sul fiume - vedi piu' sotto.
 
     Non segue il contorno dell'area - che comprende anche i campi - ma
     l'inviluppo di cio' che e' costruito: una cinta che gira larghissima
@@ -625,15 +653,20 @@ def mura(area: np.ndarray, vie: np.ndarray, sedimi: np.ndarray,
                             iterations=3, border_value=0)
     dentro = binary_fill_holes(dentro)
     dentro = binary_dilation(dentro, iterations=1)
-    # DUE celle di spessore, non una. Una cinta di una cella sola e' connessa
-    # solo in diagonale: sul terreno si vede una fila di cubi staccati che si
-    # toccano per lo spigolo, ci si passa in mezzo, e da lontano sembra
-    # muratura caduta in giro a caso invece che una cinta. E' esattamente
-    # quello che si vede negli screenshot.
-    anello = binary_dilation(dentro, iterations=2) & ~dentro
+    # TRE celle di spessore, non una e nemmeno due. Una cinta di una cella
+    # sola e' connessa solo in diagonale: sul terreno si vede una fila di
+    # cubi staccati che si toccano per lo spigolo, ci si passa in mezzo, e da
+    # lontano sembra muratura caduta in giro a caso invece che una cinta.
+    # Due era meglio ma ancora sottile per una muraglia vera - vista in
+    # gioco si legge come un cordolo, non come qualcosa che tiene fuori un
+    # assedio. Tre e' il minimo che si legge come un muro con del corpo.
+    anello = binary_dilation(dentro, iterations=3) & ~dentro
+    # il filo dell'anello dove un fiume lo attraversa - serve piu' sotto per
+    # aprire un varco vero (con architrave) invece di un buco senza spiegazione
+    varco_fiume = anello & (cls == FIUME)
     anello &= ~np.isin(cls, ACQUA)          # una cinta non cammina sull'acqua
 
-    # LA CINTA SI FERMA SULLA RIVA.
+    # LA CINTA SI FERMA SULLA RIVA - ma solo quella del MARE, non di un fiume.
     #
     # Negli screenshot le mura scendevano fino in acqua e continuavano dentro
     # il mare, a gradoni, come muratura buttata giu' dalla scogliera. Togliere
@@ -642,11 +675,20 @@ def mura(area: np.ndarray, vie: np.ndarray, sedimi: np.ndarray,
     # blocchi viene su a pezzi e non sta in piedi ne' con gli occhi ne' con la
     # testa. Una citta' di mare, del resto, le mura dalla parte del mare non le
     # ha mai avute: il mare e' gia' la difesa, e dove si apre il porto il muro
-    # smette. Quindi si toglie la fascia di cinta a ridosso dell'acqua, e il
+    # smette. Quindi si toglie la fascia di cinta a ridosso del mare, e il
     # varco che resta e' il fronte a mare.
+    #
+    # Un FIUME che attraversa l'abitato non e' la stessa cosa: non e' una
+    # difesa naturale, e' solo un corso d'acqua che passa in mezzo. Applicargli
+    # la stessa fascia larga apriva un buco ingiustificato nel mezzo della
+    # cinta, ovunque il fiume la sfiorasse - "un effetto poco normale",
+    # segnalato dall'utente. La cinta ora resta piena fino alla riva del
+    # fiume su entrambi i lati, e il solo punto dove il fiume la attraversa
+    # (`varco_fiume`, sopra) diventa un vero varco con architrave, come una
+    # porta - vedi piu' sotto.
     if riva > 0:
-        vicino_acqua = binary_dilation(np.isin(cls, ACQUA), iterations=int(riva))
-        anello &= ~vicino_acqua
+        vicino_mare = binary_dilation(np.isin(cls, MARINO), iterations=int(riva))
+        anello &= ~vicino_mare
 
     # E NON SI COSTRUISCE SUL DIRUPO. Un muro appoggiato a un pendio da tre
     # blocchi per cella e' una fila di cubi sfalsati, non una cortina.
@@ -674,6 +716,7 @@ def mura(area: np.ndarray, vie: np.ndarray, sedimi: np.ndarray,
             if 0 <= z < vie.shape[0] and 0 <= x < vie.shape[1]:
                 vie[z, x] = max(vie[z, x], ASSE)
         punti.append((mz, mx))
+    porta |= varco_fiume          # il varco sul fiume, vedi sopra
     muro &= ~porta
 
     # --- torri ------------------------------------------------------------
@@ -747,6 +790,39 @@ def terrazza_abitato(h: np.ndarray, area: np.ndarray, intoccabile: np.ndarray,
     peso[intoccabile[z0:z1, x0:x1]] = 0.0
     h[z0:z1, x0:x1] = np.round(porzione * (1 - peso)
                                + ripiani * peso).astype(np.int32)
+
+
+def raccorda_mura(h: np.ndarray, muro: np.ndarray, intoccabile: np.ndarray,
+                  raggio: int = 1, sfocatura: float = 1.5) -> None:
+    """Toglie il seghettato dalla base della cinta.
+
+    Le mura non hanno una quota propria: in `motore._posa_mura` ogni colonna
+    parte dalla quota del terreno SOTTO di se' e sale di un'altezza fissa. Se
+    quella quota e' quella finale - con il dither e la rugosita' fine che
+    servono bene a un prato ma non a una cortina di pietra - due merli vicini
+    nascono anche solo un blocco piu' alti o piu' bassi l'uno dell'altro, e da
+    lontano la cinta non si legge come un muro ma come una fila di macerie
+    ammucchiate: e' esattamente il "mura di pietra... in ordine sparso" degli
+    screenshot.
+
+    Qui si sfoca il terreno SOLO sotto l'anello (e una cella di rispetto
+    intorno, cosi' anche le fondamenta scendono con continuita'): la cinta
+    puo' ancora arrampicarsi su un pendio vero, ma senza il dente-si'-dente-no
+    che viene dal rumore a grana fine. Va chiamata DOPO `mura()`, che ha gia'
+    usato il terreno non sfocato per il controllo di pendenza - toglier loro
+    la grana qui non cambia dove passa la cinta, solo com'e' fatta sotto.
+    """
+    sede = binary_dilation(muro, iterations=raggio) & ~intoccabile
+    if not sede.any():
+        return
+    r = _riquadro(h, sede, 4)
+    if r is None:
+        return
+    z0, z1, x0, x1 = r
+    porzione = h[z0:z1, x0:x1].astype(np.float32)
+    liscio = gaussian_filter(porzione, sfocatura)
+    m = sede[z0:z1, x0:x1]
+    h[z0:z1, x0:x1] = np.where(m, np.round(liscio), porzione).astype(np.int32)
 
 
 def raccorda_vie(h: np.ndarray, vie: np.ndarray, intoccabile: np.ndarray,
@@ -895,6 +971,10 @@ def pianifica(
                 sedimi[e.z:e.z1, e.x:e.x1] = True
             m, p, varchi, t = mura(area, rango, sedimi, cls, porte, altezze=h)
             if m.any():
+                # via la grana fine da sotto la cinta PRIMA di fissarla nel
+                # muro condiviso: mura() ha gia' deciso dove passa usando il
+                # terreno vero, qui si cambia solo la quota su cui poggia.
+                raccorda_mura(h, m | p, intoccabile)
                 muro[m] = 1
                 muro[t] = 3
                 muro[p] = 2
