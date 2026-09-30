@@ -78,6 +78,7 @@ class Edificio:
     gronda: int = 1        # di quanto il tetto sporge oltre i muri
     mestiere: str = ""     # "" = abitazione, altrimenti bottega
     seme: int = 0
+    villaggio: int = -1    # a quale insediamento appartiene (indice del sito)
 
     @property
     def x1(self) -> int: return self.x + self.larghezza

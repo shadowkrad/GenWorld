@@ -167,6 +167,32 @@ def _prop_nbt(prop: dict):
     return {k: StringTag(v) for k, v in prop.items()}
 
 
+def traduttore(versione=(1, 21, 4)):
+    """Il traduttore di PyMCTranslate per una versione Java: caricarlo costa,
+    quindi lo si prende una volta e lo si passa a `traduci_blocco`."""
+    import PyMCTranslate
+    return PyMCTranslate.new_translation_manager().get_version("java", versione)
+
+
+def traduci_blocco(ver, nome: str, prop: dict | None = None
+                   ) -> tuple[str, dict, bool]:
+    """Un blocco col nome di gioco (`minecraft:oak_fence`, proprieta' di
+    gioco) nella forma universale che `ScrittoreMondo.blocco` si aspetta.
+
+    Ritorna (nome universale, proprieta', tradotto). `tradotto` e' False se
+    PyMCTranslate non conosce il blocco: lo restituisce tale e quale, senza un
+    errore, e in gioco poi non compare - la trappola di sempre. Chi disegna
+    un blocco a mano deve controllarlo.
+    """
+    from amulet.api.block import Block
+    spazio, _, _ = ver.block.to_universal(
+        Block(*(nome.split(":", 1) if ":" in nome else ("minecraft", nome)),
+              _prop_nbt(prop or {})))
+    proprieta = {k: str(v.py_str if hasattr(v, "py_str") else v)
+                 for k, v in spazio.properties.items()}
+    return spazio.base_name, proprieta, spazio.namespace.startswith("universal")
+
+
 def _trova_porta(m: Modello) -> int | None:
     """Da che parte guarda la casa.
 
@@ -271,9 +297,75 @@ class Catalogo:
         return np.ascontiguousarray(c)
 
 
+def candidati_lotto(modelli: list[Modello], larghezza: int, profondita: int,
+                    verso_porta: int, altezza_massima: int = 24,
+                    stile: str | None = None,
+                    escludi: frozenset[int] | set[int] = frozenset()
+                    ) -> list[tuple[int, int]]:
+    """Tutti i (modello, rotazione) che ENTRANO nel lotto, per intero.
+
+    Prima quelli con la porta dalla parte della strada; se nessuno guarda
+    dalla parte giusta, quelli che entrano comunque, girati male: meglio una
+    casa girata male che un buco nella fila. Lo stile e' un vincolo rigido.
+    `escludi` sono indici di modello gia' usati (vedi `assegna`). Lista
+    vuota = nessun modello ci sta: il lotto non ha casa.
+    """
+    ok_stile = [k for k, m in enumerate(modelli)
+                if k not in escludi
+                and (not m.stili or stile is None or stile in m.stili)
+                and m.dy <= altezza_massima]
+    dentro = []
+    for k in ok_stile:
+        m = modelli[k]
+        for quarti in range(4):
+            ix, iz = m.ingombro(quarti)
+            if ix <= larghezza and iz <= profondita:
+                dentro.append((k, quarti))
+    giusti = [(k, q) for k, q in dentro
+              if modelli[k].porta is None or (modelli[k].porta + q) % 4 == verso_porta]
+    return giusti or dentro
+
+
+def assegna(modelli: list[Modello], edifici: list, rng: np.random.Generator,
+            altezza_massima: int = 24) -> dict[int, tuple[int, int]]:
+    """Il modello di ogni lotto, senza ripetizioni dentro lo stesso villaggio.
+
+    Ritorna {indice edificio: (modello, rotazione)}. Un lotto in cui non
+    entra nessun modello ancora libero NON compare: non ha casa (chi chiama
+    ci mette un arredo). Niente sporgenze: una casa che eccede il lotto
+    verrebbe tagliata dove incontra quello del vicino.
+
+    Si comincia dai lotti con meno scelta, cosi' un lotto piccolo non resta
+    senza il suo unico modello perche' uno grande, che ne avrebbe avuti molti,
+    l'ha preso per primo. Due villaggi diversi possono avere la stessa casa.
+    `edifici` sono `Edificio` (larghezza, profondita, gronda, porta, stile,
+    palafitta, villaggio).
+    """
+    gruppi: dict[int, list[int]] = {}
+    for i, e in enumerate(edifici):
+        if not e.palafitta:                # e' un modificatore, non una casa
+            gruppi.setdefault(e.villaggio, []).append(i)
+    fuori: dict[int, tuple[int, int]] = {}
+    for _, indici in sorted(gruppi.items()):
+        cand = {i: candidati_lotto(modelli, edifici[i].larghezza + 2 * edifici[i].gronda,
+                                   edifici[i].profondita + 2 * edifici[i].gronda,
+                                   edifici[i].porta, altezza_massima, edifici[i].stile)
+                for i in indici}
+        usati: set[int] = set()
+        for i in sorted(indici, key=lambda i: (len({k for k, _ in cand[i]}), i)):
+            liberi = [(k, q) for k, q in cand[i] if k not in usati]
+            if not liberi:
+                continue
+            k, q = liberi[int(rng.integers(0, len(liberi)))]
+            fuori[i] = (k, q)
+            usati.add(k)
+    return fuori
+
+
 def scegli(modelli: list[Modello], larghezza: int, profondita: int,
            verso_porta: int, rng: np.random.Generator,
-           altezza_massima: int = 24, stile: str | None = None
+           altezza_massima: int = 24, stile: str | None = None,
+           sporgere: bool = True
            ) -> tuple[int, int] | None:
     """Un modello che entra nel lotto, girato in modo da guardare la strada.
 
@@ -285,6 +377,11 @@ def scegli(modelli: list[Modello], larghezza: int, profondita: int,
     tutte da template, quindi la scelta deve arrendersi per ultima, non per
     prima. Ritorna None solo se lo stile richiesto non ha NESSUN modello
     (caso che con almeno un template universale per stile non succede mai).
+
+    Con `sporgere=False` l'ultimo ripiego (il modello che eccede il lotto)
+    non c'e': se nessun modello entra per intero ritorna None. E' quello che
+    usa il motore, tramite `assegna`: una casa tagliata non ha rimedio, un
+    lotto senza casa si riempie con un arredo.
     """
     ok_stile = [k for k, m in enumerate(modelli)
                 if not m.stili or stile is None or stile in m.stili]
@@ -311,6 +408,8 @@ def scegli(modelli: list[Modello], larghezza: int, profondita: int,
                     if modelli[k].dy <= altezza_massima
                     and modelli[k].ingombro(quarti)[0] <= larghezza
                     and modelli[k].ingombro(quarti)[1] <= profondita]
+    if not candidati and not sporgere:
+        return None
     if not candidati:
         # nemmeno il piu' piccolo dei modelli giusti per stile entra nel
         # lotto (lotto minuscolo, o l'unico modello dello stile e' grande -

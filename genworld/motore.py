@@ -23,6 +23,7 @@ from typing import Callable
 import numpy as np
 
 from . import agricoltura as AG
+from . import arredi as AR
 from . import avamposti as AP
 from . import batimetria as BAT
 from . import biomi as B
@@ -121,6 +122,11 @@ class Opzioni:
     # senza un template configurato (`templates_portale`) non ne compare
     # nessuno qualunque sia questo valore - vedi `avamposti.pianifica`.
     portali: float = 1.0
+    # Moltiplicatore di densita' degli arredi urbani (lampioni, giardini,
+    # recinti, bazar sui lotti senza casa: vedi `arredi.py`). 0 li spegne e
+    # lascia i lotti vuoti. Non tocca il terreno, quindi fuori da
+    # `firma_analisi`.
+    arredi: float = 1.0
     # Moltiplicatore di densita' della fauna, selvatica e da cortile. 0 la
     # spegne del tutto (restano solo gli abitanti dei villaggi).
     fauna: float = 1.0
@@ -449,6 +455,13 @@ class Piano:
     indice_miniere: dict = field(default_factory=dict)
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
+    # {indice edificio: (indice modello, rotazione)}: quale casa da template va
+    # su quale lotto. Si decide qui e non in `scrivi()`, perche' chi abita una
+    # casa (e chi arreda un lotto rimasto vuoto) deve saperlo in pianificazione.
+    scelte: dict = field(default_factory=dict)
+    arredi: list = field(default_factory=list)
+    arredi_modelli: list = field(default_factory=list)
+    indice_arredi: dict = field(default_factory=dict)
     proprietario: np.ndarray | None = None   # indice edificio per cella (-1
                                               # libera, -2 banco); vedi il
                                               # commento in `pianifica()`
@@ -510,9 +523,25 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     # tante case, che ne beneficia. `mestiere=""` non e' un errore: risolve
     # a professione "none" (villager senza mestiere) in `Abitante.professione`,
     # che e' esattamente cosa serve per chi vive in una casa qualunque.
+    #
+    # Le case da template si assegnano QUI, una volta per lotto e senza
+    # ripetere lo stesso modello dentro un villaggio (`TM.assegna`). Un lotto
+    # in cui non entra nessun modello libero resta senza casa, e senza
+    # abitante: un villager in un lotto vuoto e' un villager in mezzo al prato.
+    cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
+    modelli_case = (TM.carica_cartelle(cartelle_t, versione=op.versione)
+                    if cartelle_t and edifici else [])
+    scelte = (TM.assegna(modelli_case, edifici,
+                         np.random.default_rng(op.seed * 7717 + 3))
+              if modelli_case else {})
+    if modelli_case:
+        note.append(f"case: {len(scelte)} su {len(edifici)} lotti hanno una "
+                    f"casa ({len({k for k, _ in scelte.values()})} modelli "
+                    f"diversi su {len(modelli_case)})")
     abitanti = [EN.Abitante(x=px, y=py + 0.0, z=pz, mestiere=e.mestiere,
                             seme=e.seme)
-                for e in edifici
+                for i, e in enumerate(edifici)
+                if not modelli_case or i in scelte
                 for px, py, pz in (E.punto_lavoro(e),)]
     # e uno per banco, davanti al suo bancone
     MERCE_MESTIERE = {"frutta": "fruttivendolo", "carne": "macellaio",
@@ -704,6 +733,33 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             note.append(f"avamposti: {st['campi']} accampamenti, "
                         f"{st['cimiteri']} cimiteri, {st['portali']} portali")
 
+    # ARREDI. Dopo strade, campi e avamposti: servono le quote finali e
+    # sapere cosa e' gia' occupato. Riempiono i lotti rimasti senza casa
+    # (giardini, recinti con le bestie, bazar, piazzette) e mettono in ogni
+    # insediamento una campana, una fontana o un pozzo, dei lampioni.
+    avanza(0.73, "arredi")
+    arredi_r = AR.Risultato()
+    if op.arredi > 0 and citta and edifici:
+        arredi_r = AR.pianifica(
+            edifici, scelte, citta, h, a.cls, vie, tipo_strada, muro, campi,
+            banchi, seed=71, densita=op.arredi, versione=op.versione,
+            evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO))
+        if arredi_r.arredi:
+            protetto |= AR.maschera(arredi_r.arredi, a.cls.shape)
+        for b in arredi_r.banchi:
+            banchi.append(b)
+            # il banco sta dentro un lotto senza casa: il lotto resta di quel
+            # edificio (nessuna casa da tenere lontana dal vicino)
+            protetto[b.z:b.z1, b.x:b.x1] = True
+            abitanti.append(EN.Abitante(
+                x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
+                mestiere=MERCE_MESTIERE.get(b.merce, "fruttivendolo"),
+                seme=b.seme))
+        abitanti = abitanti + arredi_r.animali
+        if arredi_r.arredi or arredi_r.banchi:
+            note.append("arredi: " + ", ".join(
+                f"{k} {v}" for k, v in AR.statistiche(arredi_r).items() if v))
+
     avanza(0.75, "vegetazione")
     alberi = (V.semina(a.cls, h, livello_mare=LIVELLO_MARE,
                        scala_densita=op.alberi, seed=21)
@@ -776,6 +832,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         tieni = ~dentro_av[alberi["z"], alberi["x"]]
         if not tieni.all():
             alberi = {k: v[tieni] for k, v in alberi.items()}
+    if alberi is not None and arredi_r.arredi:
+        # niente albero dentro un giardino, un pozzo, sotto un lampione
+        dentro_ar = AR.maschera(arredi_r.arredi, a.cls.shape, margine=1)
+        tieni = ~dentro_ar[alberi["z"], alberi["x"]]
+        if not tieni.all():
+            alberi = {k: v[tieni] for k, v in alberi.items()}
     if alberi is not None and poderi:
         # gli alberi da frutto entrano nello stesso elenco: li disegna il
         # generatore di alberi, che non sa e non deve sapere che sono un
@@ -807,6 +869,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             for ed in edifici:
                 x0, z0, x1, z1 = E.ingombro(ed, margine=1)
                 esclusa[max(0, z0):z1, max(0, x0):x1] = True
+            if arredi_r.arredi:
+                esclusa |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=1)
             if avamposti:
                 # niente cervo o coniglio in mezzo a un accampamento di
                 # nemici: sopravviverebbe poco, ed e' comunque un posto
@@ -844,6 +908,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  avamposti=avamposti,
                  indice_avamposti=AP.indice_per_chunk(avamposti) if avamposti else {},
+                 scelte=scelte,
+                 arredi=arredi_r.arredi, arredi_modelli=arredi_r.modelli,
+                 indice_arredi=(AR.indice_per_chunk(arredi_r.arredi)
+                                if arredi_r.arredi else {}),
                  indice_banchi=E.indice_banchi(banchi) if banchi else {},
                  proprietario=proprietario,
                  note=note)
@@ -1324,6 +1392,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_ss = SS.Tavolozza(m)
         tav_mi = MI.Tavolozza(m) if piano.miniere else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
+        cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
         # commento gemello in motore.pianifica): stesso meccanismo delle case
         # da template qualche riga sotto, un catalogo a parte per ciascuno
@@ -1378,38 +1447,15 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_ba = BA.Tavolozza(m) if piano.edifici else None
 
         # --- case da template ------------------------------------------
-        # La scelta si fa QUI, una volta per edificio, e non dentro il ciclo
-        # dei chunk: una casa sta a cavallo di quattro chunk, e sceglierne il
-        # modello quattro volte con quattro tirate di dado significa
-        # costruirne quattro diverse una dentro l'altra.
+        # Il modello di ogni lotto lo ha deciso `pianifica()` (`piano.scelte`),
+        # senza ripetizioni nel villaggio: qui si carica solo il catalogo, con
+        # lo stesso ordine, perche' gli indici coincidano.
         cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
         modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
                   if cartelle_t else [])
         cat = TM.Catalogo(modelli, m) if modelli else None
-        scelte: dict[int, tuple[int, int]] = {}
-        if cat is not None and piano.edifici:
-            rng_t = np.random.default_rng(op.seed * 7717 + 3)
-            for i, e in enumerate(piano.edifici):
-                if e.palafitta:
-                    continue          # la palafitta e' un modificatore, non una casa
-                s = TM.scegli(modelli, e.larghezza + 2 * e.gronda,
-                              e.profondita + 2 * e.gronda, e.porta, rng_t,
-                              stile=e.stile)
-                if s is not None:
-                    scelte[i] = s
-                    # Vedi `insediamenti.estendi_indice_per_modello`: il
-                    # modello scelto puo' sporgere oltre il lotto (ultimo
-                    # ripiego di `TM.scegli()`) e oltre il margine gia'
-                    # incluso nell'indice per-chunk costruito in
-                    # `pianifica()` - senza questo, la casa si vede tagliata
-                    # di netto al confine del chunk ("casa smezzata").
-                    mi, quarti = s
-                    ix, iz = modelli[mi].ingombro(quarti)
-                    if ix > e.larghezza or iz > e.profondita:
-                        px = e.x + (e.larghezza - ix) // 2
-                        pz = e.z + (e.profondita - iz) // 2
-                        I.estendi_indice_per_modello(
-                            piano.indice_edifici, i, px, pz, ix, iz)
+        scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
+        if cat is not None:
             st = TM.statistiche(modelli)
             avanza(0.0, f"{st['modelli']} template, {len(scelte)} case su "
                         f"{len(piano.edifici)}")
@@ -1532,6 +1578,13 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 for k in piano.indice_banchi.get((sx // 16, sz // 16), ()):
                     E.costruisci_banco(blocchi, -64, sx, sz, piano.banchi[k],
                                        tav_ed)
+            if cat_ar is not None:
+                # gli arredi dopo le case e i banchi: un lampione o un giardino
+                # occupano solo cio' che e' rimasto libero
+                for k in piano.indice_arredi.get((sx // 16, sz // 16), ()):
+                    ar = piano.arredi[k]
+                    TM.costruisci(blocchi, -64, sx, sz, cat_ar, ar.modello, 0,
+                                  ar.x, ar.z, ar.base)
             bio_c = (id_bioma[fetta(a.biomi, sx, sz)]
                      if id_bioma is not None else None)
             # Bottino dei forzieri: si cerca il blocco DOPO che le case sono

@@ -147,6 +147,78 @@ class TestScelta(unittest.TestCase):
 
 
 @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
+class TestAssegnazionePerVillaggio(unittest.TestCase):
+    """Un modello non si ripete dentro lo stesso villaggio, e una casa non
+    sporge mai dal lotto: se non entra niente, il lotto resta senza casa."""
+
+    def modello(self, dx, dz, porta=0, dy=10):
+        return T.Modello(nome=f"{dx}x{dz}",
+                         celle=np.zeros((dx, dy, dz), np.int32),
+                         tavolozza=[("air", {})], porta=porta)
+
+    def lotto(self, larghezza, profondita, villaggio, gronda=0, palafitta=False):
+        from genworld.edifici import Edificio
+        return Edificio(x=0, z=0, larghezza=larghezza, profondita=profondita,
+                        base=64, gronda=gronda, palafitta=palafitta,
+                        villaggio=villaggio, porta=0)
+
+    def test_senza_sporgere_un_lotto_troppo_piccolo_non_ha_casa(self):
+        rng = np.random.default_rng(0)
+        self.assertIsNone(T.scegli([self.modello(13, 9)], 8, 8, 0, rng,
+                                   sporgere=False))
+        self.assertEqual(T.candidati_lotto([self.modello(13, 9)], 8, 8, 0), [])
+
+    def test_i_candidati_entrano_tutti_per_intero(self):
+        ms = [self.modello(7, 7), self.modello(9, 12), self.modello(20, 20)]
+        for k, quarti in T.candidati_lotto(ms, 10, 10, 0):
+            ix, iz = ms[k].ingombro(quarti)
+            self.assertLessEqual(ix, 10)
+            self.assertLessEqual(iz, 10)
+
+    def test_nessun_modello_si_ripete_nello_stesso_villaggio(self):
+        ms = [self.modello(7, 7), self.modello(8, 8), self.modello(9, 9),
+              self.modello(6, 6)]
+        lotti = [self.lotto(12, 12, villaggio=0) for _ in range(4)]
+        scelte = T.assegna(ms, lotti, np.random.default_rng(1))
+        self.assertEqual(len(scelte), 4)
+        self.assertEqual(len({k for k, _ in scelte.values()}), 4)
+
+    def test_finiti_i_modelli_i_lotti_restano_senza_casa(self):
+        ms = [self.modello(7, 7), self.modello(8, 8)]
+        lotti = [self.lotto(12, 12, villaggio=0) for _ in range(5)]
+        scelte = T.assegna(ms, lotti, np.random.default_rng(1))
+        self.assertEqual(len(scelte), 2)
+
+    def test_due_villaggi_possono_avere_la_stessa_casa(self):
+        ms = [self.modello(7, 7)]
+        lotti = [self.lotto(12, 12, villaggio=0), self.lotto(12, 12, villaggio=1)]
+        scelte = T.assegna(ms, lotti, np.random.default_rng(1))
+        self.assertEqual(len(scelte), 2)
+
+    def test_il_lotto_con_meno_scelta_non_resta_a_bocca_asciutta(self):
+        """Il lotto piccolo ha un solo modello possibile, quello grande ne ha
+        due: se il grande scegliesse per primo potrebbe prendere l'unico del
+        piccolo."""
+        ms = [self.modello(6, 6), self.modello(10, 10)]
+        for seme in range(20):
+            lotti = [self.lotto(12, 12, villaggio=0), self.lotto(7, 7, villaggio=0)]
+            scelte = T.assegna(ms, lotti, np.random.default_rng(seme))
+            self.assertEqual(len(scelte), 2, f"seme {seme}")
+            self.assertEqual(scelte[1][0], 0)
+
+    def test_la_palafitta_non_prende_una_casa(self):
+        ms = [self.modello(7, 7)]
+        lotti = [self.lotto(12, 12, villaggio=0, palafitta=True)]
+        self.assertEqual(T.assegna(ms, lotti, np.random.default_rng(0)), {})
+
+    def test_e_deterministica(self):
+        ms = [self.modello(7, 7), self.modello(8, 8), self.modello(9, 9)]
+        lotti = [self.lotto(12, 12, villaggio=n % 2) for n in range(6)]
+        a = T.assegna(ms, lotti, np.random.default_rng(5))
+        b = T.assegna(ms, lotti, np.random.default_rng(5))
+        self.assertEqual(a, b)
+
+
 class TestAndataERitorno(unittest.TestCase):
     """Si esportano le case parametriche in `.nbt` e si rileggono: e' l'unico
     controllo che tocca davvero il formato, la traduzione e la rotazione
