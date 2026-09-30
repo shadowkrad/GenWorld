@@ -31,10 +31,8 @@ from scipy.ndimage import binary_dilation, distance_transform_edt, gaussian_filt
 from scipy.spatial import Delaunay
 
 from . import edifici as E
-from .entita import MESTIERI
 from .mappa import (ACQUA, FIUME, FORESTA, MARINO, MONTAGNA, NEVE, PIANURA,
                     PRATERIA, SPIAGGIA)
-from .rumore import fbm
 
 ABITABILI = (PIANURA, PRATERIA, FORESTA, SPIAGGIA)
 
@@ -343,7 +341,7 @@ LATO_MINIMO = 6
 # piu' grande che ci sta davvero, fino a qui - un isolato piccolo resta
 # piccolo comunque). Con 13/9 quasi nessuno dei template scaricati
 # (`templates/strutture`) entrava - la maggior parte e' piu' larga o piu'
-# profonda - e `template.scegli()` finiva quasi sempre sull'unico modello
+# profonda - e la scelta (allora `template.scegli()`) finiva quasi sempre sull'unico modello
 # che ci stava: non un bug di scelta, un tetto troppo basso per il catalogo.
 #
 # Misurato su Arda vera (832x832, 39 modelli contando le rotazioni): con
@@ -860,47 +858,6 @@ def scarpate(h: np.ndarray, urbano: np.ndarray, salto: int = 2) -> np.ndarray:
         np.roll(hh, 1, 1), np.roll(hh, -1, 1),
     ])
     return urbano & ((hh - piu_basso) >= salto)
-
-
-def spiana_abitato(h: np.ndarray, area: np.ndarray, intoccabile: np.ndarray,
-                   sfocatura: float = 5.0) -> None:
-    """Addolcisce il terreno dell'abitato, in blocco, prima delle case.
-
-    Le trincee che si vedono fra le case non nascono da una casa sola:
-    nascono dalla SOMMA di cinquanta terrazzamenti indipendenti. Ogni casa si
-    spiana la sua quota, presa dalla mediana del proprio sedime, e due sedimi
-    vicini su un pendio hanno mediane diverse di parecchi blocchi. Il
-    raccordo di una smaltisce il dislivello verso il terreno, ma il terreno
-    accanto e' gia' stato spianato a un'altra quota, e quello che resta in
-    mezzo e' un muretto.
-
-    La cura sta a monte: si toglie il rilievo fine dal terreno dell'abitato
-    PRIMA di distribuire i lotti. Su un terreno gia' dolce le mediane dei
-    sedimi vicini si assomigliano, i salti nascono piccoli, e i raccordi
-    bastano a smaltirli. Non si spiana a tavoletta - un paese in pendenza e'
-    bello - si toglie la rugosita', non la pendenza.
-
-    Si lavora sul solo riquadro dell'area: sfocare tutta la mappa per una
-    citta' costerebbe un secondo e mezzo a insediamento.
-    """
-    from scipy.ndimage import gaussian_filter
-
-    zs, xs = np.nonzero(area)
-    if zs.size == 0:
-        return
-    m = int(np.ceil(sfocatura * 3))
-    z0, z1 = max(0, int(zs.min()) - m), min(h.shape[0], int(zs.max()) + m + 1)
-    x0, x1 = max(0, int(xs.min()) - m), min(h.shape[1], int(xs.max()) + m + 1)
-
-    porzione = h[z0:z1, x0:x1].astype(np.float32)
-    liscio = gaussian_filter(porzione, sfocatura)
-    # il peso sfuma sul bordo dell'area: dentro pieno, fuori zero, senza
-    # gradino - lo stesso motivo per cui il lotto ha un raccordo
-    peso = gaussian_filter(area[z0:z1, x0:x1].astype(np.float32), 3.0)
-    peso = np.clip(peso * 1.4, 0.0, 1.0)
-    peso[intoccabile[z0:z1, x0:x1]] = 0.0
-    h[z0:z1, x0:x1] = np.round(porzione * (1 - peso)
-                               + liscio * peso).astype(np.int32)
 
 
 def pianifica(

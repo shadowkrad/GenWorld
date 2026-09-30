@@ -1,0 +1,8 @@
+# Per chi sviluppa: le dipendenze del programma piu' test, copertura e linter.
+#   C:\venvs\genworld\Scripts\pip install -r requirements-dev.txt
+# (GenWorld.bat installa solo requirements.txt: se il venv viene rifatto, questi
+# vanno rimessi con lo stesso comando.)
+-r requirements.txt
+pytest>=8
+coverage>=7
+ruff>=0.5

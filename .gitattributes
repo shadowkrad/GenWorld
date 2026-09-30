@@ -1,0 +1,18 @@
+# Fine riga: il codice e i documenti stanno in LF sia nel repository sia sul
+# disco (Git su Windows avvisa a ogni operazione se si lascia decidere ad
+# autocrlf); i .bat vogliono CRLF per funzionare con cmd.exe.
+* text=auto
+*.py text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.txt text eol=lf
+*.bat text eol=crlf
+
+# Binari: mai toccarli
+*.nbt binary
+*.mcstructure binary
+*.png binary
+*.webp binary
+*.npz binary
+*.npy binary
+*.mca binary

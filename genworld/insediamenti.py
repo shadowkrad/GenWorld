@@ -16,7 +16,7 @@ import numpy as np
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 
 from . import edifici as E
-from .mappa import (ACQUA, FIUME, FORESTA, MARE, MONTAGNA, OCEANO, PIANURA,
+from .mappa import (ACQUA, FORESTA, MONTAGNA, OCEANO, PIANURA,
                     PRATERIA, SPIAGGIA)
 
 # classi su cui si puo' fondare un villaggio
@@ -220,27 +220,6 @@ def indice_per_chunk(edifici: list[E.Edificio], passo: int = 16) -> dict:
             for cx in range(x0 // passo, x1 // passo + 1):
                 fuori.setdefault((cx, cz), []).append(i)
     return fuori
-
-
-def estendi_indice_per_modello(indice: dict, i: int, px: int, pz: int,
-                               ix: int, iz: int, passo: int = 16) -> None:
-    """Aggiunge l'edificio `i` ai chunk che il modello REALE tocca.
-
-    `indice_per_chunk` registra ogni edificio sui chunk del suo lotto
-    (`edifici.ingombro`, margine fisso), calcolato in fase di pianificazione -
-    prima che si sappia quale modello da `templates/` finira' su quel lotto.
-    L'ultimo ripiego di `template.scegli()` puo' pero' restituire un modello
-    piu' grande del lotto, di quanto capita: se l'eccedenza supera il
-    margine gia' incluso in quell'indice, i chunk oltre il bordo del lotto
-    non sanno di dover disegnare questa casa, e in gioco si vede tagliata di
-    netto al confine del chunk. Va chiamata dopo la scelta del modello, con
-    `px, pz` l'angolo minimo dove verra' posato e `ix, iz` il suo ingombro
-    reale (girato)."""
-    for cz in range(pz // passo, (pz + iz - 1) // passo + 1):
-        for cx in range(px // passo, (px + ix - 1) // passo + 1):
-            cella = indice.setdefault((cx, cz), [])
-            if i not in cella:
-                cella.append(i)
 
 
 def conteggio(edifici: list[E.Edificio]) -> dict[str, int]:

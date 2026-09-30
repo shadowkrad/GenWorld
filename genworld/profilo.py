@@ -30,7 +30,6 @@ from PIL import Image
 
 from . import mappa as M
 from .classi_guidate import DECORO, classifica_guidata
-from .normalizza import a_lab
 
 NOME_CLASSE = {
     "oceano": M.OCEANO, "mare": M.MARE, "spiaggia": M.SPIAGGIA,

@@ -204,7 +204,6 @@ class TestPianificazione(unittest.TestCase):
             self.assertGreater(e.base, 62)
 
     def test_terrazzamento_spiana(self):
-        cls = np.full((80, 80), M.PRATERIA, np.uint8)
         z, x = np.meshgrid(np.arange(80), np.arange(80), indexing="ij")
         h = (70 + x // 4).astype(np.int32)
         ed = casa(x=30, z=30, larghezza=9, profondita=9, base=int(h[34, 34]))

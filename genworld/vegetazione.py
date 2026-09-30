@@ -396,7 +396,7 @@ def disegna(
                         posa(x + dx, y, z + dz, foglie)
         else:
             # latifoglia: due corone larghe, poi una stretta, poi la cima
-            for k, y in enumerate((base + alt - 3, base + alt - 2)):
+            for y in (base + alt - 3, base + alt - 2):
                 for dx in range(-2, 3):
                     for dz in range(-2, 3):
                         if abs(dx) == 2 and abs(dz) == 2 and rng.random() < 0.75:

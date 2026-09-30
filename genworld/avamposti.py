@@ -41,7 +41,7 @@ comunque lo scopo della struttura - resta un landmark, non un presidio.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 

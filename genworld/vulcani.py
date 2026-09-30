@@ -15,7 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import binary_dilation, distance_transform_edt, gaussian_filter
+from scipy.ndimage import distance_transform_edt, gaussian_filter
 
 from .mappa import ACQUA, CRATERE, VULCANO
 from .rumore import fbm

@@ -506,13 +506,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     # Proprietario: quale edificio (indice in `edifici`) possiede ciascuna
     # cella del suo SEDIME - il lotto vero, mai sovrapposto a quello di un
     # altro edificio (`citta.lotti()` lo garantisce, con un test dedicato).
-    # NON l'ingombro del modello scelto poi in `scrivi()`: quello puo'
-    # sporgere fuori dal lotto quando nessun template ci sta dentro per
-    # intero (`template.scegli`, l'ultimo ripiego "minor eccesso"). Su Arda
-    # capita spesso - piu' della meta' delle case scelte, verificato a
-    # parte. Senza questa maschera, la casa disegnata per seconda in un
-    # chunk "mangia" un pezzo di quella disegnata per prima quando i due
-    # ingombri si toccano: il difetto segnalato come "casa a mezzo".
+    # NON l'ingombro del modello scelto poi: `template.assegna` sceglie solo
+    # modelli che ci stanno per intero, ma il tetto sporge di una gronda oltre
+    # il sedime. Serve da rete di sicurezza: se due ingombri si toccano, la
+    # casa disegnata per seconda "mangerebbe" un pezzo di quella disegnata per
+    # prima (il difetto segnalato come "casa a mezzo"), e `vietato_c` lo evita.
     proprietario = np.full(a.cls.shape, -1, np.int32)
     for i, e in enumerate(edifici):
         proprietario[e.z:e.z + e.profondita, e.x:e.x + e.larghezza] = i
@@ -1604,15 +1602,12 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         ix, iz = modelli[mi].ingombro(quarti)
                         px = ed.x + (ed.larghezza - ix) // 2
                         pz = ed.z + (ed.profondita - iz) // 2
-                        # Il modello scelto puo' sporgere oltre il lotto (vedi
-                        # `template.scegli`, l'ultimo ripiego); `vietato_c`
-                        # marca le colonne che appartengono al LOTTO di un
-                        # ALTRO edificio (o a un banco) - senza, il modello
-                        # sporgente di questa casa disegna sopra quella
-                        # vicina, che appare "a meta'" (segnalato
-                        # dall'utente). Non e' `protetto_c`: qui non si
-                        # protegge il sottosuolo, si protegge un edificio
-                        # dall'altro.
+                        # `vietato_c` marca le colonne che appartengono al
+                        # LOTTO di un ALTRO edificio (o a un banco): la
+                        # gronda di questa casa non disegna sopra quella
+                        # vicina, che apparirebbe "a meta'". Non e'
+                        # `protetto_c`: qui non si protegge il sottosuolo, si
+                        # protegge un edificio dall'altro.
                         vietato_c = (None if propr_c is None else
                                     (propr_c != -1) & (propr_c != k))
                         # molti template hanno uno strato di terra sotto il
@@ -1627,10 +1622,9 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                                       px, pz, base_c, vietato=vietato_c)
                         if ed.mestiere:
                             E.posto_di_lavoro(blocchi, -64, sx, sz, ed, tav_ed)
-                    # se il lotto non e' in `scelte` resta senza casa: niente
-                    # piu' generatore parametrico di riserva (vedi sotto).
-                    # Con `TM.scegli()` che ormai cede solo se lo stile non
-                    # ha nemmeno un modello, capita solo in casi patologici.
+                    # se il lotto non e' in `scelte` resta senza casa: se ne
+                    # occupano gli arredi (`arredi.py`), non un generatore
+                    # parametrico di riserva, che non esiste piu'.
                 for k in piano.indice_banchi.get((sx // 16, sz // 16), ()):
                     E.costruisci_banco(blocchi, -64, sx, sz, piano.banchi[k],
                                        tav_ed)

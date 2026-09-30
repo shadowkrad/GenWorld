@@ -29,9 +29,7 @@ import os
 import sys
 import threading
 import traceback
-from dataclasses import replace
 
-import numpy as np
 
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QImage, QPainter, QPixmap

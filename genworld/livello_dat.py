@@ -38,7 +38,7 @@ def data_version_di(versione: tuple[int, int, int]) -> int:
         # ricade sulla piu' alta versione conosciuta non superiore a quella chiesta
         note = sorted(v for v in tm.version_numbers("java") if v <= versione)
         if not note:
-            raise ValueError(f"versione Java non supportata: {versione}")
+            raise ValueError(f"versione Java non supportata: {versione}") from None
         dv = tm.get_version("java", note[-1]).data_version
     _CACHE_DV[versione] = dv
     return dv
