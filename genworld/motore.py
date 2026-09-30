@@ -486,321 +486,157 @@ def zona_vulcanica(a: Analisi, margine: int) -> np.ndarray:
     return distance_transform_edt(~v) <= margine
 
 
-def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
-    """Insediamenti, strade e vegetazione, in quest'ordine obbligato.
-
-    Tre fasi modificano il terreno - gli insediamenti spianano i lotti, le
-    strade spianano la sede, la vegetazione si semina su quel che resta - e
-    spianare mentre si scrivono i chunk e' impossibile: il chunk accanto e'
-    gia' chiuso. Quindi tutto qui, prima di scrivere una sola colonna.
-    """
-    note: list[str] = []
-    h = a.h
-    avanza(0.05, "pianta urbana")
-    siti = (I.scegli_siti(a.cls, h, livello_mare=LIVELLO_MARE,
-                          celle_per_villaggio=int(45_000 / max(op.villaggi, 1e-3)),
-                          seed=31) if op.villaggi > 0 else [])
-    edifici, h, vie, muro, citta, banchi, urbano = CT.pianifica(
-        a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31)
-    indice_ed = I.indice_per_chunk(edifici) if edifici else {}
-    # Proprietario: quale edificio (indice in `edifici`) possiede ciascuna
-    # cella del suo SEDIME - il lotto vero, mai sovrapposto a quello di un
-    # altro edificio (`citta.lotti()` lo garantisce, con un test dedicato).
-    # NON l'ingombro del modello scelto poi: `template.assegna` sceglie solo
-    # modelli che ci stanno per intero, ma il tetto sporge di una gronda oltre
-    # il sedime. Serve da rete di sicurezza: se due ingombri si toccano, la
-    # casa disegnata per seconda "mangerebbe" un pezzo di quella disegnata per
-    # prima (il difetto segnalato come "casa a mezzo"), e `vietato_c` lo evita.
-    proprietario = np.full(a.cls.shape, -1, np.int32)
-    for i, e in enumerate(edifici):
-        proprietario[e.z:e.z + e.profondita, e.x:e.x + e.larghezza] = i
-    for b in banchi:
-        proprietario[b.z:b.z1, b.x:b.x1] = -2    # -2: banco, mai di un edificio
-    # Un abitante per casa, bottega o no. Prima solo le case con un mestiere
-    # avevano un abitante (`if e.mestiere`), e `_mestiere()` in citta.py ne
-    # assegna uno solo al 20-55% delle case per disegno ("una citta' fatta
-    # di sole botteghe e' un centro commerciale, non una citta'") - quindi
-    # una citta' grande, fatta per lo piu' di semplici abitazioni, restava
-    # con pochissimi abitanti in giro: il difetto segnalato come "pochi
-    # villager nelle citta' murate". Un villaggio piccolo ha comunque poche
-    # case, quindi pochi abitanti anche cosi' - e' la citta' grande, con
-    # tante case, che ne beneficia. `mestiere=""` non e' un errore: risolve
-    # a professione "none" (villager senza mestiere) in `Abitante.professione`,
-    # che e' esattamente cosa serve per chi vive in una casa qualunque.
-    #
-    # Le case da template si assegnano QUI, una volta per lotto e senza
-    # ripetere lo stesso modello dentro un villaggio (`TM.assegna`). Un lotto
-    # in cui non entra nessun modello libero resta senza casa, e senza
-    # abitante: un villager in un lotto vuoto e' un villager in mezzo al prato.
-    cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
-    modelli_case = (TM.carica_cartelle(cartelle_t, versione=op.versione)
-                    if cartelle_t and edifici else [])
-    scelte = (TM.assegna(modelli_case, edifici,
-                         np.random.default_rng(op.seed * 7717 + 3))
-              if modelli_case else {})
-    if modelli_case:
-        note.append(f"case: {len(scelte)} su {len(edifici)} lotti hanno una "
-                    f"casa ({len({k for k, _ in scelte.values()})} modelli "
-                    f"diversi su {len(modelli_case)})")
-    abitanti = [EN.Abitante(x=px, y=py + 0.0, z=pz, mestiere=e.mestiere,
-                            seme=e.seme)
-                for i, e in enumerate(edifici)
-                if not modelli_case or i in scelte
-                for px, py, pz in (E.punto_lavoro(e),)]
-    # e uno per banco, davanti al suo bancone
-    MERCE_MESTIERE = {"frutta": "fruttivendolo", "carne": "macellaio",
-                      "pesce": "pescatore", "verdura": "fruttivendolo"}
-    abitanti += [EN.Abitante(x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
-                             mestiere=MERCE_MESTIERE.get(b.merce, "fruttivendolo"),
-                             seme=b.seme)
-                 for b in banchi]
-    if edifici:
-        st = CT.statistiche(edifici, vie, muro, citta, banchi)
-        note.append(
-            f"insediamenti: {st['edifici']} edifici in {st['insediamenti']} "
-            f"centri ({st['citta']} con le mura); vie {st['assi']} di asse, "
-            f"{st['secondarie']} secondarie, {st['vicoli']} di vicolo; "
-            f"{st['mura']} celle di cinta, {st['porte']} di porta, "
-            f"{st['banchi']} banchi di mercato")
-        mest = CT.conteggio_mestieri(edifici)
-        if mest:
-            note.append("botteghe: " + ", ".join(f"{k} {v}" for k, v in mest.items()))
-
-    # I CAMPI vanno qui: dopo le case e le mura (devono sapere cosa evitare)
-    # e prima delle strade, che cosi' possono costeggiarli invece di
-    # attraversarli, e prima della semina, che non deve piantare un bosco in
-    # mezzo al grano.
-    campi = None
-    poderi: list = []
-    if op.villaggi > 0 and citta:
-        avanza(0.25, "campi e frutteti")
-        preso = np.zeros(a.cls.shape, bool)
-        preso |= vie > 0
-        preso |= muro > 0
-        for e in edifici:
-            x0, z0, x1, z1 = e.ingombro_tetto()
-            preso[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
-        for b in banchi:
-            preso[max(0, b.z - 2):b.z1 + 2, max(0, b.x - 2):b.x1 + 2] = True
-        poderi, h, campi, frutta = AG.pianifica(
-            a.cls, h, preso, citta, livello_mare=LIVELLO_MARE,
-            scala=op.villaggi, seed=31)
-        if poderi:
-            st = AG.statistiche(poderi, campi, frutta)
-            note.append(
-                f"campagna: {st['poderi']} poderi e {st['frutteti']} frutteti, "
-                f"{st['arato']} celle arate, {st['canali']} di canale, "
-                f"{st['alberi_da_frutto']} alberi da frutto, "
-                f"{st['bacche']} cespugli di bacche")
-
-    tipo_strada = quota_strada = None
-    if op.strade and edifici:
-        avanza(0.35, "rete stradale e ponti")
-        ancore = [c.porte for c in citta]
-        tipo_strada, quota_strada, h = ST.pianifica(
-            a.cls, h, a.livello, siti, edifici, livello_mare=LIVELLO_MARE,
-            vie=vie, ancore=ancore, campi=campi, seed=31)
-        st = ST.statistiche(tipo_strada)
-        note.append(f"strade: {st['strada']} celle di sede, "
-                    f"{st['lastricato']} lastricate, {st['ponte']} di "
-                    f"ponte ({st['parapetto']} di parapetto)")
-
-    # ULTIMA REGOLA SUL TERRENO. Citta', campi e strade hanno tutti il
-    # permesso di muovere le quote; nessuno di loro sa dove passa l'acqua. Le
-    # sponde si ricontrollano qui, quando nessuno le tocchera' piu'.
-    fiume = a.cls == M.FIUME
-    if fiume.any():
-        prima = h.copy()
-        h = R.puntella(h, fiume, a.livello, livello_mare=LIVELLO_MARE)
-        quante = int((h != prima).sum())
-        if quante:
-            note.append(f"sponde ripuntellate: {quante} celle "
-                        f"(fiumi rimasti sospesi dopo citta' e strade)")
-
-    # I fronti dei gradoni si leggono ADESSO, quando nessuno muovera' piu' il
-    # terreno: sono una proprieta' delle quote finali, non una decisione.
-    scarpata = None
-    if urbano.any():
-        scarpata = CT.scarpate(h, urbano)
-        if scarpata.any():
-            note.append(f"terrazze: {int(scarpata.sum())} celle di fronte "
-                        f"(muri di sostegno)")
-
-    # PROTEZIONE DEL SOTTOSUOLO. Caverne e miniere si scavano dentro
-    # `blocchi` (vedi `scrivi()`) DOPO che mura, strade e campi sono gia'
-    # stati disegnati - il commento "il sottosuolo prima di tutto il resto"
-    # descrive l'ordine voluto (le caverne devono scavare nella roccia, non
-    # dentro una casa gia' posata), ma nel codice l'ordine e' l'opposto:
-    # `blocchi_chunk()` disegna le strutture per prima, `SS.posa()` e
-    # `MI.posa()` scavano dopo. Un cunicolo o una galleria che passa proprio
-    # sotto una cinta muraria toglie la roccia su cui il muro e' stato
-    # disegnato: il muro sopra resta l'immagine gia' scritta, sotto resta il
-    # vuoto - "la murata che si interrompe e rimane sospesa" segnalato in
-    # uno screenshot. Le caverne (vermi a passeggio su tutta la mappa, senza
-    # nessuna nozione di dove sta un insediamento) sono il caso piu' facile
-    # da colpire; le gallerie delle miniere evitano gia' di NASCERE dentro
-    # un insediamento (`evita`, sotto) ma possono comunque attraversarne uno
-    # durante il percorso. Questa maschera dice a entrambe "qui non si
-    # scava", a prescindere da quota o raggio.
-    protetto = np.zeros(a.cls.shape, bool)
-    if muro is not None:
-        protetto |= muro > 0
+def _costruito(forma: tuple[int, int], edifici: list, muro, tipo_strada,
+               banchi: list = (), campi=None, margine_banchi: int = 1) -> np.ndarray:
+    """La maschera di cio' che e' gia' costruito: cinta, strade, tetti (col loro
+    margine di una cella), e se date i banchi e i campi. Quattro fasi
+    (miniere, avamposti, arredi, case isolate) la ricostruivano ognuna a modo
+    suo: ora e' una sola."""
+    occ = np.zeros(forma, bool)
+    if muro is not None and muro.any():
+        occ |= muro > 0
     if tipo_strada is not None:
-        protetto |= tipo_strada > 0
+        occ |= tipo_strada > 0
     if campi is not None:
-        protetto |= campi > 0
+        occ |= campi > 0
     for e in edifici:
         x0, z0, x1, z1 = e.ingombro_tetto()
-        protetto[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
+        occ[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
+    m = margine_banchi
+    for b in banchi:
+        occ[max(0, b.z - m):b.z1 + m, max(0, b.x - m):b.x1 + m] = True
+    return occ
 
-    avanza(0.62, "caverne")
-    caverne = (SS.scava_caverne(h, livello_mare=LIVELLO_MARE, seed=19)
-               if op.caverne > 0 else {"x": np.zeros(0, np.int32)})
-    if caverne["x"].size:
-        st = SS.statistiche(caverne)
-        note.append(f"sottosuolo: {st['sfere']} celle di cunicolo fra "
-                    f"y={st['quota_min']} e y={st['quota_max']}, "
-                    f"raggio medio {st['raggio_medio']:.1f}")
 
-    # MINIERE. Sparse a caso su tutta la mappa, non vicino ai paesi (vedi
-    # `miniere.pianifica`): l'unico legame con gli insediamenti e' negativo,
-    # un ingresso non deve capitare dentro un lotto, sotto una strada o
-    # dentro le mura.
-    avanza(0.68, "miniere")
-    miniere: list = []
-    if op.miniere > 0:
-        evita = np.zeros(a.cls.shape, bool)
-        if muro is not None and muro.any():
-            evita |= muro > 0
-        if tipo_strada is not None:
-            evita |= tipo_strada > 0
-        for e in edifici:
-            x0, z0, x1, z1 = e.ingombro_tetto()
-            evita[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
-        # l'ingresso e' una capanna di RAGGIO_INGRESSO celle attorno al pozzo
-        evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.RAGGIO_INGRESSO)
-        mare_m = np.isin(a.cls, M.MARINO)
-        acqua_m = mare_m | (a.cls == M.FIUME)
-        miniere = MI.pianifica(h, mare_m, acqua=acqua_m, evita=evita,
-                               densita=op.miniere, seed=51)
-        if miniere:
-            st = MI.statistiche(miniere)
-            note.append(f"miniere: {st['miniere']} pozzi, {st['gallerie']} "
-                        f"gallerie, {st['lunghezza']} blocchi di percorso, "
-                        f"fondo medio y={st['quota_media_fondo']:.0f}")
+def _pianifica_miniere(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                       muro, tipo_strada, note: list[str]) -> list:
+    """Ingressi di miniera sparsi, mai dentro un lotto, sotto una strada, dentro
+    le mura o vicino al vulcano."""
+    if op.miniere <= 0:
+        return []
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada)
+    # l'ingresso e' una capanna di RAGGIO_INGRESSO celle attorno al pozzo
+    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.RAGGIO_INGRESSO)
+    mare_m = np.isin(a.cls, M.MARINO)
+    acqua_m = mare_m | (a.cls == M.FIUME)
+    miniere = MI.pianifica(h, mare_m, acqua=acqua_m, evita=evita,
+                           densita=op.miniere, seed=51)
+    if miniere:
+        st = MI.statistiche(miniere)
+        note.append(f"miniere: {st['miniere']} pozzi, {st['gallerie']} "
+                    f"gallerie, {st['lunghezza']} blocchi di percorso, "
+                    f"fondo medio y={st['quota_media_fondo']:.0f}")
+    return miniere
 
-    # ACCAMPAMENTI E CIMITERI. Stessa idea delle miniere: sparsi a caso,
-    # lontani dai paesi (`evita`), mai in acqua. A differenza delle miniere
-    # pero' hanno un ingombro vero in superficie (un fuoco, un muro di
-    # cinta...), quindi entrano anche in `protetto` - altrimenti una
-    # galleria di miniera o un cunicolo potrebbero scavare proprio sotto un
-    # cimitero appena disegnato, lasciandolo sospeso sul vuoto, lo stesso
-    # difetto gia' visto con le mura delle citta'.
-    avanza(0.71, "accampamenti, cimiteri e portali")
-    avamposti: list = []
-    if op.accampamenti > 0 or op.cimiteri > 0 or op.portali > 0:
-        evita_av = np.zeros(a.cls.shape, bool)
-        if muro is not None and muro.any():
-            evita_av |= muro > 0
-        if tipo_strada is not None:
-            evita_av |= tipo_strada > 0
-        for e in edifici:
-            x0, z0, x1, z1 = e.ingombro_tetto()
-            evita_av[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
-        mare_av = np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME)
-        # Il cimitero e il portale da template (vedi avamposti.py): caricati
-        # qui solo per le loro dimensioni, cosi' la spaziatura fra avamposti
-        # e la maschera di protezione (`AP.maschera` sotto) usano l'ingombro
-        # VERO invece del ripiego 11x11 - la stessa scelta viene rifatta in
-        # `scrivi()` per posare i blocchi, come gia' succede per le case
-        # (`TM.carica_cartelle` chiamata di nuovo li', non tenuta in cache
-        # fra le due funzioni).
-        cartelle_cim = [c.strip() for c in op.templates_cimitero.split(";") if c.strip()]
-        modelli_cim = AP.carica_cimiteri(cartelle_cim, versione=op.versione) if cartelle_cim else []
-        cartelle_portale = [c.strip() for c in op.templates_portale.split(";") if c.strip()]
-        modelli_portale = (AP.carica_portali(cartelle_portale, versione=op.versione)
-                           if cartelle_portale else [])
-        # `AP.pianifica` guarda `evita` solo nel centro dell'avamposto: il
-        # raggio del piu' grande fra i modelli va sommato alla distanza
-        raggio_av = max(AP.RAGGIO_CAMPO,
-                        *AP._mezza_estensione(modelli_cim or None, AP.RAGGIO_CIMITERO),
-                        *AP._mezza_estensione(modelli_portale or None, AP.RAGGIO_PORTALE))
-        evita_av |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + raggio_av)
-        avamposti = AP.pianifica(h, mare_av, evita=evita_av,
-                                 campi=op.accampamenti, cimiteri=op.cimiteri,
-                                 portali=op.portali, seed=61,
-                                 modelli_cimitero=modelli_cim or None,
-                                 modelli_portale=modelli_portale or None)
-        if avamposti:
-            protetto |= AP.maschera(avamposti, a.cls.shape)
-            st = AP.statistiche(avamposti)
-            note.append(f"avamposti: {st['campi']} accampamenti, "
-                        f"{st['cimiteri']} cimiteri, {st['portali']} portali")
 
-    # ARREDI. Dopo strade, campi e avamposti: servono le quote finali e
-    # sapere cosa e' gia' occupato. Riempiono i lotti rimasti senza casa
-    # (giardini, recinti con le bestie, bazar, piazzette) e mettono in ogni
-    # insediamento una campana, una fontana o un pozzo, dei lampioni.
-    avanza(0.73, "arredi")
+def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                         muro, tipo_strada, protetto: np.ndarray,
+                         note: list[str]) -> tuple[list, list]:
+    """Accampamenti, cimiteri e portali. A differenza delle miniere hanno un
+    ingombro vero in superficie (un fuoco, un muro di cinta...), quindi entrano
+    anche in `protetto`: altrimenti una galleria o un cunicolo potrebbero
+    scavare sotto un cimitero appena disegnato, lasciandolo sospeso sul vuoto,
+    lo stesso difetto gia' visto con le mura delle citta'.
+
+    Ritorna (avamposti, modelli di cimitero): i secondi servono ai nemici.
+    """
+    if not (op.accampamenti > 0 or op.cimiteri > 0 or op.portali > 0):
+        return [], []
+    evita_av = _costruito(a.cls.shape, edifici, muro, tipo_strada)
+    mare_av = np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME)
+    # Il cimitero e il portale da template (vedi avamposti.py): caricati qui
+    # per le loro dimensioni, cosi' la spaziatura fra avamposti e la maschera
+    # di protezione usano l'ingombro VERO invece del ripiego 11x11.
+    cartelle_cim = [c.strip() for c in op.templates_cimitero.split(";") if c.strip()]
+    modelli_cim = AP.carica_cimiteri(cartelle_cim, versione=op.versione) if cartelle_cim else []
+    cartelle_portale = [c.strip() for c in op.templates_portale.split(";") if c.strip()]
+    modelli_portale = (AP.carica_portali(cartelle_portale, versione=op.versione)
+                       if cartelle_portale else [])
+    # `AP.pianifica` guarda `evita` solo nel centro dell'avamposto: il raggio
+    # del piu' grande fra i modelli va sommato alla distanza
+    raggio_av = max(AP.RAGGIO_CAMPO,
+                    *AP._mezza_estensione(modelli_cim or None, AP.RAGGIO_CIMITERO),
+                    *AP._mezza_estensione(modelli_portale or None, AP.RAGGIO_PORTALE))
+    evita_av |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + raggio_av)
+    avamposti = AP.pianifica(h, mare_av, evita=evita_av,
+                             campi=op.accampamenti, cimiteri=op.cimiteri,
+                             portali=op.portali, seed=61,
+                             modelli_cimitero=modelli_cim or None,
+                             modelli_portale=modelli_portale or None)
+    if avamposti:
+        protetto |= AP.maschera(avamposti, a.cls.shape)
+        st = AP.statistiche(avamposti)
+        note.append(f"avamposti: {st['campi']} accampamenti, "
+                    f"{st['cimiteri']} cimiteri, {st['portali']} portali")
+    return avamposti, modelli_cim
+
+
+def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                      scelte: dict, citta: list, vie, tipo_strada, muro, campi,
+                      banchi: list, protetto: np.ndarray, abitanti: list,
+                      merce_mestiere: dict, note: list[str]):
+    """Giardini, recinti, bazar e piazzette nei lotti senza casa; campana,
+    fontana o pozzo e lampioni in ogni insediamento. Modifica `banchi` e
+    `protetto` sul posto; ritorna (risultato, abitanti aggiornati)."""
     arredi_r = AR.Risultato()
-    if op.arredi > 0 and citta and edifici:
-        arredi_r = AR.pianifica(
-            edifici, scelte, citta, h, a.cls, vie, tipo_strada, muro, campi,
-            banchi, seed=71, densita=op.arredi, versione=op.versione,
-            evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO))
-        if arredi_r.arredi:
-            protetto |= AR.maschera(arredi_r.arredi, a.cls.shape)
-        for b in arredi_r.banchi:
-            banchi.append(b)
-            # il banco sta dentro un lotto senza casa: il lotto resta di quel
-            # edificio (nessuna casa da tenere lontana dal vicino)
-            protetto[b.z:b.z1, b.x:b.x1] = True
-            abitanti.append(EN.Abitante(
-                x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
-                mestiere=MERCE_MESTIERE.get(b.merce, "fruttivendolo"),
-                seme=b.seme))
-        abitanti = abitanti + arredi_r.animali
-        if arredi_r.arredi or arredi_r.banchi:
-            note.append("arredi: " + ", ".join(
-                f"{k} {v}" for k, v in AR.statistiche(arredi_r).items() if v))
+    if not (op.arredi > 0 and citta and edifici):
+        return arredi_r, abitanti
+    arredi_r = AR.pianifica(
+        edifici, scelte, citta, h, a.cls, vie, tipo_strada, muro, campi,
+        banchi, seed=71, densita=op.arredi, versione=op.versione,
+        evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO))
+    if arredi_r.arredi:
+        protetto |= AR.maschera(arredi_r.arredi, a.cls.shape)
+    for b in arredi_r.banchi:
+        banchi.append(b)
+        # il banco sta dentro un lotto senza casa: il lotto resta di quel
+        # edificio (nessuna casa da tenere lontana dal vicino)
+        protetto[b.z:b.z1, b.x:b.x1] = True
+        abitanti.append(EN.Abitante(
+            x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
+            mestiere=merce_mestiere.get(b.merce, "fruttivendolo"), seme=b.seme))
+    abitanti = abitanti + arredi_r.animali
+    if arredi_r.arredi or arredi_r.banchi:
+        note.append("arredi: " + ", ".join(
+            f"{k} {v}" for k, v in AR.statistiche(arredi_r).items() if v))
+    return arredi_r, abitanti
 
-    # CASE ISOLATE. I modelli troppo alti per un lotto, sparsi fuori dai
-    # paesi: manieri, case sull'albero, fattorie. Vanno dopo tutto il resto
-    # perche' il loro criterio e' negativo: dove NON c'e' niente.
-    isolate: list = []
-    if op.isolate > 0 and modelli_case:
-        from scipy.ndimage import binary_dilation as _dil_is
-        evita_is = np.zeros(a.cls.shape, bool)
-        for e in edifici:
-            x0, z0, x1, z1 = e.ingombro_tetto()
-            evita_is[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
-        for b in banchi:
-            evita_is[max(0, b.z - 1):b.z1 + 1, max(0, b.x - 1):b.x1 + 1] = True
-        if tipo_strada is not None:
-            evita_is |= tipo_strada > 0
-        if muro is not None:
-            evita_is |= muro > 0
-        if campi is not None:
-            evita_is |= campi > 0
-        if urbano.any():
-            evita_is |= _dil_is(urbano, iterations=8)
-        evita_is |= _dil_is(np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME),
-                            iterations=4)
-        if avamposti:
-            evita_is |= AP.maschera(avamposti, a.cls.shape, margine=3)
-        for mn in miniere:
-            evita_is[max(0, mn.z - 6):mn.z + 7, max(0, mn.x - 6):mn.x + 7] = True
-        if arredi_r.arredi:
-            evita_is |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=2)
-        evita_is |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 10)
-        isolate = IS.pianifica(modelli_case, h, a.cls, evita_is, LIVELLO_MARE,
-                               seed=83, densita=op.isolate)
-        if isolate:
-            protetto |= IS.maschera(isolate, a.cls.shape)
-            note.append(f"case isolate: {len(isolate)} "
-                        f"({', '.join(modelli_case[c.modello].nome for c in isolate)})")
 
-    avanza(0.75, "vegetazione")
+def _pianifica_isolate(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                       banchi: list, muro, tipo_strada, campi, urbano,
+                       avamposti: list, miniere: list, arredi_r, modelli_case: list,
+                       protetto: np.ndarray, note: list[str]) -> list:
+    """I modelli troppo alti per un lotto, sparsi fuori dai paesi: manieri, case
+    sull'albero, fattorie (vedi `isolate.py`)."""
+    if not (op.isolate > 0 and modelli_case):
+        return []
+    from scipy.ndimage import binary_dilation as _dil
+    evita_is = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi)
+    if urbano.any():
+        evita_is |= _dil(urbano, iterations=8)
+    evita_is |= _dil(np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME), iterations=4)
+    if avamposti:
+        evita_is |= AP.maschera(avamposti, a.cls.shape, margine=3)
+    for mn in miniere:
+        evita_is[max(0, mn.z - 6):mn.z + 7, max(0, mn.x - 6):mn.x + 7] = True
+    if arredi_r.arredi:
+        evita_is |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=2)
+    evita_is |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 10)
+    isolate = IS.pianifica(modelli_case, h, a.cls, evita_is, LIVELLO_MARE,
+                           seed=83, densita=op.isolate)
+    if isolate:
+        protetto |= IS.maschera(isolate, a.cls.shape)
+        note.append(f"case isolate: {len(isolate)} "
+                    f"({', '.join(modelli_case[c.modello].nome for c in isolate)})")
+    return isolate
+
+
+def _semina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
+            tipo_strada, scarpata, campi, poderi: list, frutta, avamposti: list,
+            arredi_r, isolate: list, note: list[str]) -> tuple[dict | None, dict]:
+    """Alberi, canne e fiori, tolti da dove non devono stare: dentro un podere,
+    le mura, la carreggiata, una casa, un giardino, un accampamento, vicino a
+    uno scalino urbano o a un fiume. Ritorna (alberi, indice per chunk)."""
     alberi = (V.semina(a.cls, h, livello_mare=LIVELLO_MARE,
                        scala_densita=op.alberi, seed=21)
               if op.alberi > 0 else None)
@@ -896,8 +732,14 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                                                  V.conteggio(alberi).items())
                                        or "nessuna"))
     indice = V.indice_per_chunk(alberi, op.lato) if alberi else {}
+    return alberi, indice
 
-    avanza(0.9, "fauna")
+
+def _fauna(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
+           tipo_strada, poderi: list, avamposti: list, arredi_r, isolate: list,
+           note: list[str]) -> list:
+    """Animali selvatici (tolti da mura, strade, case, arredi, avamposti) e da
+    cortile nei poderi."""
     if op.fauna > 0:
         selvatici = FA.semina_selvatica(a.cls, h, livello_mare=LIVELLO_MARE,
                                         scala_densita=op.fauna, seed=41)
@@ -932,7 +774,218 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     if animali:
         note.append("fauna: " + ", ".join(f"{k} {v}" for k, v in
                                           FA.conteggio(animali).items()))
-        abitanti = abitanti + animali
+    return animali
+
+
+def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
+    """Insediamenti, strade e vegetazione, in quest'ordine obbligato.
+
+    Tre fasi modificano il terreno - gli insediamenti spianano i lotti, le
+    strade spianano la sede, la vegetazione si semina su quel che resta - e
+    spianare mentre si scrivono i chunk e' impossibile: il chunk accanto e'
+    gia' chiuso. Quindi tutto qui, prima di scrivere una sola colonna.
+    """
+    note: list[str] = []
+    h = a.h
+    avanza(0.05, "pianta urbana")
+    siti = (I.scegli_siti(a.cls, h, livello_mare=LIVELLO_MARE,
+                          celle_per_villaggio=int(45_000 / max(op.villaggi, 1e-3)),
+                          seed=31) if op.villaggi > 0 else [])
+    edifici, h, vie, muro, citta, banchi, urbano = CT.pianifica(
+        a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31)
+    indice_ed = I.indice_per_chunk(edifici) if edifici else {}
+    # Proprietario: quale edificio (indice in `edifici`) possiede ciascuna
+    # cella del suo SEDIME - il lotto vero, mai sovrapposto a quello di un
+    # altro edificio (`citta.lotti()` lo garantisce, con un test dedicato).
+    # NON l'ingombro del modello scelto poi: `template.assegna` sceglie solo
+    # modelli che ci stanno per intero, ma il tetto sporge di una gronda oltre
+    # il sedime. Serve da rete di sicurezza: se due ingombri si toccano, la
+    # casa disegnata per seconda "mangerebbe" un pezzo di quella disegnata per
+    # prima (il difetto segnalato come "casa a mezzo"), e `vietato_c` lo evita.
+    proprietario = np.full(a.cls.shape, -1, np.int32)
+    for i, e in enumerate(edifici):
+        proprietario[e.z:e.z + e.profondita, e.x:e.x + e.larghezza] = i
+    for b in banchi:
+        proprietario[b.z:b.z1, b.x:b.x1] = -2    # -2: banco, mai di un edificio
+    # Un abitante per casa, bottega o no. Prima solo le case con un mestiere
+    # avevano un abitante (`if e.mestiere`), e `_mestiere()` in citta.py ne
+    # assegna uno solo al 20-55% delle case per disegno ("una citta' fatta
+    # di sole botteghe e' un centro commerciale, non una citta'") - quindi
+    # una citta' grande, fatta per lo piu' di semplici abitazioni, restava
+    # con pochissimi abitanti in giro: il difetto segnalato come "pochi
+    # villager nelle citta' murate". Un villaggio piccolo ha comunque poche
+    # case, quindi pochi abitanti anche cosi' - e' la citta' grande, con
+    # tante case, che ne beneficia. `mestiere=""` non e' un errore: risolve
+    # a professione "none" (villager senza mestiere) in `Abitante.professione`,
+    # che e' esattamente cosa serve per chi vive in una casa qualunque.
+    #
+    # Le case da template si assegnano QUI, una volta per lotto e senza
+    # ripetere lo stesso modello dentro un villaggio (`TM.assegna`). Un lotto
+    # in cui non entra nessun modello libero resta senza casa, e senza
+    # abitante: un villager in un lotto vuoto e' un villager in mezzo al prato.
+    cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
+    modelli_case = (TM.carica_cartelle(cartelle_t, versione=op.versione)
+                    if cartelle_t and edifici else [])
+    scelte = (TM.assegna(modelli_case, edifici,
+                         np.random.default_rng(op.seed * 7717 + 3))
+              if modelli_case else {})
+    if modelli_case:
+        note.append(f"case: {len(scelte)} su {len(edifici)} lotti hanno una "
+                    f"casa ({len({k for k, _ in scelte.values()})} modelli "
+                    f"diversi su {len(modelli_case)})")
+    abitanti = [EN.Abitante(x=px, y=py + 0.0, z=pz, mestiere=e.mestiere,
+                            seme=e.seme)
+                for i, e in enumerate(edifici)
+                if not modelli_case or i in scelte
+                for px, py, pz in (E.punto_lavoro(e),)]
+    # e uno per banco, davanti al suo bancone
+    MERCE_MESTIERE = {"frutta": "fruttivendolo", "carne": "macellaio",
+                      "pesce": "pescatore", "verdura": "fruttivendolo"}
+    abitanti += [EN.Abitante(x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
+                             mestiere=MERCE_MESTIERE.get(b.merce, "fruttivendolo"),
+                             seme=b.seme)
+                 for b in banchi]
+    if edifici:
+        st = CT.statistiche(edifici, vie, muro, citta, banchi)
+        note.append(
+            f"insediamenti: {st['edifici']} edifici in {st['insediamenti']} "
+            f"centri ({st['citta']} con le mura); vie {st['assi']} di asse, "
+            f"{st['secondarie']} secondarie, {st['vicoli']} di vicolo; "
+            f"{st['mura']} celle di cinta, {st['porte']} di porta, "
+            f"{st['banchi']} banchi di mercato")
+        mest = CT.conteggio_mestieri(edifici)
+        if mest:
+            note.append("botteghe: " + ", ".join(f"{k} {v}" for k, v in mest.items()))
+
+    # I CAMPI vanno qui: dopo le case e le mura (devono sapere cosa evitare)
+    # e prima delle strade, che cosi' possono costeggiarli invece di
+    # attraversarli, e prima della semina, che non deve piantare un bosco in
+    # mezzo al grano.
+    campi = None
+    poderi: list = []
+    frutta = None
+    if op.villaggi > 0 and citta:
+        avanza(0.25, "campi e frutteti")
+        preso = np.zeros(a.cls.shape, bool)
+        preso |= vie > 0
+        preso |= muro > 0
+        for e in edifici:
+            x0, z0, x1, z1 = e.ingombro_tetto()
+            preso[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
+        for b in banchi:
+            preso[max(0, b.z - 2):b.z1 + 2, max(0, b.x - 2):b.x1 + 2] = True
+        poderi, h, campi, frutta = AG.pianifica(
+            a.cls, h, preso, citta, livello_mare=LIVELLO_MARE,
+            scala=op.villaggi, seed=31)
+        if poderi:
+            st = AG.statistiche(poderi, campi, frutta)
+            note.append(
+                f"campagna: {st['poderi']} poderi e {st['frutteti']} frutteti, "
+                f"{st['arato']} celle arate, {st['canali']} di canale, "
+                f"{st['alberi_da_frutto']} alberi da frutto, "
+                f"{st['bacche']} cespugli di bacche")
+
+    tipo_strada = quota_strada = None
+    if op.strade and edifici:
+        avanza(0.35, "rete stradale e ponti")
+        ancore = [c.porte for c in citta]
+        tipo_strada, quota_strada, h = ST.pianifica(
+            a.cls, h, a.livello, siti, edifici, livello_mare=LIVELLO_MARE,
+            vie=vie, ancore=ancore, campi=campi, seed=31)
+        st = ST.statistiche(tipo_strada)
+        note.append(f"strade: {st['strada']} celle di sede, "
+                    f"{st['lastricato']} lastricate, {st['ponte']} di "
+                    f"ponte ({st['parapetto']} di parapetto)")
+
+    # ULTIMA REGOLA SUL TERRENO. Citta', campi e strade hanno tutti il
+    # permesso di muovere le quote; nessuno di loro sa dove passa l'acqua. Le
+    # sponde si ricontrollano qui, quando nessuno le tocchera' piu'.
+    fiume = a.cls == M.FIUME
+    if fiume.any():
+        prima = h.copy()
+        h = R.puntella(h, fiume, a.livello, livello_mare=LIVELLO_MARE)
+        quante = int((h != prima).sum())
+        if quante:
+            note.append(f"sponde ripuntellate: {quante} celle "
+                        f"(fiumi rimasti sospesi dopo citta' e strade)")
+
+    # I fronti dei gradoni si leggono ADESSO, quando nessuno muovera' piu' il
+    # terreno: sono una proprieta' delle quote finali, non una decisione.
+    scarpata = None
+    if urbano.any():
+        scarpata = CT.scarpate(h, urbano)
+        if scarpata.any():
+            note.append(f"terrazze: {int(scarpata.sum())} celle di fronte "
+                        f"(muri di sostegno)")
+
+    # PROTEZIONE DEL SOTTOSUOLO. Caverne e miniere si scavano dentro
+    # `blocchi` (vedi `scrivi()`) DOPO che mura, strade e campi sono gia'
+    # stati disegnati - il commento "il sottosuolo prima di tutto il resto"
+    # descrive l'ordine voluto (le caverne devono scavare nella roccia, non
+    # dentro una casa gia' posata), ma nel codice l'ordine e' l'opposto:
+    # `blocchi_chunk()` disegna le strutture per prima, `SS.posa()` e
+    # `MI.posa()` scavano dopo. Un cunicolo o una galleria che passa proprio
+    # sotto una cinta muraria toglie la roccia su cui il muro e' stato
+    # disegnato: il muro sopra resta l'immagine gia' scritta, sotto resta il
+    # vuoto - "la murata che si interrompe e rimane sospesa" segnalato in
+    # uno screenshot. Le caverne (vermi a passeggio su tutta la mappa, senza
+    # nessuna nozione di dove sta un insediamento) sono il caso piu' facile
+    # da colpire; le gallerie delle miniere evitano gia' di NASCERE dentro
+    # un insediamento (`evita`, sotto) ma possono comunque attraversarne uno
+    # durante il percorso. Questa maschera dice a entrambe "qui non si
+    # scava", a prescindere da quota o raggio.
+    protetto = np.zeros(a.cls.shape, bool)
+    if muro is not None:
+        protetto |= muro > 0
+    if tipo_strada is not None:
+        protetto |= tipo_strada > 0
+    if campi is not None:
+        protetto |= campi > 0
+    for e in edifici:
+        x0, z0, x1, z1 = e.ingombro_tetto()
+        protetto[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
+
+    avanza(0.62, "caverne")
+    caverne = (SS.scava_caverne(h, livello_mare=LIVELLO_MARE, seed=19)
+               if op.caverne > 0 else {"x": np.zeros(0, np.int32)})
+    if caverne["x"].size:
+        st = SS.statistiche(caverne)
+        note.append(f"sottosuolo: {st['sfere']} celle di cunicolo fra "
+                    f"y={st['quota_min']} e y={st['quota_max']}, "
+                    f"raggio medio {st['raggio_medio']:.1f}")
+
+    # MINIERE. Sparse a caso su tutta la mappa, non vicino ai paesi: l'unico
+    # legame con gli insediamenti e' negativo (vedi `_pianifica_miniere`).
+    avanza(0.68, "miniere")
+    miniere = _pianifica_miniere(op, a, h, edifici, muro, tipo_strada, note)
+
+    # ACCAMPAMENTI E CIMITERI. Stessa idea, ma con un ingombro vero in
+    # superficie: entrano anche in `protetto` (vedi `_pianifica_avamposti`).
+    avanza(0.71, "accampamenti, cimiteri e portali")
+    avamposti, modelli_cim = _pianifica_avamposti(op, a, h, edifici, muro,
+                                                  tipo_strada, protetto, note)
+
+    # ARREDI. Dopo strade, campi e avamposti: servono le quote finali e
+    # sapere cosa e' gia' occupato (vedi `_pianifica_arredi`).
+    avanza(0.73, "arredi")
+    arredi_r, abitanti = _pianifica_arredi(
+        op, a, h, edifici, scelte, citta, vie, tipo_strada, muro, campi, banchi,
+        protetto, abitanti, MERCE_MESTIERE, note)
+
+    # CASE ISOLATE. Vanno dopo tutto il resto perche' il loro criterio e'
+    # negativo: dove NON c'e' niente (vedi `_pianifica_isolate`).
+    isolate = _pianifica_isolate(op, a, h, edifici, banchi, muro, tipo_strada,
+                                 campi, urbano, avamposti, miniere, arredi_r,
+                                 modelli_case, protetto, note)
+
+    avanza(0.75, "vegetazione")
+    alberi, indice = _semina(op, a, h, edifici, muro, tipo_strada, scarpata, campi,
+                             poderi, frutta, avamposti, arredi_r, isolate, note)
+
+    avanza(0.9, "fauna")
+    animali = _fauna(op, a, h, edifici, muro, tipo_strada, poderi, avamposti,
+                     arredi_r, isolate, note)
+    abitanti = abitanti + animali
 
     carrelli = MI.carrelli(miniere, seed=53) if miniere else []
     if carrelli:
