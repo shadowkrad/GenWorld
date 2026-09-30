@@ -35,6 +35,8 @@ serve a niente quando si vuole una casa di pianta non rettangolare.
 from __future__ import annotations
 
 import json
+import dataclasses
+import functools
 import os
 from dataclasses import dataclass, field
 
@@ -209,7 +211,28 @@ def _ripara(nome: str, prop: dict) -> tuple[str, dict] | None:
 
 
 def carica(percorso: str, versione=(1, 21, 4)) -> Modello:
-    """Legge un `.nbt` di blocco struttura e lo traduce al namespace universale."""
+    """Legge un `.nbt` di blocco struttura e lo traduce al namespace universale.
+
+    Il risultato si tiene in cache per (percorso, data di modifica, versione):
+    la pianificazione, la scrittura e il visualizzatore caricano gli stessi
+    file, e ogni lettura costa (traduzione dei blocchi). Ognuno riceve una
+    COPIA, perche' i chiamanti modificano il modello (stili, tavolozza).
+    """
+    try:
+        st = os.stat(percorso)
+        chiave = (os.path.abspath(percorso), st.st_mtime_ns, st.st_size, tuple(versione))
+    except OSError:
+        return _leggi(percorso, tuple(versione))              # l'errore lo da' `_leggi`
+    m = _CACHE_MODELLI.get(chiave)
+    if m is None:
+        m = _CACHE_MODELLI[chiave] = _leggi(percorso, tuple(versione))
+    return dataclasses.replace(m, celle=m.celle.copy(), tavolozza=list(m.tavolozza))
+
+
+_CACHE_MODELLI: dict[tuple, Modello] = {}
+
+
+def _leggi(percorso: str, versione) -> Modello:
     import PyMCTranslate
     from amulet.api.block import Block
     from amulet_nbt import load as nbt_load
@@ -227,7 +250,7 @@ def carica(percorso: str, versione=(1, 21, 4)) -> Modello:
             raise ValueError(f"{percorso}: manca la palette")
         tavola = tavole[0]
 
-    ver = PyMCTranslate.new_translation_manager().get_version("java", versione)
+    ver = traduttore(versione)
 
     tavolozza: list[tuple[str, dict]] = []
     vuoto: set[int] = set()
@@ -273,9 +296,13 @@ def _prop_nbt(prop: dict):
     return {k: StringTag(v) for k, v in prop.items()}
 
 
+@functools.lru_cache(maxsize=None)
 def traduttore(versione=(1, 21, 4)):
-    """Il traduttore di PyMCTranslate per una versione Java: caricarlo costa,
-    quindi lo si prende una volta e lo si passa a `traduci_blocco`."""
+    """Il traduttore di PyMCTranslate per una versione Java.
+
+    Caricarlo costa (quasi 50 ms) e `carica()` lo creava di nuovo per OGNI
+    file: 62 volte, quasi tre secondi su una pianificazione da dodici. Ora e'
+    uno solo per versione, per tutto il processo."""
     import PyMCTranslate
     return PyMCTranslate.new_translation_manager().get_version("java", versione)
 
@@ -290,12 +317,20 @@ def traduci_blocco(ver, nome: str, prop: dict | None = None
     errore, e in gioco poi non compare - la trappola di sempre. Chi disegna
     un blocco a mano deve controllarlo.
     """
+    base, proprieta, tradotto = _traduci_in_cache(ver, nome, tuple(sorted((prop or {}).items())))
+    return base, dict(proprieta), tradotto
+
+
+@functools.lru_cache(maxsize=None)
+def _traduci_in_cache(ver, nome: str, prop: tuple) -> tuple[str, tuple, bool]:
+    """La traduzione vera. In cache perche' un template ripete gli stessi
+    pochi blocchi migliaia di volte, e il traduttore non e' veloce."""
     from amulet.api.block import Block
     spazio, _, _ = ver.block.to_universal(
         Block(*(nome.split(":", 1) if ":" in nome else ("minecraft", nome)),
-              _prop_nbt(prop or {})))
-    proprieta = {k: str(v.py_str if hasattr(v, "py_str") else v)
-                 for k, v in spazio.properties.items()}
+              _prop_nbt(dict(prop))))
+    proprieta = tuple(sorted((k, str(v.py_str if hasattr(v, "py_str") else v))
+                             for k, v in spazio.properties.items()))
     return spazio.base_name, proprieta, spazio.namespace.startswith("universal")
 
 

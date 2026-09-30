@@ -308,6 +308,54 @@ class TestAffondo(unittest.TestCase):
         self.assertEqual(m.affondo, 0)
 
 
+@unittest.skipUnless(TRADUTTORE, "PyMCTranslate non disponibile")
+class TestCache(unittest.TestCase):
+    """Traduttore e template si tengono in cache: senza, una pianificazione da
+    dodici secondi ne spendeva sei a ricaricare gli stessi cinquanta file."""
+
+    CASE = os.path.join(RADICE, "templates", "case")
+
+    def file(self, i=0):
+        return os.path.join(self.CASE, sorted(f for f in os.listdir(self.CASE)
+                                              if f.endswith(".nbt"))[i])
+
+    def test_il_traduttore_e_uno_solo_per_versione(self):
+        self.assertIs(T.traduttore((1, 21, 4)), T.traduttore((1, 21, 4)))
+
+    def test_traduci_blocco_da_dati_indipendenti(self):
+        ver = T.traduttore()
+        _, p1, _ = T.traduci_blocco(ver, "oak_fence", {"east": "false"})
+        p1["material"] = "sporcato"
+        _, p2, _ = T.traduci_blocco(ver, "oak_fence", {"east": "false"})
+        self.assertEqual(p2["material"], "oak")
+
+    def test_ogni_chiamante_riceve_una_copia(self):
+        m1 = T.carica(self.file())
+        celle, tav0 = m1.celle.copy(), m1.tavolozza[0]
+        m1.celle[:] = -1
+        m1.tavolozza[0] = ("sporcato", {})
+        m1.stili = frozenset({"x"})
+        m2 = T.carica(self.file())
+        self.assertTrue((m2.celle == celle).all())
+        self.assertEqual(m2.tavolozza[0], tav0)
+        self.assertEqual(m2.stili, frozenset())
+
+    def test_un_file_cambiato_si_rilegge(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "casa.nbt")
+            shutil.copy(self.file(0), dest)
+            prima = T.carica(dest)
+            shutil.copy(self.file(-1), dest)
+            os.utime(dest, ns=(2 * 10 ** 18, 2 * 10 ** 18))      # data di modifica diversa
+            dopo = T.carica(dest)
+            self.assertNotEqual((prima.dx, prima.dy, prima.dz), (dopo.dx, dopo.dy, dopo.dz))
+
+    def test_un_file_che_manca_da_l_errore_di_sempre(self):
+        with self.assertRaises(Exception):
+            T.carica("/percorso/che/non/esiste.nbt")
+
+
 class TestContaFile(unittest.TestCase):
 
     def test_conta_solo_i_nbt_di_piu_cartelle(self):
