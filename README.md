@@ -226,13 +226,22 @@ Per provarlo in gioco, copiare la cartella `mondi/spike` dentro
 
 ### Test
 
-```bash
-python -m pytest tests -q                                   # 163, 33 saltati
-C:\venvs\genworld\Scripts\python -m pytest tests -q          # 196 test
+Per lavorare sul codice servono anche pytest, coverage e ruff, che
+`GenWorld.bat` non installa:
+
+```bat
+C:\venvs\genworld\Scripts\pip install -r requirements-dev.txt
+C:\venvs\genworld\Scripts\python -m pytest tests -q          # circa 600 test, un minuto e mezzo
+C:\venvs\genworld\Scripts\ruff check genworld esempi tests   # configurazione in pyproject.toml
+C:\venvs\genworld\Scripts\python -m coverage run -m pytest tests -q
+C:\venvs\genworld\Scripts\python -m coverage report
 ```
 
-I test saltati senza il venv sono quelli che richiedono amulet (scrittura dei
-mondi) o PySide6 (la finestra). L'aspetto della finestra non si prova con un
+Col solo Python di sistema i test che richiedono amulet (scrittura dei mondi)
+o PySide6 (la finestra) vengono saltati. Su un clone pulito ne saltano di piu':
+i template delle case non stanno nel repository (sono file di altri), e senza
+`templates/strutture` i villaggi escono senza case - la finestra lo avvisa
+prima di generare. L'aspetto della finestra non si prova con un
 test: si guarda, e per guardarlo senza schermo c'e'
 `python esempi/scatto_gui.py --analizza`, che la disegna offscreen e la
 fotografa in `mondi/gui.png`.
