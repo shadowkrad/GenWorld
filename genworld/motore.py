@@ -34,6 +34,7 @@ from . import entita as EN
 from . import fauna as FA
 from . import fiumi as R
 from . import insediamenti as I
+from . import isolate as IS
 from . import laghi as LG
 from . import mappa as M
 from . import miniere as MI
@@ -127,6 +128,9 @@ class Opzioni:
     # lascia i lotti vuoti. Non tocca il terreno, quindi fuori da
     # `firma_analisi`.
     arredi: float = 1.0
+    # Moltiplicatore di densita' delle case isolate (i template troppo alti per
+    # un villaggio, sparsi fuori dai paesi: vedi `isolate.py`). 0 le spegne.
+    isolate: float = 1.0
     # Moltiplicatore di densita' della fauna, selvatica e da cortile. 0 la
     # spegne del tutto (restano solo gli abitanti dei villaggi).
     fauna: float = 1.0
@@ -459,6 +463,8 @@ class Piano:
     # su quale lotto. Si decide qui e non in `scrivi()`, perche' chi abita una
     # casa (e chi arreda un lotto rimasto vuoto) deve saperlo in pianificazione.
     scelte: dict = field(default_factory=dict)
+    isolate: list = field(default_factory=list)
+    indice_isolate: dict = field(default_factory=dict)
     arredi: list = field(default_factory=list)
     arredi_modelli: list = field(default_factory=list)
     indice_arredi: dict = field(default_factory=dict)
@@ -760,6 +766,42 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             note.append("arredi: " + ", ".join(
                 f"{k} {v}" for k, v in AR.statistiche(arredi_r).items() if v))
 
+    # CASE ISOLATE. I modelli troppo alti per un lotto, sparsi fuori dai
+    # paesi: manieri, case sull'albero, fattorie. Vanno dopo tutto il resto
+    # perche' il loro criterio e' negativo: dove NON c'e' niente.
+    isolate: list = []
+    if op.isolate > 0 and modelli_case:
+        from scipy.ndimage import binary_dilation as _dil_is
+        evita_is = np.zeros(a.cls.shape, bool)
+        for e in edifici:
+            x0, z0, x1, z1 = e.ingombro_tetto()
+            evita_is[max(0, z0 - 1):z1 + 1, max(0, x0 - 1):x1 + 1] = True
+        for b in banchi:
+            evita_is[max(0, b.z - 1):b.z1 + 1, max(0, b.x - 1):b.x1 + 1] = True
+        if tipo_strada is not None:
+            evita_is |= tipo_strada > 0
+        if muro is not None:
+            evita_is |= muro > 0
+        if campi is not None:
+            evita_is |= campi > 0
+        if urbano.any():
+            evita_is |= _dil_is(urbano, iterations=8)
+        evita_is |= _dil_is(np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME),
+                            iterations=4)
+        if avamposti:
+            evita_is |= AP.maschera(avamposti, a.cls.shape, margine=3)
+        for mn in miniere:
+            evita_is[max(0, mn.z - 6):mn.z + 7, max(0, mn.x - 6):mn.x + 7] = True
+        if arredi_r.arredi:
+            evita_is |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=2)
+        evita_is |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 10)
+        isolate = IS.pianifica(modelli_case, h, a.cls, evita_is, LIVELLO_MARE,
+                               seed=83, densita=op.isolate)
+        if isolate:
+            protetto |= IS.maschera(isolate, a.cls.shape)
+            note.append(f"case isolate: {len(isolate)} "
+                        f"({', '.join(modelli_case[c.modello].nome for c in isolate)})")
+
     avanza(0.75, "vegetazione")
     alberi = (V.semina(a.cls, h, livello_mare=LIVELLO_MARE,
                        scala_densita=op.alberi, seed=21)
@@ -832,6 +874,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         tieni = ~dentro_av[alberi["z"], alberi["x"]]
         if not tieni.all():
             alberi = {k: v[tieni] for k, v in alberi.items()}
+    if alberi is not None and isolate:
+        # niente albero dentro una casa isolata (ne' addosso alle sue pareti)
+        dentro_is = IS.maschera(isolate, a.cls.shape, margine=2)
+        tieni = ~dentro_is[alberi["z"], alberi["x"]]
+        if not tieni.all():
+            alberi = {k: v[tieni] for k, v in alberi.items()}
     if alberi is not None and arredi_r.arredi:
         # niente albero dentro un giardino, un pozzo, sotto un lampione
         dentro_ar = AR.maschera(arredi_r.arredi, a.cls.shape, margine=1)
@@ -871,6 +919,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                 esclusa[max(0, z0):z1, max(0, x0):x1] = True
             if arredi_r.arredi:
                 esclusa |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=1)
+            if isolate:
+                esclusa |= IS.maschera(isolate, a.cls.shape, margine=1)
             if avamposti:
                 # niente cervo o coniglio in mezzo a un accampamento di
                 # nemici: sopravviverebbe poco, ed e' comunque un posto
@@ -909,6 +959,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  avamposti=avamposti,
                  indice_avamposti=AP.indice_per_chunk(avamposti) if avamposti else {},
                  scelte=scelte,
+                 isolate=isolate,
+                 indice_isolate=IS.indice_per_chunk(isolate) if isolate else {},
                  arredi=arredi_r.arredi, arredi_modelli=arredi_r.modelli,
                  indice_arredi=(AR.indice_per_chunk(arredi_r.arredi)
                                 if arredi_r.arredi else {}),
@@ -1443,7 +1495,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                             seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
         manto_m = U.manto(a.cls, seed=op.seed)
         tav = V.Tavolozza(m) if piano.alberi is not None else None
-        tav_ed = E.TavolozzaEdilizia(m) if piano.edifici else None
+        tav_ed = E.TavolozzaEdilizia(m) if (piano.edifici or piano.isolate) else None
         tav_ba = BA.Tavolozza(m) if piano.edifici else None
 
         # --- case da template ------------------------------------------
@@ -1563,12 +1615,16 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         # dall'altro.
                         vietato_c = (None if propr_c is None else
                                     (propr_c != -1) & (propr_c != k))
+                        # molti template hanno uno strato di terra sotto il
+                        # pavimento: interrato di uno, la loro erba prende il
+                        # posto di quella del lotto invece di fare da zoccolo
+                        base_c = ed.base - modelli[mi].affondo
                         TM.fondazione(blocchi, -64, sx, sz, cat, mi, quarti,
-                                      px, pz, ed.base,
+                                      px, pz, base_c,
                                       tav_ed.blocco[(ed.stile, "basamento")],
                                       tav_ed.aria, vietato=vietato_c)
                         TM.costruisci(blocchi, -64, sx, sz, cat, mi, quarti,
-                                      px, pz, ed.base, vietato=vietato_c)
+                                      px, pz, base_c, vietato=vietato_c)
                         if ed.mestiere:
                             E.posto_di_lavoro(blocchi, -64, sx, sz, ed, tav_ed)
                     # se il lotto non e' in `scelte` resta senza casa: niente
@@ -1578,6 +1634,17 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 for k in piano.indice_banchi.get((sx // 16, sz // 16), ()):
                     E.costruisci_banco(blocchi, -64, sx, sz, piano.banchi[k],
                                        tav_ed)
+            if cat is not None and tav_ed is not None:
+                # le case isolate: stessa posa di quelle dei villaggi
+                for k in piano.indice_isolate.get((sx // 16, sz // 16), ()):
+                    ci = piano.isolate[k]
+                    base_c = ci.base - modelli[ci.modello].affondo
+                    TM.fondazione(blocchi, -64, sx, sz, cat, ci.modello, ci.quarti,
+                                  ci.x, ci.z, base_c,
+                                  tav_ed.blocco[(ci.stile, "basamento")],
+                                  tav_ed.aria)
+                    TM.costruisci(blocchi, -64, sx, sz, cat, ci.modello, ci.quarti,
+                                  ci.x, ci.z, base_c)
             if cat_ar is not None:
                 # gli arredi dopo le case e i banchi: un lampione o un giardino
                 # occupano solo cio' che e' rimasto libero

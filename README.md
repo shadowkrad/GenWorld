@@ -796,6 +796,102 @@ casotti che lo riempivano. La profondita' massima del lotto e' invece scesa a
 nove, apposta: un isolato ha due file di case schiena contro schiena, e con
 lotti profondi tredici la prima fila si mangiava tutto l'isolato.
 
+## Una casa per lotto, mai ripetuta nel villaggio
+
+Aperto il mondo in gioco: le case erano tutte uguali, e molte erano a meta'.
+Le due cose avevano la stessa causa, e stava nella pianta, non nei template.
+
+Un lotto non lo decide la casa: lo decide l'isolato, e in una pianta organica
+gli isolati sono stretti. Su Arda il lato corto tipico del lotto era 7 blocchi,
+mentre il modello piu' piccolo del catalogo ne misura 9 e la maggior parte piu'
+di 13. In 39 lotti su 55 non entrava nessun template, e `template.scegli()`
+ripiegava sul modello con la **minor eccedenza**: sempre lo stesso, 39 volte su
+55, e sporgente dal lotto. Il codice non lascia sconfinare una casa nel lotto
+del vicino, quindi la parte in eccesso veniva tagliata: la casa a meta'.
+
+Ora la scelta e' un'altra, e sta in `template.assegna()`:
+
+* una casa **entra per intero** nel lotto o non ci va. Niente sporgenze;
+* **nessun modello si ripete dentro lo stesso villaggio**: due villaggi
+  possono avere la stessa casa, due case dello stesso no. Comincia il lotto con
+  meno scelta, cosi' un lotto piccolo non resta senza il suo unico modello
+  perche' uno grande l'ha preso per primo;
+* il lotto in cui non entra nessun modello libero **non ha casa** - e non ha
+  abitante, perche' un villager in un lotto vuoto e' un villager in mezzo al
+  prato. La scelta si fa in `pianifica()` (`piano.scelte`), non piu' in
+  `scrivi()`, per questo.
+
+Costo, misurato: su Arda le case scendono da 55 a 15, con 8 modelli diversi e
+nessuna ripetizione. Il paese non resta vuoto perche' i lotti liberi si
+arredano (sotto).
+
+### I blocchi che il traduttore non conosce
+
+Nei template scaricati c'erano centinaia di blocchi piu' recenti della 1.21.4
+(scaffali, catene di ferro, lanterne di rame, cinabro...). PyMCTranslate non li
+traduce e non da' errore: li restituisce tali e quali, e in gioco spariscono,
+lasciando buchi dentro le case. `template._ripara()` li sostituisce al
+caricamento col parente piu' vicino (uno scaffale diventa una libreria, una
+catena la sua catena, una lanterna di rame una lanterna). Resta senza
+equivalente solo `large-house-big`, una costruzione con la mod Create, e c'e' un
+test che lo pretende.
+
+### Lo zoccolo di terra
+
+Molti template hanno uno strato di erba o terra sotto il pavimento (chi li ha
+salvati ha incluso il suolo). Posati con y=0 sul primo blocco libero, quello
+strato faceva da zoccolo e la casa risultava sollevata di un blocco.
+`Modello.affondo` lo riconosce - lo strato piu' basso e' per il 60% terreno - e
+il modello si interra di uno: la sua erba prende il posto di quella del lotto.
+
+## Gli arredi
+
+Un lotto senza casa non deve restare un buco. `arredi.py` lo riempie con quello
+che riempie i vuoti in un paese vero: un giardino con la siepe e il varco
+dalla parte della strada, un recinto con il cancello e le bestie dentro (vere,
+scritte come gli abitanti), una piazzetta con un pozzo e due panchine, un banco
+da mercato con il suo venditore. Nei paesi vecchi si vede.
+
+In piu', in ogni insediamento e a prescindere dai lotti:
+
+* una **campana**, sempre: in Minecraft e' anche il punto d'incontro degli
+  abitanti;
+* una **fontana** in citta' (5x5, con l'acqua chiusa in un anello) o un
+  **pozzo** in un borgo, cercati vicino alla piazza;
+* dei **lampioni** lungo le vie principali, a non meno di 9 celle l'uno
+  dall'altro.
+
+Ogni arredo e' un `template.Modello` come una casa, quindi si posa con la stessa
+`costruisci()` e viene ritagliato per chunk allo stesso modo. Si disegnano in
+codice con i nomi di gioco e si traducono una volta: un blocco che il traduttore
+non conosce solleva un errore invece di sparire in gioco. Le staccionate si
+collegano ai vicini a mano, perche' un mondo scritto senza passare dal gioco
+non ricalcola le forme dei blocchi.
+
+Nella finestra c'e' il cursore **Arredi** (0 li spegne e lascia i lotti vuoti);
+da riga di comando `--arredi`.
+
+## Le case isolate
+
+I template piu' alti di 24 blocchi (19 su 59: manieri, case sull'albero,
+torri) non entrano nei lotti di un paese, e dove entrano sono troppo per una
+via di case a schiera. Fuori dai villaggi sono esattamente il contrario: una
+casa nella prateria, un maniero nel bosco. `isolate.py` le sparge sulla mappa
+(una ogni 120.000 celle circa), su terreno abbastanza piano, lontane da paesi,
+strade, campi, acqua, vulcano, miniere e avamposti, e **ogni modello compare al
+massimo una volta per mappa**. Su Arda: 8 case isolate, tutte diverse. Cursore
+**Case isolate**, `--isolate` da riga di comando.
+
+## La distanza dal vulcano
+
+Miniere, accampamenti, cimiteri e portali si piazzano a caso, e nessuno sapeva
+dov'era il vulcano: su Arda 5 miniere su 71 e 4 avamposti su 45 stavano sul cono
+o a un passo da esso, e in gioco un portale restava appeso a una parete di
+basalto. `DISTANZA_MIN_VULCANO` (12 celle da cono, cratere, lago di lava e
+colate) e' ora una zona vietata per tutti loro, a cui si somma il raggio della
+costruzione: la pianificazione guarda solo il centro. Le case non servono:
+stanno gia' solo su terreno poco ripido.
+
 ## Le terrazze
 
 La spianata dolce dell'abitato toglieva la rugosita' ma lasciava la pendenza,
@@ -888,13 +984,22 @@ genworld/
   strade.py       griglia di costo, A*, sede stradale, ponti
   vulcani.py      coni, valloni, cratere, lago di lava, colate
   citta.py        pianta organica, isolati, terrazze, lotti, mura e torri
-  template.py     case da .nbt di blocco struttura: lettura, rotazione, posa
+  template.py     case da .nbt di blocco struttura: lettura, rotazione, posa,
+                  assegnazione senza ripetizioni, blocchi recenti, affondo
+  arredi.py       lampioni, campana, fontana/pozzo, giardini, recinti, bazar
+  isolate.py      le case alte, sparse fuori dai villaggi
+  avamposti.py    accampamenti, cimiteri e portali
+  miniere.py      pozzi, gallerie, binari, filoni
+  laghi.py        bacini chiusi riempiti
+  fauna.py        animali selvatici e da cortile
+  bauli.py        bottino dei forzieri
+  vista_template.py  elenco e viste dei template (sopra, fronte, fianco, 3D)
   entita.py       abitanti e scrittura a mano dei file entities/*.mca
   agricoltura.py  poderi, canali, recinti, frutteti a filari
   biomi.py        clima: freddo per quota e latitudine, tavolozza dei biomi
   motore.py       la pipeline: analizza, pianifica, scrivi
   gui.py          la finestra (PySide6)
-tests/            293 test
+tests/            594 test
 esempi/
   spike_piatto.py generazione di prova 256x256 + anteprima
   genera_mappa.py riga di comando sopra il motore, a lotti
