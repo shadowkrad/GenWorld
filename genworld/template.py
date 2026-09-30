@@ -357,6 +357,24 @@ def carica_cartella(percorso: str, versione=(1, 21, 4)) -> list[Modello]:
     return fuori
 
 
+AVVISO_SENZA_CASE = (
+    "Nessun template di casa trovato in templates/strutture: i villaggi avranno "
+    "solo le strade e gli arredi, senza case. I template di casa sono file .nbt "
+    "di blocco struttura (vedi templates/case/README.md).")
+
+
+def conta_file(cartelle: str) -> int:
+    """Quanti `.nbt` ci sono nelle cartelle date (separate da ';'), senza
+    caricarli. Serve ad avvisare PRIMA di generare: un clone pulito del
+    progetto non ha case (i template scaricati non stanno nel repository) e
+    senza questo il programma produrrebbe villaggi vuoti senza dire niente."""
+    n = 0
+    for cartella in (c.strip() for c in cartelle.split(";")):
+        if cartella and os.path.isdir(cartella):
+            n += sum(1 for f in os.listdir(cartella) if f.lower().endswith(".nbt"))
+    return n
+
+
 def carica_cartelle(percorsi: list[str], versione=(1, 21, 4)) -> list[Modello]:
     """Come `carica_cartella`, ma unendo piu' cartelle in un unico catalogo."""
     fuori: list[Modello] = []

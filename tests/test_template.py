@@ -308,6 +308,22 @@ class TestAffondo(unittest.TestCase):
         self.assertEqual(m.affondo, 0)
 
 
+class TestContaFile(unittest.TestCase):
+
+    def test_conta_solo_i_nbt_di_piu_cartelle(self):
+        with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+            for nome in ("a.nbt", "B.NBT", "c.txt"):
+                open(os.path.join(d1, nome), "w").close()
+            open(os.path.join(d2, "d.nbt"), "w").close()
+            self.assertEqual(T.conta_file(d1), 2)
+            self.assertEqual(T.conta_file(d1 + ";" + d2), 3)
+
+    def test_cartelle_assenti_o_vuote_fanno_zero(self):
+        self.assertEqual(T.conta_file(""), 0)
+        self.assertEqual(T.conta_file("/percorso/che/non/esiste"), 0)
+        self.assertEqual(T.conta_file(" ; ;"), 0)
+
+
 class TestAndataERitorno(unittest.TestCase):
     """Si esportano le case parametriche in `.nbt` e si rileggono: e' l'unico
     controllo che tocca davvero il formato, la traduzione e la rotazione

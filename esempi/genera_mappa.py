@@ -139,6 +139,10 @@ def main() -> None:
                  miniere=a.miniere, accampamenti=a.accampamenti,
                  cimiteri=a.cimiteri, portali=a.portali, versione=versione)
 
+    from genworld import template as TM
+    if a.villaggi > 0 and TM.conta_file(a.templates) == 0:
+        print("ATTENZIONE: " + TM.AVVISO_SENZA_CASE)
+
     t0 = time.time()
     primo = a.lotto == 0
     analisi = analizza(op)
