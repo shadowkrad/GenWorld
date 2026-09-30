@@ -78,6 +78,9 @@ def main() -> None:
                          "(0 = nessun fiume). Piu' bassa = reticolo piu' fitto")
     ap.add_argument("--alberi", type=float, default=1.0, metavar="SCALA",
                     help="densita' della vegetazione (0 = nessun albero)")
+    ap.add_argument("--arredi", type=float, default=1.0, metavar="SCALA",
+                    help="densita' degli arredi urbani sui lotti senza casa e "
+                         "lungo le vie (0 = lotti vuoti)")
     ap.add_argument("--fauna", type=float, default=1.0, metavar="SCALA",
                     help="densita' della fauna, selvatica e da cortile (0 = nessuna)")
     ap.add_argument("--laghi", type=float, default=1.0, metavar="SCALA",
@@ -129,7 +132,7 @@ def main() -> None:
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,
                  templates=a.templates, templates_cimitero=a.templates_cimitero,
                  templates_portale=a.templates_portale,
-                 fauna=a.fauna, laghi=a.laghi,
+                 fauna=a.fauna, arredi=a.arredi, laghi=a.laghi,
                  miniere=a.miniere, accampamenti=a.accampamenti,
                  cimiteri=a.cimiteri, portali=a.portali, versione=versione)
 

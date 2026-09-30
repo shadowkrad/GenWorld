@@ -951,6 +951,7 @@ def pianifica(
         ed = lotti(area, rango > 0, cls, h, livello, (pz, px), raggio,
                    livello_mare, rng)
         for e in ed:
+            e.villaggio = n
             _terrazza(h, e, intoccabile=intoccabile)
         fuori.extend(ed)
 
