@@ -191,7 +191,7 @@ def pianifica(
     # che sa dove sono gli isolati. Prima ogni casa veniva collegata al
     # centro del villaggio con un raggio dritto, e il risultato era una
     # ruota di bicicletta.
-    if not celle:
+    if not celle and not (vie is not None and (vie > 0).any()):
         return tipo, quota, h
 
     linea = np.zeros((H, W), bool)
@@ -218,10 +218,11 @@ def pianifica(
 
     tipo[strada] = STRADA
     if vie is not None:
-        # dentro le mura si lastrica: una capitale con le vie sterrate no
+        # i viali di rango >= secondaria restano una classe a parte - serve
+        # a `motore._posa_strada` per distinguerli dai vicoli - ma non sono
+        # piu' lastricati di pietra: vedi il commento li' per il perche'.
         tipo[(vie >= 2) & ~ponte] = LASTRICATO
     tipo[ponte] = PONTE
-    bordo = ponte & ~binary_dilation(~strada, iterations=0) if False else None
     # parapetto: cella di ponte che confina con il vuoto
     fuori_ponte = binary_dilation(ponte, iterations=1) & ~ponte
     orlo = ponte & binary_dilation(fuori_ponte, iterations=1)

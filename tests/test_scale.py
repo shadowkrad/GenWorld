@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from genworld.fidelity import stima
 from genworld.presets import GARDA, ITALIA, MONUMENTI, insediamenti_italia
-from genworld.scale import (Scala, Territorio, mondo_per_errore, mondo_per_scala)
+from genworld.scale import (Scala, mondo_per_errore, mondo_per_scala)
 
 
 class TestScala(unittest.TestCase):

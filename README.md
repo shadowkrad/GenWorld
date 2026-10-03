@@ -226,13 +226,22 @@ Per provarlo in gioco, copiare la cartella `mondi/spike` dentro
 
 ### Test
 
-```bash
-python -m pytest tests -q                                   # 163, 33 saltati
-C:\venvs\genworld\Scripts\python -m pytest tests -q          # 196 test
+Per lavorare sul codice servono anche pytest, coverage e ruff, che
+`GenWorld.bat` non installa:
+
+```bat
+C:\venvs\genworld\Scripts\pip install -r requirements-dev.txt
+C:\venvs\genworld\Scripts\python -m pytest tests -q          # circa 600 test, un minuto e mezzo
+C:\venvs\genworld\Scripts\ruff check genworld esempi tests   # configurazione in pyproject.toml
+C:\venvs\genworld\Scripts\python -m coverage run -m pytest tests -q
+C:\venvs\genworld\Scripts\python -m coverage report
 ```
 
-I test saltati senza il venv sono quelli che richiedono amulet (scrittura dei
-mondi) o PySide6 (la finestra). L'aspetto della finestra non si prova con un
+Col solo Python di sistema i test che richiedono amulet (scrittura dei mondi)
+o PySide6 (la finestra) vengono saltati. Su un clone pulito ne saltano di piu':
+i template delle case non stanno nel repository (sono file di altri), e senza
+`templates/strutture` i villaggi escono senza case - la finestra lo avvisa
+prima di generare. L'aspetto della finestra non si prova con un
 test: si guarda, e per guardarlo senza schermo c'e'
 `python esempi/scatto_gui.py --analizza`, che la disegna offscreen e la
 fotografa in `mondi/gui.png`.
@@ -413,64 +422,57 @@ chunk-entita' se la cartella esiste, e un level.dat senza lamentele.
 
 ## Le citta'
 
-Prima un "villaggio" era una griglia sfalsata di case dentro un cerchio.
-Dall'alto si riconosceva subito: le case non guardavano niente, non c'era un
-dentro e un fuori, e lo spazio fra loro non era uno spazio, era l'avanzo.
+Prima un "villaggio" era una maglia organica di strade (punti sparsi,
+triangolati) con case buttate dentro. Dall'alto si riconosceva subito, e in
+gioco - parole di chi le guardava - le citta' erano "incasinate e non
+ordinate". Ora la pianta e' **regolare** e, soprattutto, **il terreno si adatta
+alla citta', non il contrario**.
 
-Una citta' e' il contrario: prima esiste il **vuoto** - piazza, strade,
-vicoli - e le case vengono dopo, appoggiate a quel vuoto.
+**La pianta.** Un quadrato, con due assi larghi tre celle che si incrociano
+in una piazza di 11x11, e nelle citta' una via di circonvallazione a ridosso
+della cinta. L'isolato che gli assi e la circonvallazione lasciano libero in
+ogni quadrante e' diviso in quattro lotti (tre in un villaggio: il quarto non
+toccherebbe nessuna strada), separati da due celle, ognuno con la facciata
+verso la sua strada. Una citta' ha 16 lotti, un villaggio 12. Lotti e
+catalogo: la misura del lotto parte dai modelli scaricati (con 16x16 e la
+gronda entrano 20 modelli diversi su 40, con 13x13 solo 10) e non dall'avanzo
+dell'isolato, che era il motivo per cui in tanti lotti non entrava niente.
 
-**Impianto organico, non a griglia.** Le strade non si disegnano: sono i
-collegamenti fra i luoghi. Si spargono dei punti nell'area urbana, si
-triangolano con Delaunay, e le vie sono gli spigoli di quella
-triangolazione - una maglia irregolare, piena di isolati chiusi di forma
-diversa, che e' il modo in cui cresce un borgo. La gerarchia si deduce e non
-si dichiara: sono **assi** gli spigoli sul cammino piu' breve fra una porta e
-la piazza, **secondarie** quelli lunghi, **vicoli** tutto il resto.
+**Le mura.** Cinta quadrata di tre celle di spessore, quattro porte (una per
+asse), torri agli angoli, accanto alle porte e a meta' di ogni lato. Fuori
+dalla cinta una berma, poi il **fosso** (tre celle, tre blocchi di profondita',
+acqua due sotto il bordo) e un argine. Gli assi escono dalle porte,
+attraversano il fosso e li' diventano **ponte**: le strade fra gli abitati
+partono da quattro punti in campagna, oltre il fosso.
 
-**Dove sta il nord della citta'.** Il perimetro e' deformato da tre onde
-lente (un perimetro circolare si legge come un timbro) e tagliato su cio' che
-il terreno concede. La piazza non sta al centro geometrico ma nel punto piu'
-piano e piu' interno: su un sito tagliato da un fiume il centro geometrico
-puo' cadere in acqua.
+**Il terreno si piega alla citta'.** Dove la pianta passa sopra un fiume, un
+laghetto o una collina, il terreno viene spianato a una quota sola (la
+mediana) e il fiume sparisce sotto la citta'; attorno la piana sfuma nel
+terreno vero in dieci celle, senza gradini. `citta.pianifica` restituisce anche
+le copie di `cls` e `livello` con questi cambiamenti, e il resto della
+pipeline (strade, campi, scrittura) legge quelle, non le originali.
 
-**Il lotto si cerca, non si propone.** Il primo tentativo sceglieva una
-misura a caso e la scartava se non entrava: 288 posizioni buttate su 830, e
-otto case costruite in una citta' intera. Ora il rettangolo **cresce** da una
-cella sul fronte strada - prima in profondita' fin dove l'isolato lo lascia
-andare, poi di lato - ed e' esattamente quello che fa una casa a schiera. Da
-8 case a 34. E' anche il motivo per cui nei centri storici i lotti sono
-stretti, lunghi e tutti diversi.
+**Il posto si cerca.** I siti sono scelti vicino all'acqua, quindi spesso a
+ridosso di una costa. Prima di scartarne uno lo si prova a spostare (fino a 60
+celle) e si sceglie il punto con meno mare e meno dislivello; si scarta se
+dentro la piana c'e' piu' del 12% di mare, un vulcano, un dislivello da
+montagna o un'altra citta'. Se la citta' non trova posto prova una misura
+minore e poi un villaggio senza mura.
 
-Poi c'e' il gradiente: al centro le case si toccano e hanno due o tre piani,
-in periferia sono staccate e basse. Senza, e' un quartiere residenziale
-caduto dal cielo.
+**Mai un abitato di due case.** Un sito che produce meno di quattro lotti si
+scarta per intero, senza lasciare piana ne' fosso (si lavora su copie e si
+accetta solo alla fine). Sulle mappe grandi i lotti sono comunque 12 o 16.
 
-**Le porte non si piazzano.** Il primo tentativo cercava le celle di cinta
-gia' toccate da una strada e ne trovava zero - le strade finiscono
-nell'abitato, la cinta gira fuori. Ora e' la via che viene prolungata fino al
-muro, che e' anche quello che succede davvero: la porta esiste perche' ci
-passa la strada, non viceversa. E la strada esterna punta alla porta, non al
-centro: prima entrava in citta' e passava in mezzo alle case.
+**Il mercato** sta agli angoli della piazza, fuori dagli assi, rivolto al
+centro: quattro banchi in una citta', due in un villaggio, nessuno in un
+borgo piccolo.
 
-**I tetti si sovrapponevano**, e si vedeva solo dall'alto. Il sedime di due
-case adiacenti non si tocca mai - c'e' un test che lo controlla dall'inizio -
-ma il tetto sporge di un blocco oltre i muri, e due gronde in un vicolo
-stretto finiscono nella stessa cella. L'ingombro vero di una casa vista
-dall'alto non e' il sedime, e' il sedime **piu' la gronda**.
+**I tetti.** Il sedime di due case adiacenti non si tocca mai, e fra due
+lotti ci sono due celle di stacco: il tetto sporge di un blocco oltre i muri e
+due gronde non si devono incontrare.
 
-Pretendere lo spazio per la gronda pero' faceva scendere Arda da 91 edifici a
-59: un terzo del paese demolito per un blocco di sporgenza. La regola giusta
-non e' rifiutare la casa, e' rinunciare alla gronda - che e' esattamente
-quello che fa una casa a schiera. Ora chi ha un vicino attaccato ha il tetto
-a filo di muro, chi ha spazio se la tiene.
-
-**Dentro le case** ora c'e' qualcosa: letto lontano dalla porta, focolare e
-banco contro il muro, cassa, scala a pioli sotto il buco nel solaio, torce.
-Non si vede dall'alto, ma entrarci era entrare in una scatola.
-
-Su Arda: 91 edifici in 5 centri, 3 con le mura, 2.807 celle di via interna,
-808 di cinta, 45 di porta.
+**Dentro le case** c'e' qualcosa: letto lontano dalla porta, focolare e banco
+contro il muro, cassa, scala a pioli sotto il buco nel solaio, torce.
 
 ## Mestieri, botteghe e abitanti
 
@@ -796,7 +798,109 @@ casotti che lo riempivano. La profondita' massima del lotto e' invece scesa a
 nove, apposta: un isolato ha due file di case schiena contro schiena, e con
 lotti profondi tredici la prima fila si mangiava tutto l'isolato.
 
+## Una casa per lotto, mai ripetuta nel villaggio
+
+Aperto il mondo in gioco: le case erano tutte uguali, e molte erano a meta'.
+Le due cose avevano la stessa causa, e stava nella pianta, non nei template.
+
+Un lotto non lo decide la casa: lo decide l'isolato, e in una pianta organica
+gli isolati sono stretti. Su Arda il lato corto tipico del lotto era 7 blocchi,
+mentre il modello piu' piccolo del catalogo ne misura 9 e la maggior parte piu'
+di 13. In 39 lotti su 55 non entrava nessun template, e `template.scegli()`
+ripiegava sul modello con la **minor eccedenza**: sempre lo stesso, 39 volte su
+55, e sporgente dal lotto. Il codice non lascia sconfinare una casa nel lotto
+del vicino, quindi la parte in eccesso veniva tagliata: la casa a meta'.
+
+Ora la scelta e' un'altra, e sta in `template.assegna()`:
+
+* una casa **entra per intero** nel lotto o non ci va. Niente sporgenze;
+* **nessun modello si ripete dentro lo stesso villaggio**: due villaggi
+  possono avere la stessa casa, due case dello stesso no. Comincia il lotto con
+  meno scelta, cosi' un lotto piccolo non resta senza il suo unico modello
+  perche' uno grande l'ha preso per primo;
+* il lotto in cui non entra nessun modello libero **non ha casa** - e non ha
+  abitante, perche' un villager in un lotto vuoto e' un villager in mezzo al
+  prato. La scelta si fa in `pianifica()` (`piano.scelte`), non piu' in
+  `scrivi()`, per questo.
+
+Costo, misurato: su Arda le case scendono da 55 a 15, con 8 modelli diversi e
+nessuna ripetizione. Il paese non resta vuoto perche' i lotti liberi si
+arredano (sotto).
+
+### I blocchi che il traduttore non conosce
+
+Nei template scaricati c'erano centinaia di blocchi piu' recenti della 1.21.4
+(scaffali, catene di ferro, lanterne di rame, cinabro...). PyMCTranslate non li
+traduce e non da' errore: li restituisce tali e quali, e in gioco spariscono,
+lasciando buchi dentro le case. `template._ripara()` li sostituisce al
+caricamento col parente piu' vicino (uno scaffale diventa una libreria, una
+catena la sua catena, una lanterna di rame una lanterna). Resta senza
+equivalente solo `large-house-big`, una costruzione con la mod Create, e c'e' un
+test che lo pretende.
+
+### Lo zoccolo di terra
+
+Molti template hanno uno strato di erba o terra sotto il pavimento (chi li ha
+salvati ha incluso il suolo). Posati con y=0 sul primo blocco libero, quello
+strato faceva da zoccolo e la casa risultava sollevata di un blocco.
+`Modello.affondo` lo riconosce - lo strato piu' basso e' per il 60% terreno - e
+il modello si interra di uno: la sua erba prende il posto di quella del lotto.
+
+## Gli arredi
+
+Un lotto senza casa non deve restare un buco. `arredi.py` lo riempie con quello
+che riempie i vuoti in un paese vero: un giardino con la siepe e il varco
+dalla parte della strada, un recinto con il cancello e le bestie dentro (vere,
+scritte come gli abitanti), una piazzetta con un pozzo e due panchine, un banco
+da mercato con il suo venditore. Nei paesi vecchi si vede.
+
+In piu', in ogni insediamento e a prescindere dai lotti:
+
+* una **campana**, sempre: in Minecraft e' anche il punto d'incontro degli
+  abitanti;
+* una **fontana** in citta' (5x5, con l'acqua chiusa in un anello) o un
+  **pozzo** in un borgo, cercati vicino alla piazza;
+* dei **lampioni** lungo le vie principali, a non meno di 9 celle l'uno
+  dall'altro.
+
+Ogni arredo e' un `template.Modello` come una casa, quindi si posa con la stessa
+`costruisci()` e viene ritagliato per chunk allo stesso modo. Si disegnano in
+codice con i nomi di gioco e si traducono una volta: un blocco che il traduttore
+non conosce solleva un errore invece di sparire in gioco. Le staccionate si
+collegano ai vicini a mano, perche' un mondo scritto senza passare dal gioco
+non ricalcola le forme dei blocchi.
+
+Nella finestra c'e' il cursore **Arredi** (0 li spegne e lascia i lotti vuoti);
+da riga di comando `--arredi`.
+
+## Le case isolate
+
+I template piu' alti di 24 blocchi (19 su 59: manieri, case sull'albero,
+torri) non entrano nei lotti di un paese, e dove entrano sono troppo per una
+via di case a schiera. Fuori dai villaggi sono esattamente il contrario: una
+casa nella prateria, un maniero nel bosco. `isolate.py` le sparge sulla mappa
+(una ogni 120.000 celle circa), su terreno abbastanza piano, lontane da paesi,
+strade, campi, acqua, vulcano, miniere e avamposti, e **ogni modello compare al
+massimo una volta per mappa**. Su Arda: 8 case isolate, tutte diverse. Cursore
+**Case isolate**, `--isolate` da riga di comando.
+
+## La distanza dal vulcano
+
+Miniere, accampamenti, cimiteri e portali si piazzano a caso, e nessuno sapeva
+dov'era il vulcano: su Arda 5 miniere su 71 e 4 avamposti su 45 stavano sul cono
+o a un passo da esso, e in gioco un portale restava appeso a una parete di
+basalto. `DISTANZA_MIN_VULCANO` (12 celle da cono, cratere, lago di lava e
+colate) e' ora una zona vietata per tutti loro, a cui si somma il raggio della
+costruzione: la pianificazione guarda solo il centro. Le case non servono:
+stanno gia' solo su terreno poco ripido.
+
 ## Le terrazze
+
+> **Storico.** Questa sezione e quella sulla cinta e sulla riva descrivono la
+> pianta organica, sostituita dalla pianta regolare (vedi "Le citta'"): l'abitato
+> sta ora su una piana a quota unica e non si terrazza piu', e la cinta non
+> segue il terreno ma il quadrato della pianta. Restano come cronaca dei difetti
+> incontrati.
 
 La spianata dolce dell'abitato toglieva la rugosita' ma lasciava la pendenza,
 e su un fianco ripido non bastava: le case restavano a cinquanta quote diverse
@@ -888,13 +992,22 @@ genworld/
   strade.py       griglia di costo, A*, sede stradale, ponti
   vulcani.py      coni, valloni, cratere, lago di lava, colate
   citta.py        pianta organica, isolati, terrazze, lotti, mura e torri
-  template.py     case da .nbt di blocco struttura: lettura, rotazione, posa
+  template.py     case da .nbt di blocco struttura: lettura, rotazione, posa,
+                  assegnazione senza ripetizioni, blocchi recenti, affondo
+  arredi.py       lampioni, campana, fontana/pozzo, giardini, recinti, bazar
+  isolate.py      le case alte, sparse fuori dai villaggi
+  avamposti.py    accampamenti, cimiteri e portali
+  miniere.py      pozzi, gallerie, binari, filoni
+  laghi.py        bacini chiusi riempiti
+  fauna.py        animali selvatici e da cortile
+  bauli.py        bottino dei forzieri
+  vista_template.py  elenco e viste dei template (sopra, fronte, fianco, 3D)
   entita.py       abitanti e scrittura a mano dei file entities/*.mca
   agricoltura.py  poderi, canali, recinti, frutteti a filari
   biomi.py        clima: freddo per quota e latitudine, tavolozza dei biomi
   motore.py       la pipeline: analizza, pianifica, scrivi
   gui.py          la finestra (PySide6)
-tests/            293 test
+tests/            594 test
 esempi/
   spike_piatto.py generazione di prova 256x256 + anteprima
   genera_mappa.py riga di comando sopra il motore, a lotti

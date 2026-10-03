@@ -114,7 +114,6 @@ def assegna(stat: list[dict]) -> dict[int, int]:
         s["_verde"] = -s["a"]
 
     gialli = sorted(resto, key=lambda s: -s["_giallo"])
-    verdi = sorted(resto, key=lambda s: -s["_verde"])
 
     n_des = max(1, round(len(resto) * 0.30))
     for s in gialli[:n_des]:

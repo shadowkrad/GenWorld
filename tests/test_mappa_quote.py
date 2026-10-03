@@ -42,7 +42,7 @@ class TestLarghezzaEQuota(unittest.TestCase):
                         f"la quota non dipende dalla larghezza")
 
     def test_un_massiccio_largo_arriva_alla_quota_piena(self):
-        q = Q = M.Quote()
+        Q = M.Quote()
         self.assertGreater(self.quota_massima(40), Q.base[M.MONTAGNA] - 6)
 
     def test_un_puntino_resta_una_collina(self):

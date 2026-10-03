@@ -70,7 +70,6 @@ def disegna(cls, h, area, rango, edifici, muro, piazza, fetta) -> Image.Image:
 
 
 def main() -> None:
-    quale = int(sys.argv[1]) if len(sys.argv) > 1 else 0
     op = Opzioni(immagine=str(RADICE / "input" / "mappa_arda.png"),
                  uscita=str(RADICE / "mondi" / "arda"), nome="Arda")
     a = analizza(op)

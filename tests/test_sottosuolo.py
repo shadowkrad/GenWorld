@@ -159,6 +159,61 @@ class TestMinerali(unittest.TestCase):
         self.assertIn(tav.pietra, tav.scavabile)
 
 
+class TestGrumoPubblico(unittest.TestCase):
+    """`grumo()` e' la stessa meccanica di `_grumo()` ma con il centro dato
+    da chi chiama, non scelto a caso - la usano sia il campo ambientale sia
+    i filoni lungo le caverne e le miniere."""
+
+    def test_posa_un_grumo_al_centro_dato(self):
+        out, h_c = colonna_piena(quota_terreno=100)
+        tav = FintaTavolozza()
+        SS.grumo(out, 8, 8, 40, Y0, h_c, 999, 8, tav.scavabile)
+        ys = np.arange(Y0, Y0 + ALTEZZA)
+        self.assertTrue((out[:, ys == 40, :] == 999).any())
+
+    def test_un_centro_fuori_chunk_sporge_dentro(self):
+        """Coordinate locali negative o oltre 16 sono il caso di un grumo
+        nato in un chunk vicino: deve comunque sporgere qui dentro."""
+        out, h_c = colonna_piena(quota_terreno=100)
+        tav = FintaTavolozza()
+        SS.grumo(out, -1, 8, 40, Y0, h_c, 999, 10, tav.scavabile)
+        self.assertTrue((out == 999).any())
+
+    def test_non_sostituisce_l_aria(self):
+        out, h_c = colonna_piena(quota_terreno=100)
+        out[:, :, :] = 0        # tutto aria, niente pietra
+        tav = FintaTavolozza()
+        SS.grumo(out, 8, 8, 40, Y0, h_c, 999, 8, tav.scavabile)
+        self.assertFalse((out == 999).any())
+
+
+class TestMineraliLungoLeCaverne(unittest.TestCase):
+    """'caverne dove ci sono minerali da scavare': una caverna deve avere
+    piu' probabilita' di un filone vicino che altrove, non solo il campo
+    ambientale gia' testato sopra."""
+
+    def test_una_caverna_aggiunge_minerale_in_media(self):
+        caverne = {"x": np.array([8], np.int32), "y": np.array([40], np.int32),
+                   "z": np.array([8], np.int32), "r": np.array([3.0], np.float32)}
+        con_caverna = []
+        senza_caverna = []
+        for seed in range(150):
+            out, h_c = colonna_piena(quota_terreno=100)
+            tav = FintaTavolozza()
+            SS.posa(out, tav, h_c, 0, 0, Y0, caverne, [0], seed=seed)
+            con_caverna.append(sum(int((out == 100 + i).sum() + (out == 200 + i).sum())
+                                   for i in range(len(SS.MINERALI))))
+
+            out2, h_c2 = colonna_piena(quota_terreno=100)
+            tav2 = FintaTavolozza()
+            SS.posa(out2, tav2, h_c2, 0, 0, Y0, caverne, (), seed=seed)
+            senza_caverna.append(sum(int((out2 == 100 + i).sum() + (out2 == 200 + i).sum())
+                                     for i in range(len(SS.MINERALI))))
+
+        self.assertGreater(sum(con_caverna), sum(senza_caverna),
+                           "la caverna non sta aggiungendo minerali in piu'")
+
+
 class TestScavo(unittest.TestCase):
 
     def test_la_caverna_apre_il_vuoto_ma_non_il_tetto(self):
@@ -184,6 +239,38 @@ class TestScavo(unittest.TestCase):
         ys = np.arange(Y0, Y0 + ALTEZZA)
         sotto_il_fondale = out[:, (ys >= 58 - SS.CAPPELLO) & (ys < 58), :]
         self.assertEqual(int((sotto_il_fondale == tav.aria).sum()), 0)
+
+    def test_protetto_c_blocca_lo_scavo_sotto_una_struttura(self):
+        """Una caverna abbastanza grande da toccare una colonna "protetta"
+        (mura, strade, campi, case: vedi `protetto` in `motore.pianifica`)
+        non deve scavarci aria, altrimenti la struttura sopra - gia'
+        disegnata da `blocchi_chunk` PRIMA che le caverne si scavino - resta
+        appesa sul vuoto."""
+        out, h_c = colonna_piena(quota_terreno=100)
+        tav = FintaTavolozza()
+        caverne = {"x": np.array([8], np.int32), "y": np.array([40], np.int32),
+                   "z": np.array([8], np.int32), "r": np.array([5.0], np.float32)}
+        protetto_c = np.zeros((16, 16), bool)
+        protetto_c[8, 8] = True   # proprio il centro della sfera
+        SS.posa(out, tav, h_c, 0, 0, Y0, caverne, [0], seed=1,
+               protetto_c=protetto_c)
+        ys = np.arange(Y0, Y0 + ALTEZZA)
+        colonna_protetta = out[8, (ys > 35) & (ys < 45), 8]
+        self.assertEqual(int((colonna_protetta == tav.aria).sum()), 0)
+        # le colonne NON protette vicine restano scavate normalmente
+        colonna_libera = out[8, (ys > 35) & (ys < 45), 9]
+        self.assertGreater(int((colonna_libera == tav.aria).sum()), 0)
+
+    def test_senza_protetto_c_si_comporta_come_prima(self):
+        """`protetto_c` e' opzionale: ometterlo non deve cambiare niente
+        rispetto al comportamento di sempre."""
+        out, h_c = colonna_piena(quota_terreno=100)
+        tav = FintaTavolozza()
+        caverne = {"x": np.array([8], np.int32), "y": np.array([40], np.int32),
+                   "z": np.array([8], np.int32), "r": np.array([3.0], np.float32)}
+        SS.posa(out, tav, h_c, 0, 0, Y0, caverne, [0], seed=1)
+        ys = np.arange(Y0, Y0 + ALTEZZA)
+        self.assertGreater(int((out[:, (ys > 36) & (ys < 44), :] == tav.aria).sum()), 20)
 
     def test_il_seme_regge_le_coordinate_negative(self):
         """Meta' del mondo ha coordinate negative, e lo XOR di due negativi e'

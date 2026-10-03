@@ -29,23 +29,23 @@ import os
 import sys
 import threading
 import traceback
-from dataclasses import replace
 
-import numpy as np
 
 from PySide6.QtCore import Qt, QThread, Signal
-from PySide6.QtGui import QColor, QFont, QImage, QPainter, QPixmap
-from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog,
-                               QFormLayout, QFrame, QGridLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                               QProgressBar, QPushButton, QScrollArea,
-                               QSizePolicy, QSlider, QSpinBox, QTabWidget,
+from PySide6.QtGui import QAction, QColor, QFont, QImage, QPainter, QPixmap
+from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
+                               QFileDialog, QFormLayout, QFrame, QGridLayout,
+                               QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+                               QMenuBar, QMessageBox, QProgressBar, QPushButton,
+                               QScrollArea, QSizePolicy, QSlider, QSpinBox,
+                               QTabWidget, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
 from . import mappa as M
+from . import template as TM
 from .fidelity import Stima, stima as calcola_stima
+from .livello_dat import versioni_supportate
 from .motore import LIVELLO_MARE, Analisi, Opzioni, analizza, genera
-from .presets import MONUMENTI, TERRITORI
 from .scale import Scala, Territorio, _fmt_m
 
 def _radice() -> str:
@@ -159,7 +159,10 @@ class PannelloFedelta(QGroupBox):
             f"1 blocco = {_fmt_m(sc.metri_per_blocco)}   ·   "
             f"territorio {_fmt_m(sc.territorio.larghezza_m)} x "
             f"{_fmt_m(sc.territorio.altezza_m)}")
-        for i, d in enumerate(s.dimensioni):
+        # senza un territorio reale non ci sono insediamenti da confrontare: la
+        # riga direbbe "ottima" su niente, quindi non la si mostra
+        dimensioni = [d for d in s.dimensioni if d.valore != "nessuno indicato"]
+        for i, d in enumerate(dimensioni):
             nome, barra, valore, giudizio = self._riga(i)
             nome.setText(d.nome)
             barra.imposta(d.punteggio)
@@ -169,7 +172,7 @@ class PannelloFedelta(QGroupBox):
                 w.setVisible(True)
             nome.setToolTip(d.nota)
             barra.setToolTip(d.nota)
-        for i in range(len(s.dimensioni), len(self._righe)):
+        for i in range(len(dimensioni), len(self._righe)):
             for w in self._righe[i]:
                 w.setVisible(False)
 
@@ -210,6 +213,196 @@ class Anteprima(QLabel):
     def resizeEvent(self, ev):  # noqa: N802 (API Qt)
         super().resizeEvent(ev)
         self._ridisegna()
+
+
+class Vista3D(Anteprima):
+    """Un'`Anteprima` che si gira trascinando il mouse: orizzontale = rotazione,
+    verticale = inclinazione. Non disegna niente da se': avvisa con un segnale
+    e chi la possiede rifa' il rendering."""
+
+    ruotata = Signal(float, float)      # variazione di rotazione, di inclinazione
+
+    def __init__(self, testo: str, parent=None):
+        super().__init__(testo, parent)
+        self._ultimo = None
+        self.setCursor(Qt.OpenHandCursor)
+
+    def mousePressEvent(self, ev):  # noqa: N802 (API Qt)
+        self._ultimo = ev.position()
+        self.setCursor(Qt.ClosedHandCursor)
+
+    def mouseMoveEvent(self, ev):  # noqa: N802
+        if self._ultimo is None:
+            return
+        d = ev.position() - self._ultimo
+        self._ultimo = ev.position()
+        self.ruotata.emit(d.x() * 0.6, d.y() * 0.4)
+
+    def mouseReleaseEvent(self, ev):  # noqa: N802
+        self._ultimo = None
+        self.setCursor(Qt.OpenHandCursor)
+
+
+class VisualizzatoreTemplate(QDialog):
+    """Elenco dei `.nbt` di `templates/`, raggruppati per cartella/scopo
+    (`vista_template.CARTELLE`), con le tre proiezioni del modello scelto.
+
+    Serve a "verificare l'effettivo scopo" di un file dal nome criptico
+    ("cementerio-grav-9ggj8p63.nbt") senza dover aprire Minecraft - vedi
+    `vista_template.py`, che fa tutto il lavoro vero: qui c'e' solo la
+    finestra che lo mostra. Non modale (`show()`, non `exec()`): si puo'
+    tenere aperta accanto alla finestra principale mentre si generano
+    mondi di prova."""
+
+    def __init__(self, radice: str, versione, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Modelli da template")
+        self.resize(920, 600)
+        self.setAttribute(Qt.WA_DeleteOnClose)
+        self._radice = radice
+        self._versione = versione
+
+        corpo = QHBoxLayout(self)
+        self.albero = QTreeWidget()
+        self.albero.setHeaderHidden(True)
+        self.albero.setMinimumWidth(300)
+        self.albero.currentItemChanged.connect(self._selezionato)
+        corpo.addWidget(self.albero, 0)
+
+        destra = QVBoxLayout()
+        self.info = QLabel("Scegli un modello dall'elenco a sinistra.")
+        self.info.setWordWrap(True)
+        self.info.setMinimumHeight(70)
+        destra.addWidget(self.info, 0)
+        self.schede = QTabWidget()
+        self.vista_sopra = Anteprima("")
+        self.vista_fronte = Anteprima("")
+        self.vista_fianco = Anteprima("")
+        self.schede.addTab(self.vista_sopra, "Sopra")
+        self.schede.addTab(self.vista_fronte, "Fronte")
+        self.schede.addTab(self.vista_fianco, "Fianco")
+
+        # 3D: il volume, da girare col mouse, con una sezione per guardare
+        # dentro la casa un piano alla volta
+        self._modello = None
+        self.vista_3d = Vista3D("Scegli un modello: qui si gira col mouse")
+        self.vista_3d.ruotata.connect(self._trascinato)
+        self.rotazione = QSlider(Qt.Horizontal)
+        self.rotazione.setRange(0, 359)
+        self.rotazione.setValue(35)
+        self.inclinazione = QSlider(Qt.Horizontal)
+        self.inclinazione.setRange(5, 89)
+        self.inclinazione.setValue(30)
+        self.sezione = QSlider(Qt.Horizontal)
+        self.sezione.setRange(1, 1)
+        self.sezione.setValue(1)
+        self.eco_sezione = QLabel("")
+        for s in (self.rotazione, self.inclinazione, self.sezione):
+            s.valueChanged.connect(self._ridisegna_3d)
+        controlli = QFormLayout()
+        controlli.addRow("Rotazione", self.rotazione)
+        controlli.addRow("Inclinazione", self.inclinazione)
+        riga_sez = QHBoxLayout()
+        riga_sez.addWidget(self.sezione, 1)
+        riga_sez.addWidget(self.eco_sezione, 0)
+        controlli.addRow("Sezione (strati)", riga_sez)
+        pagina_3d = QWidget()
+        v3 = QVBoxLayout(pagina_3d)
+        v3.addWidget(self.vista_3d, 1)
+        v3.addLayout(controlli)
+        self.schede.addTab(pagina_3d, "3D")
+        destra.addWidget(self.schede, 1)
+        pannello_destro = QWidget()
+        pannello_destro.setLayout(destra)
+        corpo.addWidget(pannello_destro, 1)
+
+        self._popola()
+
+    def _popola(self) -> None:
+        from .vista_template import elenca
+        gruppi: dict[str, QTreeWidgetItem] = {}
+        for v in elenca(self._radice):
+            gruppo = gruppi.get(v.cartella_scopo)
+            if gruppo is None:
+                gruppo = QTreeWidgetItem([v.cartella_scopo])
+                self.albero.addTopLevelItem(gruppo)
+                gruppo.setExpanded(True)
+                gruppi[v.cartella_scopo] = gruppo
+            etichetta = v.nome
+            if v.escluso:
+                # vedi templates/strutture/stili.json: file che restano li'
+                # per motivi tecnici (vedi il doc di progetto) ma non
+                # verranno mai scelti come casa
+                etichetta += "  (escluso — mai scelto come casa)"
+            figlio = QTreeWidgetItem([etichetta])
+            figlio.setData(0, Qt.UserRole, v.percorso)
+            gruppo.addChild(figlio)
+        if not gruppi:
+            vuoto = QTreeWidgetItem(["Nessun modello trovato in templates/"])
+            self.albero.addTopLevelItem(vuoto)
+
+    def _selezionato(self, corrente, precedente) -> None:
+        if corrente is None:
+            return
+        percorso = corrente.data(0, Qt.UserRole)
+        if not percorso:
+            return   # intestazione di un gruppo, non un file
+        self.info.setText(f"caricamento di {os.path.basename(percorso)}…")
+        QApplication.processEvents()
+        try:
+            from .vista_template import carica_info
+            info = carica_info(percorso, versione=self._versione)
+        except Exception as guaio:
+            self.info.setText(
+                f"Non si riesce ad aprire {os.path.basename(percorso)}:\n{guaio}")
+            self._modello = None
+            for vista in (self.vista_sopra, self.vista_fronte, self.vista_fianco,
+                          self.vista_3d):
+                vista._pix = None
+                vista.clear()
+                vista.setText("—")
+            return
+        stili = ", ".join(sorted(info.stili)) if info.stili else "nessuno (compare ovunque)"
+        legenda = ", ".join(f"{n} x{q}" for n, q in info.blocchi[:8])
+        avviso = ""
+        if info.ignoti:
+            avviso = ("\n⚠ senza colore nella preview (comunque disegnati nel "
+                     f"mondo): {', '.join(info.ignoti)}")
+        self.info.setText(
+            f"<b>{info.nome}</b> — {info.dx}×{info.dy}×{info.dz} blocchi<br>"
+            f"stili: {stili}   ·   porta: {'si' if info.ha_porta else 'no'}<br>"
+            f"blocchi principali: {legenda}{avviso}")
+        self.vista_sopra.imposta_immagine(info.sopra)
+        self.vista_fronte.imposta_immagine(info.fronte)
+        self.vista_fianco.imposta_immagine(info.fianco)
+        self._modello = info.modello
+        self.sezione.blockSignals(True)
+        self.sezione.setRange(1, max(1, info.dy))
+        self.sezione.setValue(max(1, info.dy))          # tutta la casa
+        self.sezione.blockSignals(False)
+        self._ridisegna_3d()
+
+    def _trascinato(self, d_rotazione: float, d_inclinazione: float) -> None:
+        self.rotazione.blockSignals(True)
+        self.rotazione.setValue(int(self.rotazione.value() + d_rotazione) % 360)
+        self.rotazione.blockSignals(False)
+        self.inclinazione.blockSignals(True)
+        self.inclinazione.setValue(int(min(89, max(5, self.inclinazione.value()
+                                                  + d_inclinazione))))
+        self.inclinazione.blockSignals(False)
+        self._ridisegna_3d()
+
+    def _ridisegna_3d(self) -> None:
+        if self._modello is None:
+            return
+        from .vista_template import render_3d
+        dy = self._modello.dy
+        strati = self.sezione.value()
+        self.eco_sezione.setText(f"{strati}/{dy}")
+        self.vista_3d.imposta_immagine(render_3d(
+            self._modello, yaw=float(self.rotazione.value()),
+            pitch=float(self.inclinazione.value()),
+            taglio=None if strati >= dy else strati))
 
 
 # --------------------------------------------------------------------------
@@ -255,13 +448,39 @@ class Finestra(QWidget):
         self.resize(1240, 800)
         self.analisi: Analisi | None = None
         self.lavoro: Lavoro | None = None
+        self._visualizzatore: VisualizzatoreTemplate | None = None
 
-        radice = QHBoxLayout(self)
-        radice.addWidget(self._colonna_sinistra(), 0)
-        radice.addWidget(self._colonna_destra(), 1)
+        radice = QVBoxLayout(self)
+        radice.setMenuBar(self._crea_barra_menu())
+        corpo = QHBoxLayout()
+        corpo.addWidget(self._colonna_sinistra(), 0)
+        corpo.addWidget(self._colonna_destra(), 1)
+        radice.addLayout(corpo)
         self._aggiorna_stima()
 
     # -- costruzione ------------------------------------------------------
+
+    def _crea_barra_menu(self) -> QMenuBar:
+        """Un solo menu' per ora: "Template" -> apre il visualizzatore
+        (vedi `VisualizzatoreTemplate`), la vetrina di tutti gli `.nbt` di
+        `templates/` per controllare a colpo d'occhio cos'e' davvero un
+        file dal nome criptico, senza aprire Minecraft."""
+        barra = QMenuBar()
+        menu = barra.addMenu("&Template")
+        azione = QAction("Visualizza modelli…", self)
+        azione.triggered.connect(self._apri_visualizzatore_template)
+        menu.addAction(azione)
+        return barra
+
+    def _apri_visualizzatore_template(self) -> None:
+        if self._visualizzatore is not None and not self._visualizzatore.isHidden():
+            self._visualizzatore.raise_()
+            self._visualizzatore.activateWindow()
+            return
+        versione = self.versione.currentData() or (1, 21, 4)
+        cartella_template = os.path.join(RADICE, "templates")
+        self._visualizzatore = VisualizzatoreTemplate(cartella_template, versione, self)
+        self._visualizzatore.show()
 
     def _colonna_sinistra(self) -> QWidget:
         corpo = QWidget()
@@ -306,6 +525,30 @@ class Finestra(QWidget):
         self.nota_lato = QLabel()
         f.addRow("Lato in blocchi", self.lato)
         f.addRow("", self.nota_lato)
+        self.versione = QComboBox()
+        # Solo dalla 1.21.4 in poi: sotto quella soglia non e' mai stata
+        # provata su questo progetto (vedi `spike-anvil-risultati.md` e la
+        # copertura dei blocchi/template controllata li'), quindi offrirla
+        # in tenda vorrebbe dire promettere un risultato mai verificato.
+        # L'elenco viene da PyMCTranslate stesso (`versioni_supportate`),
+        # non scritto a mano, cosi' non si disallinea mai da quello che la
+        # libreria sa davvero tradurre.
+        try:
+            disponibili = [ver for ver in versioni_supportate() if ver >= (1, 21, 4)]
+        except Exception:
+            disponibili = [(1, 21, 4)]
+        for ver in disponibili:
+            self.versione.addItem(".".join(str(n) for n in ver), ver)
+        # NON `QComboBox.findData((1, 21, 4))`: PySide6 confronta il dato
+        # generico per IDENTITA' dell'oggetto Python, non per valore - una
+        # tupla scritta qui non e' MAI lo stesso oggetto di quella arrivata
+        # da `versioni_supportate()`, quindi troverebbe sempre -1 (mascherato
+        # qui solo perche' l'indice 0 e' gia' 1.21.4). Verificato con uno
+        # spike dedicato: stessi valori, `==` vero, `findData` comunque -1.
+        indice = next((i for i in range(self.versione.count())
+                      if self.versione.itemData(i) == (1, 21, 4)), 0)
+        self.versione.setCurrentIndex(indice)
+        f.addRow("Versione Minecraft", self.versione)
         v.addWidget(g)
 
         # Elementi ------------------------------------------------------
@@ -315,6 +558,13 @@ class Finestra(QWidget):
         self.fiumi = self._cursore(f, "Fiumi (soglia)", 0, 400, 150, passo=10)
         self.alberi = self._cursore(f, "Alberi", 0, 300, 100, suffisso="%")
         self.villaggi = self._cursore(f, "Villaggi", 0, 300, 100, suffisso="%")
+        self.laghi = self._cursore(f, "Laghi", 0, 300, 100, suffisso="%")
+        self.miniere = self._cursore(f, "Miniere", 0, 300, 100, suffisso="%")
+        self.accampamenti = self._cursore(f, "Accampamenti", 0, 300, 100, suffisso="%")
+        self.cimiteri = self._cursore(f, "Cimiteri", 0, 300, 100, suffisso="%")
+        self.portali = self._cursore(f, "Portali", 0, 300, 100, suffisso="%")
+        self.arredi = self._cursore(f, "Arredi", 0, 300, 100, suffisso="%")
+        self.isolate = self._cursore(f, "Case isolate", 0, 300, 100, suffisso="%")
         self.erosione = self._cursore(f, "Erosione", 0, 100, 0, suffisso="%")
         self.strade = QCheckBox("Strade e ponti")
         self.strade.setChecked(True)
@@ -322,18 +572,8 @@ class Finestra(QWidget):
         v.addWidget(g)
 
         # Territorio ----------------------------------------------------
-        g = QGroupBox("Territorio reale (solo per il preventivo)")
+        g = QGroupBox("Territorio (solo per il preventivo)")
         f = QFormLayout(g)
-        self.preset = QComboBox()
-        self.preset.addItem("— personalizzato —", None)
-        for k, (t, _) in TERRITORI.items():
-            self.preset.addItem(t.nome, k)
-        # si parte da un territorio vero: con "personalizzato" la riga degli
-        # insediamenti sarebbe verde piena senza che nessuno l'abbia chiesta,
-        # e un preventivo che dice "ottima" su niente non aiuta
-        self.preset.setCurrentIndex(max(1, self.preset.findData("garda")))
-        self.preset.currentIndexChanged.connect(self._preset_cambiato)
-        f.addRow("Preset", self.preset)
         self.larghezza_km = QSpinBox()
         self.larghezza_km.setRange(1, 5000)
         self.larghezza_km.setValue(20)
@@ -350,12 +590,6 @@ class Finestra(QWidget):
         self.auto_verticale.setChecked(True)
         self.auto_verticale.stateChanged.connect(self._aggiorna_stima)
         f.addRow(self.auto_verticale)
-        self.monumento = QComboBox()
-        self.monumento.addItem("— nessuno —", None)
-        for k, lm in MONUMENTI.items():
-            self.monumento.addItem(lm.nome, k)
-        self.monumento.currentIndexChanged.connect(self._aggiorna_stima)
-        f.addRow("Monumento di prova", self.monumento)
         v.addWidget(g)
         v.addStretch(1)
 
@@ -434,6 +668,33 @@ class Finestra(QWidget):
 
     def opzioni(self) -> Opzioni:
         nome = os.path.splitext(os.path.basename(self.percorso.text()))[0] or "mondo"
+        # Le case da template: la GUI non ha (ancora) un campo per sceglierle,
+        # quindi si usa di default solo `templates/strutture` (le case vere,
+        # scaricate/disegnate a mano). `templates/case` resta nel repository
+        # solo come punto di partenza per chi vuole farsene di proprie (vedi
+        # `templates/case/README.md`): sono case esportate dal VECCHIO
+        # generatore parametrico via `esempi/esporta_template.py`, quindi
+        # includerle di default vuol dire rimettere in circolo esattamente
+        # le case "generate dal sistema" che l'utente ha chiesto di togliere.
+        # Non esiste piu' un generatore parametrico di riserva (vedi
+        # `template.scegli` e `motore.scrivi`): senza questa riga
+        # `op.templates` resterebbe "" e i lotti resterebbero senza casa, non
+        # con una casa disegnata dal codice.
+        cartelle_template = [
+            os.path.join(RADICE, "templates", "strutture"),
+        ]
+        cartella_template = ";".join(c for c in cartelle_template if os.path.isdir(c))
+        # Stessa idea per il cimitero: se `templates/cimiteri/` esiste (basta
+        # buttarci un file .nbt, vedi `avamposti.carica_cimiteri`), si usa in
+        # automatico. Vuota se la cartella non c'e': il cimitero torna al
+        # ripiego disegnato da codice, non un errore.
+        cartella_cimitero = os.path.join(RADICE, "templates", "cimiteri")
+        cartella_cimitero = cartella_cimitero if os.path.isdir(cartella_cimitero) else ""
+        # Stessa idea per il portale (vedi `avamposti.carica_portali`):
+        # `templates/portali/` se esiste, altrimenti nessun portale - non
+        # c'e' un ripiego disegnato da codice per questa struttura.
+        cartella_portale = os.path.join(RADICE, "templates", "portali")
+        cartella_portale = cartella_portale if os.path.isdir(cartella_portale) else ""
         return Opzioni(
             immagine=self.percorso.text(),
             uscita=os.path.join(RADICE, "mondi", nome),
@@ -444,30 +705,26 @@ class Finestra(QWidget):
             erosione=self.erosione.value() / 100.0,
             fiumi=float(self.fiumi.value()),
             vulcani=int(self.vulcani.value()),
+            templates=cartella_template,
+            templates_cimitero=cartella_cimitero,
+            templates_portale=cartella_portale,
             alberi=self.alberi.value() / 100.0,
             villaggi=self.villaggi.value() / 100.0,
             strade=self.strade.isChecked(),
+            laghi=self.laghi.value() / 100.0,
+            miniere=self.miniere.value() / 100.0,
+            accampamenti=self.accampamenti.value() / 100.0,
+            cimiteri=self.cimiteri.value() / 100.0,
+            portali=self.portali.value() / 100.0,
+            arredi=self.arredi.value() / 100.0,
+            isolate=self.isolate.value() / 100.0,
+            versione=self.versione.currentData() or (1, 21, 4),
         )
 
     def territorio(self) -> tuple[Territorio, list]:
-        chiave = self.preset.currentData()
-        if chiave:
-            t, fabbrica = TERRITORI[chiave]
-            return t, fabbrica()
         lato_m = self.larghezza_km.value() * 1000.0
         return Territorio("Area personalizzata", lato_m, lato_m,
                           float(self.quota_max.value()), 0.0), []
-
-    def _preset_cambiato(self) -> None:
-        chiave = self.preset.currentData()
-        if chiave:
-            t, _ = TERRITORI[chiave]
-            for w, val in ((self.larghezza_km, int(t.lato_max_m / 1000)),
-                           (self.quota_max, int(t.quota_max_m))):
-                w.blockSignals(True)
-                w.setValue(min(val, w.maximum()))
-                w.blockSignals(False)
-        self._aggiorna_stima()
 
     # -- preventivo -------------------------------------------------------
 
@@ -477,9 +734,7 @@ class Finestra(QWidget):
                    livello_mare_y=LIVELLO_MARE)
         if self.auto_verticale.isChecked():
             sc = sc.con_esagerazione_ottimale()
-        chiave = self.monumento.currentData()
-        landmark = [MONUMENTI[chiave]] if chiave else []
-        self.pannello.mostra(calcola_stima(sc, insediamenti, landmark))
+        self.pannello.mostra(calcola_stima(sc, insediamenti, []))
         n = self.lato.value() // 16
         self.nota_lato.setText(f"{n} x {n} = {n * n} chunk")
 
@@ -530,6 +785,11 @@ class Finestra(QWidget):
         if not os.path.exists(op.immagine):
             QMessageBox.warning(self, "GenWorld", "Immagine non trovata.")
             return
+        if op.villaggi > 0 and TM.conta_file(op.templates) == 0:
+            r = QMessageBox.question(self, "GenWorld",
+                                     TM.AVVISO_SENZA_CASE + "\n\nProcedo?")
+            if r != QMessageBox.Yes:
+                return
         if os.path.exists(op.uscita):
             r = QMessageBox.question(
                 self, "GenWorld",

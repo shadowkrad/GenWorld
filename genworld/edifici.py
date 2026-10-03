@@ -15,7 +15,7 @@ per i villaggi lacustri.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -78,6 +78,7 @@ class Edificio:
     gronda: int = 1        # di quanto il tetto sporge oltre i muri
     mestiere: str = ""     # "" = abitazione, altrimenti bottega
     seme: int = 0
+    villaggio: int = -1    # a quale insediamento appartiene (indice del sito)
 
     @property
     def x1(self) -> int: return self.x + self.larghezza
@@ -545,7 +546,17 @@ def costruisci_banco(out: np.ndarray, y0: int, ox: int, oz: int,
     y = b.base
     x0, z0, x1, z1 = b.x, b.z, b.x1 - 1, b.z1 - 1
 
+    def vuoto(gx, gy, gz):
+        lx, lz, ly = gx - ox, gz - oz, gy - y0
+        return 0 <= lx < 16 and 0 <= lz < 16 and 0 <= ly < H and out[lx, ly, lz] == tav.aria
+
     for gx, gz in ((x0, z0), (x1, z0), (x0, z1), (x1, z1)):
+        # il palo scende finche' non trova terra: su un pendio uno dei quattro
+        # appoggiava sull'aria e il banco sembrava sospeso
+        for k in range(1, 9):
+            if not vuoto(gx, y - k, gz):
+                break
+            posa(gx, y - k, gz, palo)
         for k in range(3):
             posa(gx, y + k, gz, palo)
     for gx in range(x0, x1 + 1):

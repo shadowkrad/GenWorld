@@ -208,6 +208,7 @@ class ScrittoreMondo:
         blocchi: np.ndarray,
         y0: int = Y_MIN,
         biomi: np.ndarray | None = None,
+        bauli: list | None = None,
     ) -> None:
         """Scrive un chunk da un array (16, H, 16) di id di palette.
 
@@ -215,6 +216,13 @@ class ScrittoreMondo:
         stesso ordine [x, z] dei blocchi. Minecraft memorizza i biomi a
         blocchi di 4, quindi amulet ne tiene uno ogni quattro colonne: il
         dettaglio sotto i 4 blocchi si perde comunque.
+
+        `bauli` (opzionale) e' una lista di `amulet.api.block_entity.
+        BlockEntity` da agganciare al chunk - vedi `bauli.trova()`. A
+        differenza degli abitanti (`entita.py`, scritti a mano perche'
+        amulet salva la cartella `entities/` rotta), i block-entity stanno
+        nello stesso `block_entities` del chunk terreno, che amulet scrive
+        bene: qui la libreria va benissimo, non c'e' bisogno di riscriverla.
         """
         if blocchi.shape[0] != 16 or blocchi.shape[2] != 16:
             raise ValueError(f"atteso array (16, H, 16), ricevuto {blocchi.shape}")
@@ -229,6 +237,10 @@ class ScrittoreMondo:
             # il formato su disco e' 3D: senza questa conversione amulet
             # salverebbe la forma 2D dei mondi vecchi
             chunk.biomes.convert_to_3d()
+
+        if bauli:
+            for be in bauli:
+                chunk.block_entities.insert(be)
 
         chunk.changed = True
         self._livello.put_chunk(chunk, DIMENSIONE)
