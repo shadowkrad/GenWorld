@@ -422,64 +422,57 @@ chunk-entita' se la cartella esiste, e un level.dat senza lamentele.
 
 ## Le citta'
 
-Prima un "villaggio" era una griglia sfalsata di case dentro un cerchio.
-Dall'alto si riconosceva subito: le case non guardavano niente, non c'era un
-dentro e un fuori, e lo spazio fra loro non era uno spazio, era l'avanzo.
+Prima un "villaggio" era una maglia organica di strade (punti sparsi,
+triangolati) con case buttate dentro. Dall'alto si riconosceva subito, e in
+gioco - parole di chi le guardava - le citta' erano "incasinate e non
+ordinate". Ora la pianta e' **regolare** e, soprattutto, **il terreno si adatta
+alla citta', non il contrario**.
 
-Una citta' e' il contrario: prima esiste il **vuoto** - piazza, strade,
-vicoli - e le case vengono dopo, appoggiate a quel vuoto.
+**La pianta.** Un quadrato, con due assi larghi tre celle che si incrociano
+in una piazza di 11x11, e nelle citta' una via di circonvallazione a ridosso
+della cinta. L'isolato che gli assi e la circonvallazione lasciano libero in
+ogni quadrante e' diviso in quattro lotti (tre in un villaggio: il quarto non
+toccherebbe nessuna strada), separati da due celle, ognuno con la facciata
+verso la sua strada. Una citta' ha 16 lotti, un villaggio 12. Lotti e
+catalogo: la misura del lotto parte dai modelli scaricati (con 16x16 e la
+gronda entrano 20 modelli diversi su 40, con 13x13 solo 10) e non dall'avanzo
+dell'isolato, che era il motivo per cui in tanti lotti non entrava niente.
 
-**Impianto organico, non a griglia.** Le strade non si disegnano: sono i
-collegamenti fra i luoghi. Si spargono dei punti nell'area urbana, si
-triangolano con Delaunay, e le vie sono gli spigoli di quella
-triangolazione - una maglia irregolare, piena di isolati chiusi di forma
-diversa, che e' il modo in cui cresce un borgo. La gerarchia si deduce e non
-si dichiara: sono **assi** gli spigoli sul cammino piu' breve fra una porta e
-la piazza, **secondarie** quelli lunghi, **vicoli** tutto il resto.
+**Le mura.** Cinta quadrata di tre celle di spessore, quattro porte (una per
+asse), torri agli angoli, accanto alle porte e a meta' di ogni lato. Fuori
+dalla cinta una berma, poi il **fosso** (tre celle, tre blocchi di profondita',
+acqua due sotto il bordo) e un argine. Gli assi escono dalle porte,
+attraversano il fosso e li' diventano **ponte**: le strade fra gli abitati
+partono da quattro punti in campagna, oltre il fosso.
 
-**Dove sta il nord della citta'.** Il perimetro e' deformato da tre onde
-lente (un perimetro circolare si legge come un timbro) e tagliato su cio' che
-il terreno concede. La piazza non sta al centro geometrico ma nel punto piu'
-piano e piu' interno: su un sito tagliato da un fiume il centro geometrico
-puo' cadere in acqua.
+**Il terreno si piega alla citta'.** Dove la pianta passa sopra un fiume, un
+laghetto o una collina, il terreno viene spianato a una quota sola (la
+mediana) e il fiume sparisce sotto la citta'; attorno la piana sfuma nel
+terreno vero in dieci celle, senza gradini. `citta.pianifica` restituisce anche
+le copie di `cls` e `livello` con questi cambiamenti, e il resto della
+pipeline (strade, campi, scrittura) legge quelle, non le originali.
 
-**Il lotto si cerca, non si propone.** Il primo tentativo sceglieva una
-misura a caso e la scartava se non entrava: 288 posizioni buttate su 830, e
-otto case costruite in una citta' intera. Ora il rettangolo **cresce** da una
-cella sul fronte strada - prima in profondita' fin dove l'isolato lo lascia
-andare, poi di lato - ed e' esattamente quello che fa una casa a schiera. Da
-8 case a 34. E' anche il motivo per cui nei centri storici i lotti sono
-stretti, lunghi e tutti diversi.
+**Il posto si cerca.** I siti sono scelti vicino all'acqua, quindi spesso a
+ridosso di una costa. Prima di scartarne uno lo si prova a spostare (fino a 60
+celle) e si sceglie il punto con meno mare e meno dislivello; si scarta se
+dentro la piana c'e' piu' del 12% di mare, un vulcano, un dislivello da
+montagna o un'altra citta'. Se la citta' non trova posto prova una misura
+minore e poi un villaggio senza mura.
 
-Poi c'e' il gradiente: al centro le case si toccano e hanno due o tre piani,
-in periferia sono staccate e basse. Senza, e' un quartiere residenziale
-caduto dal cielo.
+**Mai un abitato di due case.** Un sito che produce meno di quattro lotti si
+scarta per intero, senza lasciare piana ne' fosso (si lavora su copie e si
+accetta solo alla fine). Sulle mappe grandi i lotti sono comunque 12 o 16.
 
-**Le porte non si piazzano.** Il primo tentativo cercava le celle di cinta
-gia' toccate da una strada e ne trovava zero - le strade finiscono
-nell'abitato, la cinta gira fuori. Ora e' la via che viene prolungata fino al
-muro, che e' anche quello che succede davvero: la porta esiste perche' ci
-passa la strada, non viceversa. E la strada esterna punta alla porta, non al
-centro: prima entrava in citta' e passava in mezzo alle case.
+**Il mercato** sta agli angoli della piazza, fuori dagli assi, rivolto al
+centro: quattro banchi in una citta', due in un villaggio, nessuno in un
+borgo piccolo.
 
-**I tetti si sovrapponevano**, e si vedeva solo dall'alto. Il sedime di due
-case adiacenti non si tocca mai - c'e' un test che lo controlla dall'inizio -
-ma il tetto sporge di un blocco oltre i muri, e due gronde in un vicolo
-stretto finiscono nella stessa cella. L'ingombro vero di una casa vista
-dall'alto non e' il sedime, e' il sedime **piu' la gronda**.
+**I tetti.** Il sedime di due case adiacenti non si tocca mai, e fra due
+lotti ci sono due celle di stacco: il tetto sporge di un blocco oltre i muri e
+due gronde non si devono incontrare.
 
-Pretendere lo spazio per la gronda pero' faceva scendere Arda da 91 edifici a
-59: un terzo del paese demolito per un blocco di sporgenza. La regola giusta
-non e' rifiutare la casa, e' rinunciare alla gronda - che e' esattamente
-quello che fa una casa a schiera. Ora chi ha un vicino attaccato ha il tetto
-a filo di muro, chi ha spazio se la tiene.
-
-**Dentro le case** ora c'e' qualcosa: letto lontano dalla porta, focolare e
-banco contro il muro, cassa, scala a pioli sotto il buco nel solaio, torce.
-Non si vede dall'alto, ma entrarci era entrare in una scatola.
-
-Su Arda: 91 edifici in 5 centri, 3 con le mura, 2.807 celle di via interna,
-808 di cinta, 45 di porta.
+**Dentro le case** c'e' qualcosa: letto lontano dalla porta, focolare e banco
+contro il muro, cassa, scala a pioli sotto il buco nel solaio, torce.
 
 ## Mestieri, botteghe e abitanti
 
@@ -902,6 +895,12 @@ costruzione: la pianificazione guarda solo il centro. Le case non servono:
 stanno gia' solo su terreno poco ripido.
 
 ## Le terrazze
+
+> **Storico.** Questa sezione e quella sulla cinta e sulla riva descrivono la
+> pianta organica, sostituita dalla pianta regolare (vedi "Le citta'"): l'abitato
+> sta ora su una piana a quota unica e non si terrazza piu', e la cinta non
+> segue il terreno ma il quadrato della pianta. Restano come cronaca dei difetti
+> incontrati.
 
 La spianata dolce dell'abitato toglieva la rugosita' ma lasciava la pendenza,
 e su un fianco ripido non bastava: le case restavano a cinquanta quote diverse
