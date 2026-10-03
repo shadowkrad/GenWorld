@@ -38,10 +38,10 @@ if errorlevel 1 goto :rifai_ambiente
 rem Le dipendenze si controllano importandole davvero: un pacchetto presente
 rem ma rotto (il caso classico: numpy salito alla 2 sotto amulet) non si vede
 rem guardando l'elenco di pip.
-"%PY%" -c "import PySide6, amulet, scipy, PIL" >nul 2>nul
+"%PY%" -c "import genworld, PySide6, amulet, scipy, PIL" >nul 2>nul
 if errorlevel 1 call :installa_dipendenze
 
-"%PY%" -c "import PySide6, amulet, scipy, PIL" >nul 2>nul
+"%PY%" -c "import genworld, PySide6, amulet, scipy, PIL" >nul 2>nul
 if errorlevel 1 goto :dipendenze_mancanti
 
 "%PY%" -c "import numpy,sys; sys.exit(0 if numpy.__version__[0]=='1' else 1)" >nul 2>nul
@@ -148,7 +148,7 @@ rmdir /s /q "%GENWORLD_VENV%"
 set "GENWORLD_RIFATTO=1"
 call :crea_ambiente
 call :installa_dipendenze
-"%PY%" -c "import PySide6, amulet, scipy, PIL" >nul 2>nul
+"%PY%" -c "import genworld, PySide6, amulet, scipy, PIL" >nul 2>nul
 if errorlevel 1 goto :dipendenze_mancanti
 echo Avvio GenWorld...
 "%PY%" -m genworld.gui
