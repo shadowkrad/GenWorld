@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import os
 import zlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 SETTORE = 4096
 
@@ -64,6 +64,14 @@ class Abitante:
     def professione(self) -> str:
         return MESTIERI.get(self.mestiere, ("none", ""))[0]
 
+    def nbt_tag(self):
+        """Stessa interfaccia di `fauna.Animale.nbt_tag()`: e' cosi' che
+        `scrivi_regioni` puo' scrivere abitanti e animali in un'unica
+        passata senza sapere quale sia quale - importante, perche' due
+        chiamate separate scriverebbero due volte lo stesso file region e la
+        seconda cancellerebbe la prima."""
+        return nbt_abitante(self)
+
 
 def _uuid(seme: int):
     """Quattro interi. Minecraft ne assegna uno se manca, ma un mondo con
@@ -102,8 +110,7 @@ def nbt_abitante(a: Abitante, bioma: str = "plains"):
     })
 
 
-def _chunk_nbt(cx: int, cz: int, abitanti: list[Abitante],
-               data_version: int) -> bytes:
+def _chunk_nbt(cx: int, cz: int, entita: list, data_version: int) -> bytes:
     from amulet_nbt import (CompoundTag, IntArrayTag, IntTag, ListTag,
                             NamedTag)
     radice = CompoundTag({
@@ -112,18 +119,24 @@ def _chunk_nbt(cx: int, cz: int, abitanti: list[Abitante],
         # qui che nasceva l'ArrayIndexOutOfBoundsException: Minecraft legge
         # pos[0] e trovava un array vuoto.
         "Position": IntArrayTag([cx, cz]),
-        "Entities": ListTag([nbt_abitante(a) for a in abitanti]),
+        "Entities": ListTag([e.nbt_tag() for e in entita]),
     })
     return NamedTag(radice, "").save_to(compressed=False)
 
 
-def scrivi_regioni(percorso_mondo: str, abitanti: list[Abitante],
-                   data_version: int) -> dict:
-    """Scrive `entities/r.X.Z.mca` per tutti gli abitanti dati."""
+def scrivi_regioni(percorso_mondo: str, abitanti: list, data_version: int) -> dict:
+    """Scrive `entities/r.X.Z.mca`.
+
+    Il nome del parametro e' rimasto `abitanti` per non rompere le chiamate
+    esistenti, ma qualunque oggetto con `.x/.y/.z` e un metodo `.nbt_tag()`
+    va bene - un `Abitante` o un `fauna.Animale` indifferentemente. Vanno
+    scritti INSIEME in una sola chiamata: due chiamate separate scriverebbero
+    due volte lo stesso file region, e la seconda cancellerebbe la prima.
+    """
     if not abitanti:
         return {"abitanti": 0, "chunk": 0, "regioni": 0}
 
-    per_chunk: dict[tuple[int, int], list[Abitante]] = {}
+    per_chunk: dict[tuple[int, int], list] = {}
     for a in abitanti:
         chiave = (int(a.x) >> 4, int(a.z) >> 4)
         per_chunk.setdefault(chiave, []).append(a)

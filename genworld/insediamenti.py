@@ -16,7 +16,7 @@ import numpy as np
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 
 from . import edifici as E
-from .mappa import (ACQUA, FIUME, FORESTA, MARE, MONTAGNA, OCEANO, PIANURA,
+from .mappa import (ACQUA, FORESTA, MONTAGNA, OCEANO, PIANURA,
                     PRATERIA, SPIAGGIA)
 
 # classi su cui si puo' fondare un villaggio

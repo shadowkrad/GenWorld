@@ -68,46 +68,291 @@ class TestRotazioneProprieta(unittest.TestCase):
         self.assertEqual(T.ruota_proprieta(p, 1), p)
 
 
-class TestScelta(unittest.TestCase):
+class TestCandidati(unittest.TestCase):
+    """Quali modelli possono stare in un lotto: entrano per intero, con la
+    porta verso la strada se possibile, dello stile giusto, non troppo alti."""
+
+    def modello(self, dx, dz, porta=0, dy=10, stili=frozenset()):
+        return T.Modello(nome=f"{dx}x{dz}",
+                         celle=np.zeros((dx, dy, dz), np.int32),
+                         tavolozza=[("air", {})], porta=porta, stili=stili)
+
+    def test_entra_solo_quello_che_ci_sta(self):
+        ms = [self.modello(7, 7), self.modello(13, 9)]
+        self.assertEqual({k for k, _ in T.candidati_lotto(ms, 8, 8, 0)}, {0})
+
+    def test_nessuno_entra_nessun_candidato(self):
+        """Niente sporgenze: una casa piu' grande del lotto verrebbe tagliata
+        dove incontra quello del vicino."""
+        self.assertEqual(T.candidati_lotto([self.modello(13, 9)], 8, 8, 0), [])
+
+    def test_la_porta_guarda_la_strada(self):
+        ms = [self.modello(7, 9, porta=T.NORD)]
+        for verso in range(4):
+            cand = T.candidati_lotto(ms, 12, 12, verso)
+            self.assertTrue(cand)
+            for k, quarti in cand:
+                self.assertEqual((ms[k].porta + quarti) % 4, verso)
+
+    def test_meglio_girata_male_che_un_buco_nella_fila(self):
+        """Se nessuna rotazione fa guardare la porta dalla parte giusta, si
+        costruisce lo stesso: un vuoto in una schiera si vede di piu'."""
+        ms = [self.modello(12, 7, porta=T.NORD)]
+        # 12x7 entra solo a 0 e 2 quarti; la porta chiede EST
+        cand = T.candidati_lotto(ms, 12, 8, T.EST)
+        self.assertTrue(cand)
+        self.assertTrue(all((ms[k].porta + q) % 4 != T.EST for k, q in cand))
+
+    def test_una_casa_troppo_alta_si_scarta(self):
+        ms = [self.modello(7, 7, dy=40)]
+        self.assertEqual(T.candidati_lotto(ms, 20, 20, 0, altezza_massima=24), [])
+
+    def test_una_casa_fuori_stile_non_compare(self):
+        """A differenza dell'orientamento, lo stile e' un vincolo rigido: una
+        casa deserto non deve mai spuntare in un lotto bosco, nemmeno se e'
+        l'unica che entrerebbe nel lotto."""
+        ms = [self.modello(7, 7, stili=frozenset({"deserto"}))]
+        self.assertEqual(T.candidati_lotto(ms, 8, 8, 0, stile="bosco"), [])
+        self.assertTrue(T.candidati_lotto(ms, 8, 8, 0, stile="deserto"))
+
+    def test_una_casa_senza_stili_compare_ovunque(self):
+        """Il caso comune: un modello senza `stili` non ha vincoli, cosi' un
+        file buttato nella cartella senza toccare altro funziona subito."""
+        ms = [self.modello(7, 7)]
+        for stile in ("bosco", "montagna", "deserto", "prato", None):
+            self.assertTrue(T.candidati_lotto(ms, 8, 8, 0, stile=stile))
+
+    def test_lo_stile_resta_rigido_anche_nel_fallback_di_orientamento(self):
+        """Il fallback 'meglio girata male' vale per l'orientamento, non deve
+        far passare uno stile sbagliato."""
+        ms = [self.modello(12, 7, porta=T.NORD, stili=frozenset({"deserto"}))]
+        self.assertEqual(T.candidati_lotto(ms, 12, 8, T.EST, stile="bosco"), [])
+
+    def test_i_modelli_gia_usati_si_escludono(self):
+        ms = [self.modello(7, 7), self.modello(6, 6)]
+        self.assertEqual({k for k, _ in T.candidati_lotto(ms, 8, 8, 0, escludi={0})}, {1})
+
+
+@unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
+class TestAssegnazionePerVillaggio(unittest.TestCase):
+    """Un modello non si ripete dentro lo stesso villaggio, e una casa non
+    sporge mai dal lotto: se non entra niente, il lotto resta senza casa."""
 
     def modello(self, dx, dz, porta=0, dy=10):
         return T.Modello(nome=f"{dx}x{dz}",
                          celle=np.zeros((dx, dy, dz), np.int32),
                          tavolozza=[("air", {})], porta=porta)
 
-    def test_entra_solo_quello_che_ci_sta(self):
-        ms = [self.modello(7, 7), self.modello(13, 9)]
-        rng = np.random.default_rng(0)
-        s = T.scegli(ms, 8, 8, 0, rng)
-        self.assertIsNotNone(s)
-        self.assertEqual(s[0], 0)
-        self.assertIsNone(T.scegli([ms[1]], 8, 8, 0, rng))
+    def lotto(self, larghezza, profondita, villaggio, gronda=0, palafitta=False):
+        from genworld.edifici import Edificio
+        return Edificio(x=0, z=0, larghezza=larghezza, profondita=profondita,
+                        base=64, gronda=gronda, palafitta=palafitta,
+                        villaggio=villaggio, porta=0)
 
-    def test_la_porta_guarda_la_strada(self):
-        ms = [self.modello(7, 9, porta=T.NORD)]
-        rng = np.random.default_rng(0)
-        for verso in range(4):
-            s = T.scegli(ms, 12, 12, verso, rng)
-            self.assertIsNotNone(s)
-            k, quarti = s
-            self.assertEqual((ms[k].porta + quarti) % 4, verso)
+    def test_i_candidati_entrano_tutti_per_intero(self):
+        ms = [self.modello(7, 7), self.modello(9, 12), self.modello(20, 20)]
+        for k, quarti in T.candidati_lotto(ms, 10, 10, 0):
+            ix, iz = ms[k].ingombro(quarti)
+            self.assertLessEqual(ix, 10)
+            self.assertLessEqual(iz, 10)
 
-    def test_meglio_girata_male_che_un_buco_nella_fila(self):
-        """Se nessuna rotazione fa guardare la porta dalla parte giusta, si
-        costruisce lo stesso: un vuoto in una schiera si vede di piu'."""
-        ms = [self.modello(12, 7, porta=T.NORD)]
-        rng = np.random.default_rng(0)
-        # 12x7 entra solo a 0 e 2 quarti; la porta chiede EST
-        s = T.scegli(ms, 12, 8, T.EST, rng)
-        self.assertIsNotNone(s)
+    def test_nessun_modello_si_ripete_nello_stesso_villaggio(self):
+        ms = [self.modello(7, 7), self.modello(8, 8), self.modello(9, 9),
+              self.modello(6, 6)]
+        lotti = [self.lotto(12, 12, villaggio=0) for _ in range(4)]
+        scelte = T.assegna(ms, lotti, np.random.default_rng(1))
+        self.assertEqual(len(scelte), 4)
+        self.assertEqual(len({k for k, _ in scelte.values()}), 4)
 
-    def test_una_casa_troppo_alta_si_scarta(self):
-        ms = [self.modello(7, 7, dy=40)]
-        self.assertIsNone(T.scegli(ms, 20, 20, 0, np.random.default_rng(0),
-                                   altezza_massima=24))
+    def test_finiti_i_modelli_i_lotti_restano_senza_casa(self):
+        ms = [self.modello(7, 7), self.modello(8, 8)]
+        lotti = [self.lotto(12, 12, villaggio=0) for _ in range(5)]
+        scelte = T.assegna(ms, lotti, np.random.default_rng(1))
+        self.assertEqual(len(scelte), 2)
+
+    def test_due_villaggi_possono_avere_la_stessa_casa(self):
+        ms = [self.modello(7, 7)]
+        lotti = [self.lotto(12, 12, villaggio=0), self.lotto(12, 12, villaggio=1)]
+        scelte = T.assegna(ms, lotti, np.random.default_rng(1))
+        self.assertEqual(len(scelte), 2)
+
+    def test_il_lotto_con_meno_scelta_non_resta_a_bocca_asciutta(self):
+        """Il lotto piccolo ha un solo modello possibile, quello grande ne ha
+        due: se il grande scegliesse per primo potrebbe prendere l'unico del
+        piccolo."""
+        ms = [self.modello(6, 6), self.modello(10, 10)]
+        for seme in range(20):
+            lotti = [self.lotto(12, 12, villaggio=0), self.lotto(7, 7, villaggio=0)]
+            scelte = T.assegna(ms, lotti, np.random.default_rng(seme))
+            self.assertEqual(len(scelte), 2, f"seme {seme}")
+            self.assertEqual(scelte[1][0], 0)
+
+    def test_la_palafitta_non_prende_una_casa(self):
+        ms = [self.modello(7, 7)]
+        lotti = [self.lotto(12, 12, villaggio=0, palafitta=True)]
+        self.assertEqual(T.assegna(ms, lotti, np.random.default_rng(0)), {})
+
+    def test_e_deterministica(self):
+        ms = [self.modello(7, 7), self.modello(8, 8), self.modello(9, 9)]
+        lotti = [self.lotto(12, 12, villaggio=n % 2) for n in range(6)]
+        a = T.assegna(ms, lotti, np.random.default_rng(5))
+        b = T.assegna(ms, lotti, np.random.default_rng(5))
+        self.assertEqual(a, b)
 
 
-@unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
+class TestBlocchiRecenti(unittest.TestCase):
+    """I blocchi di versioni piu' recenti della 1.21.4 non si traducono e in
+    gioco sparivano: nei template scaricati erano centinaia, buchi dentro le
+    case. `_ripara` li sostituisce col parente piu' vicino."""
+
+    def test_lo_scaffale_diventa_una_libreria(self):
+        for nome in ("spruce_shelf", "minecraft:oak_shelf", "pale_oak_shelf"):
+            self.assertEqual(T._ripara(nome, {"facing": "north"}), ("bookshelf", {}))
+
+    def test_la_catena_conserva_l_asse(self):
+        self.assertEqual(T._ripara("iron_chain", {"axis": "x"}),
+                         ("chain", {"axis": "x", "waterlogged": "false"}))
+
+    def test_la_lanterna_di_rame_resta_una_lanterna_appesa_o_no(self):
+        n, p = T._ripara("waxed_oxidized_copper_lantern", {"hanging": "true"})
+        self.assertEqual((n, p["hanging"]), ("lantern", "true"))
+
+    def test_le_scale_di_cinabro_conservano_direzione_e_forma(self):
+        n, p = T._ripara("polished_cinnabar_stairs",
+                         {"facing": "west", "half": "top", "shape": "inner_left"})
+        self.assertEqual(n, "red_nether_brick_stairs")
+        self.assertEqual((p["facing"], p["half"], p["shape"]), ("west", "top", "inner_left"))
+
+    def test_un_blocco_sconosciuto_non_ha_una_regola(self):
+        self.assertIsNone(T._ripara("un_blocco_mai_visto", {}))
+
+    @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non disponibile")
+    def test_ogni_sostituto_si_traduce(self):
+        ver = T.traduttore()
+        for nome in ("spruce_shelf", "iron_chain", "copper_lantern", "waxed_copper_bars",
+                     "oxidized_copper_chest", "copper_golem_statue", "oxidized_lightning_rod",
+                     "bush", "firefly_bush", "leaf_litter", "wildflowers", "cactus_flower",
+                     "grass", "polished_cinnabar_slab", "cinnabar", "sulfur_bricks",
+                     "sulfur_spike", "poplar_trapdoor"):
+            r = T._ripara(nome, {})
+            self.assertIsNotNone(r, nome)
+            self.assertTrue(T.traduci_blocco(ver, r[0], r[1])[2], f"{nome} -> {r}")
+
+    @unittest.skipUnless(TRADUTTORE and os.path.isdir(os.path.join(RADICE, "templates", "strutture")),
+                         "PyMCTranslate o templates/strutture non disponibili")
+    def test_le_case_scaricate_non_perdono_piu_blocchi(self):
+        """Solo `large-house-big` (una costruzione con la mod Create) ha ancora
+        blocchi senza equivalente vanilla: tutte le altre si traducono per
+        intero."""
+        modelli = T.carica_cartella(os.path.join(RADICE, "templates", "strutture"))
+        self.assertGreater(len(modelli), 10)
+        persi = {m.nome: sorted(m.non_tradotti) for m in modelli if m.non_tradotti}
+        self.assertEqual(set(persi), {"large-house-big-e9mmigr5"}, persi)
+
+
+class TestAffondo(unittest.TestCase):
+    """Un template con uno strato di terra sotto il pavimento va interrato."""
+
+    def modello(self, strato0):
+        celle = np.full((3, 2, 3), -1, np.int32)
+        celle[:, 0, :] = np.array(strato0).reshape(3, 3)
+        celle[:, 1, :] = 0
+        return T.Modello(nome="p", celle=celle,
+                         tavolozza=[("planks", {}), ("grass_block", {}), ("stone", {})])
+
+    def test_uno_strato_di_erba_va_interrato(self):
+        self.assertEqual(self.modello([1] * 9).affondo, 1)
+
+    def test_un_pavimento_di_pietra_no(self):
+        self.assertEqual(self.modello([2] * 9).affondo, 0)
+
+    def test_una_pianta_mista_sotto_il_60_per_cento_no(self):
+        self.assertEqual(self.modello([1, 1, 1, 1, 2, 2, 2, 2, 2]).affondo, 0)
+
+    def test_uno_zoccolo_di_piu_strati_si_interra_di_tutti(self):
+        celle = np.full((3, 5, 3), -1, np.int32)
+        celle[:, 0:3, :] = 1                     # tre strati di erba
+        celle[:, 3, :] = 0                       # il pavimento
+        celle[:, 4, :] = 0
+        m = T.Modello(nome="p", celle=celle,
+                      tavolozza=[("planks", {}), ("grass_block", {})])
+        self.assertEqual(m.affondo, 3)
+
+    def test_l_affondo_ha_un_tetto(self):
+        celle = np.full((3, 12, 3), 1, np.int32)         # tutta terra
+        m = T.Modello(nome="p", celle=celle, tavolozza=[("planks", {}), ("dirt", {})])
+        self.assertEqual(m.affondo, T.AFFONDO_MAX)
+
+    def test_uno_strato_vuoto_non_si_interra(self):
+        m = self.modello([1] * 9)
+        m.celle[:, 0, :] = -1
+        self.assertEqual(m.affondo, 0)
+
+
+@unittest.skipUnless(TRADUTTORE, "PyMCTranslate non disponibile")
+class TestCache(unittest.TestCase):
+    """Traduttore e template si tengono in cache: senza, una pianificazione da
+    dodici secondi ne spendeva sei a ricaricare gli stessi cinquanta file."""
+
+    CASE = os.path.join(RADICE, "templates", "case")
+
+    def file(self, i=0):
+        return os.path.join(self.CASE, sorted(f for f in os.listdir(self.CASE)
+                                              if f.endswith(".nbt"))[i])
+
+    def test_il_traduttore_e_uno_solo_per_versione(self):
+        self.assertIs(T.traduttore((1, 21, 4)), T.traduttore((1, 21, 4)))
+
+    def test_traduci_blocco_da_dati_indipendenti(self):
+        ver = T.traduttore()
+        _, p1, _ = T.traduci_blocco(ver, "oak_fence", {"east": "false"})
+        p1["material"] = "sporcato"
+        _, p2, _ = T.traduci_blocco(ver, "oak_fence", {"east": "false"})
+        self.assertEqual(p2["material"], "oak")
+
+    def test_ogni_chiamante_riceve_una_copia(self):
+        m1 = T.carica(self.file())
+        celle, tav0 = m1.celle.copy(), m1.tavolozza[0]
+        m1.celle[:] = -1
+        m1.tavolozza[0] = ("sporcato", {})
+        m1.stili = frozenset({"x"})
+        m2 = T.carica(self.file())
+        self.assertTrue((m2.celle == celle).all())
+        self.assertEqual(m2.tavolozza[0], tav0)
+        self.assertEqual(m2.stili, frozenset())
+
+    def test_un_file_cambiato_si_rilegge(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as d:
+            dest = os.path.join(d, "casa.nbt")
+            shutil.copy(self.file(0), dest)
+            prima = T.carica(dest)
+            shutil.copy(self.file(-1), dest)
+            os.utime(dest, ns=(2 * 10 ** 18, 2 * 10 ** 18))      # data di modifica diversa
+            dopo = T.carica(dest)
+            self.assertNotEqual((prima.dx, prima.dy, prima.dz), (dopo.dx, dopo.dy, dopo.dz))
+
+    def test_un_file_che_manca_da_l_errore_di_sempre(self):
+        with self.assertRaises(Exception):  # noqa: B017 (NBTLoadError e' privato di amulet)
+            T.carica("/percorso/che/non/esiste.nbt")
+
+
+class TestContaFile(unittest.TestCase):
+
+    def test_conta_solo_i_nbt_di_piu_cartelle(self):
+        with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+            for nome in ("a.nbt", "B.NBT", "c.txt"):
+                open(os.path.join(d1, nome), "w").close()
+            open(os.path.join(d2, "d.nbt"), "w").close()
+            self.assertEqual(T.conta_file(d1), 2)
+            self.assertEqual(T.conta_file(d1 + ";" + d2), 3)
+
+    def test_cartelle_assenti_o_vuote_fanno_zero(self):
+        self.assertEqual(T.conta_file(""), 0)
+        self.assertEqual(T.conta_file("/percorso/che/non/esiste"), 0)
+        self.assertEqual(T.conta_file(" ; ;"), 0)
+
+
 class TestAndataERitorno(unittest.TestCase):
     """Si esportano le case parametriche in `.nbt` e si rileggono: e' l'unico
     controllo che tocca davvero il formato, la traduzione e la rotazione
@@ -150,6 +395,46 @@ class TestAndataERitorno(unittest.TestCase):
         m = self.modelli[0]
         self.assertEqual(m.ingombro(0), (m.dx, m.dz))
         self.assertEqual(m.ingombro(1), (m.dz, m.dx))
+
+
+class TestManifestoStili(unittest.TestCase):
+    """`stili.json` e' facoltativo: una cartella che non ce l'ha si comporta
+    come prima (nessun vincolo)."""
+
+    def test_cartella_senza_manifesto(self):
+        self.assertEqual(T.carica_stili("/percorso/che/non/esiste"), {})
+
+    def test_manifesto_letto_e_applicato(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "stili.json"), "w") as f:
+                json.dump({"casa": ["deserto", "prato"]}, f)
+            self.assertEqual(T.carica_stili(d), {"casa": frozenset({"deserto", "prato"})})
+
+    @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
+    def test_carica_cartella_applica_gli_stili_del_manifesto(self):
+        import json
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(
+                [sys.executable, os.path.join(RADICE, "esempi", "esporta_template.py"),
+                 "--cartella", d, "--quante", "1"],
+                check=True, capture_output=True)
+            nome = os.listdir(d)[0][:-4]
+            with open(os.path.join(d, "stili.json"), "w") as f:
+                json.dump({nome: ["deserto"]}, f)
+            modelli = T.carica_cartella(d)
+            self.assertEqual(modelli[0].stili, frozenset({"deserto"}))
+
+    @unittest.skipUnless(TRADUTTORE, "PyMCTranslate non installato")
+    def test_carica_cartelle_unisce_piu_cartelle(self):
+        with tempfile.TemporaryDirectory() as d1, tempfile.TemporaryDirectory() as d2:
+            for d, n in ((d1, 2), (d2, 3)):
+                subprocess.run(
+                    [sys.executable, os.path.join(RADICE, "esempi", "esporta_template.py"),
+                     "--cartella", d, "--quante", str(n)],
+                    check=True, capture_output=True)
+            modelli = T.carica_cartelle([d1, d2])
+            self.assertEqual(len(modelli), 5)
 
 
 class FintoScrittore:
@@ -216,6 +501,40 @@ class TestPosa(unittest.TestCase):
         self.assertEqual(int(out[4, 5, 4]), 5)
         self.assertEqual(int(out[4, 3, 4]), 5)
         self.assertEqual(int(out[4, 2, 4]), 7)        # il terreno non si tocca
+
+    def test_vietato_impedisce_di_disegnare_sopra_il_lotto_vicino(self):
+        """Il difetto segnalato dall'utente: un modello che sporge oltre il
+        proprio lotto non deve mai scrivere sopra quello di un ALTRO
+        edificio, o la casa disegnata per seconda "mangia" un pezzo di
+        quella disegnata per prima."""
+        cat, m = self.catalogo()
+        out = np.full((16, 20, 16), 99, np.uint32)
+        vietato = np.zeros((16, 16), bool)
+        vietato[6, 6] = True     # proprio dove cadrebbe il secondo tronco
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 4, 4, 5, vietato=vietato)
+        ids = cat.id_palette(0, 0)
+        self.assertEqual(int(out[4, 5, 4]), int(ids[1]))   # la prima cella, permessa
+        self.assertEqual(int(out[6, 5, 6]), 99)            # la seconda, bloccata
+
+    def test_vietato_non_tocca_le_altre_colonne(self):
+        cat, m = self.catalogo()
+        out = np.full((16, 20, 16), 99, np.uint32)
+        vietato = np.zeros((16, 16), bool)   # nessuna colonna vietata
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 4, 6, 5, vietato=vietato)
+        ids = cat.id_palette(0, 0)
+        self.assertEqual(int(out[4, 5, 6]), int(ids[1]))
+        self.assertEqual(int(out[6, 5, 6]), int(ids[2]))
+
+    def test_vietato_ferma_anche_la_fondazione(self):
+        cat, m = self.catalogo()
+        out = np.full((16, 20, 16), 0, np.uint32)
+        out[:, :3, :] = 7
+        vietato = np.zeros((16, 16), bool)
+        vietato[4, 4] = True
+        T.fondazione(out, 0, 0, 0, cat, 0, 0, 4, 4, 6, blocco=5, aria=0,
+                     vietato=vietato)
+        self.assertEqual(int(out[4, 5, 4]), 0)   # non riempita: la colonna e' vietata
+        self.assertEqual(int(out[4, 3, 4]), 0)
 
 
 if __name__ == "__main__":

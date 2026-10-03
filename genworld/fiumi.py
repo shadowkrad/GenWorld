@@ -59,9 +59,9 @@ def livella(
     altezze: np.ndarray,
     mare: np.ndarray,
     livello_mare: int = 62,
-    incassamento: float = 2.0,
+    incassamento: float = 0.8,
     profondita: int = 2,
-    scavo_rive: int = 2,
+    scavo_rive: int = 3,
     scavo_massimo: float = 8.0,
     sopraelevazione_massima: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
@@ -175,12 +175,25 @@ def livella(
     #
     # Il livello da usare e' quello del FIUME VICINO, e si prende dilatando
     # il pelo dell'acqua sulla fascia di riva.
+    #
+    # Il tetto NON e' piatto. Uno screenshot ha mostrato l'effetto di un tetto
+    # unico (`vicino + 2.0` ovunque nella fascia): tutta la riva viene tagliata
+    # alla STESSA quota, quindi si forma un terrazzo netto a un solo livello e
+    # poi, appena fuori dalla fascia, un gradino di ritorno al terreno vero -
+    # in pratica un fossato dai bordi verticali invece di una sponda che
+    # digrada. Qui si fa crescere il margine con la distanza dal fiume (da
+    # poco sopra il pelo, vicino all'acqua, a un tetto via via piu' alto verso
+    # il bordo della fascia), cosi' la riva sale con una china invece che con
+    # uno scalino.
     if scavo_rive > 0:
-        from scipy.ndimage import maximum_filter
+        from scipy.ndimage import distance_transform_edt, maximum_filter
         riva = binary_dilation(fiumi, iterations=scavo_rive) & ~fiumi
         pelo = np.where(fiumi, livello, -1e9)
         vicino = maximum_filter(pelo, size=2 * int(scavo_rive) + 1)
-        tetto = np.where(riva, vicino + 2.0, np.inf)
+        distanza = distance_transform_edt(~fiumi)
+        china = np.clip(distanza / float(scavo_rive), 0.0, 1.0)
+        margine = 0.5 + china * 2.5
+        tetto = np.where(riva, vicino + margine, np.inf)
         h = np.minimum(h, tetto)
 
     return livello, h
@@ -296,7 +309,8 @@ def da_terreno(
     mare: np.ndarray,
     soglia: float = 150.0,
     sfocatura: float = 4.0,
-    larghezza_per_portata: int = 1,
+    larghezza_base: int = 2,
+    larghezza_per_portata: int = 2,
     lunghezza_minima: int = 25,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Fiumi dove l'acqua si raccoglie. Ritorna (maschera, accumulo).
@@ -304,14 +318,25 @@ def da_terreno(
     Il deflusso si calcola su un terreno SFOCATO: il reticolo idrografico
     segue la topografia regionale, non i dossi da un blocco. Senza, ogni
     increspatura devia l'acqua e i corsi si frantumano in rivoli scollegati.
+
+    L'accumulo D8 e' per costruzione un filo largo UNA cella: ogni cella
+    scarica in un solo vicino. Preso cosi' com'e' il fiume e' un solco
+    stretto quanto un pixel, molto piu' stretto di un corso vero anche
+    quando porta molta acqua. `larghezza_base` allarga OGNI fiume di quel
+    tanto (anche il piu' piccolo); `larghezza_per_portata` allarga ANCORA i
+    corsi maggiori, cosi' la foce resta piu' larga della sorgente.
     """
     base = gaussian_filter(altezze.astype(np.float32), sfocatura) if sfocatura > 0 \
         else altezze.astype(np.float32)
     acc = accumulo(base, mare)
     f = (acc >= soglia) & ~mare
 
+    if larghezza_base > 0 and f.any():
+        f = binary_dilation(f, iterations=int(larghezza_base)) & ~mare
+
     if larghezza_per_portata > 0 and f.any():
-        # i corsi maggiori si allargano: la foce e' piu' larga della sorgente
+        # i corsi maggiori si allargano ancora: la foce e' piu' larga della
+        # sorgente
         grandi = (acc >= soglia * 6) & ~mare
         if grandi.any():
             f = f | (binary_dilation(grandi, iterations=int(larghezza_per_portata))

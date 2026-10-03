@@ -26,13 +26,13 @@ l'acqua e si vede.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
-from scipy.ndimage import binary_dilation, gaussian_filter
+from scipy.ndimage import gaussian_filter
 
 from . import vegetazione as V
-from .mappa import ACQUA, FORESTA, PIANURA, PRATERIA, SPIAGGIA
+from .mappa import FORESTA, PIANURA, PRATERIA, SPIAGGIA
 
 # Codici della mappa dei campi. L'arato non e' un codice solo: ce n'e' uno
 # per coltura, perche' la coltura appartiene al PODERE e il chunk, quando

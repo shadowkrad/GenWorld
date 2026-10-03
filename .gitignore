@@ -48,3 +48,7 @@ togli_mappe_altrui.bat
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Copertura dei test
+.coverage
+htmlcov/
