@@ -115,13 +115,13 @@ goto :eof
 rem ---------------------------------------------------------------------------
 rem  0 = la versione va bene, 1 = e' troppo nuova per numpy 1.
 :controlla_versione
-set "RISPOSTA="
-for /f "delims=" %%v in ('"%PY%" -c "import sys; print(str(sys.version_info[0]) + '.' + str(sys.version_info[1]))" 2^>nul') do set "RISPOSTA=%%v"
-if "%RISPOSTA%"=="3.12" exit /b 0
-if "%RISPOSTA%"=="3.11" exit /b 0
-if "%RISPOSTA%"=="3.10" exit /b 0
-if "%RISPOSTA%"=="3.9" exit /b 0
-exit /b 1
+rem Niente "for /f" con il percorso fra virgolette: cmd toglie le virgolette
+rem esterne di tutta la riga e il comando si rompe, il controllo falliva
+rem sempre e l'ambiente veniva rifatto (e cancellato) a ogni avvio. Si chiama
+rem python direttamente e si legge l'errorlevel; l'appartenenza a un elenco
+rem fisso evita "<" e ">" dentro il -c.
+"%PY%" -c "import sys; sys.exit(0 if sys.version_info[0] == 3 and sys.version_info[1] in (9, 10, 11, 12) else 1)" >nul 2>nul
+exit /b %errorlevel%
 
 rem ---------------------------------------------------------------------------
 :crea_ambiente
