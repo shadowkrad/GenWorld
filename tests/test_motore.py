@@ -176,11 +176,11 @@ class TestPipeline(unittest.TestCase):
         maschera che dice a caverne e miniere dove non scavare: deve
         includere ogni cella di cinta muraria, di sede stradale e di campo,
         altrimenti un cunicolo puo' ancora lasciare una struttura appesa sul
-        vuoto. Su questa mappa una citta' murata nasce sempre (verificato a
-        parte)."""
+        vuoto. Serve una mappa abbastanza grande: una citta' murata (con il fosso) ha
+        bisogno di un centinaio di celle di pianura."""
         with tempfile.TemporaryDirectory() as d:
-            img = mappa_finta(os.path.join(d, "isola.png"), 192)
-            op = Opzioni(immagine=img, uscita=os.path.join(d, "w"), lato=192,
+            img = mappa_finta(os.path.join(d, "isola.png"), 320)
+            op = Opzioni(immagine=img, uscita=os.path.join(d, "w"), lato=320,
                          vulcani=0, fiumi=80.0)
             a = analizza(op)
             piano = pianifica(op, a)

@@ -448,6 +448,9 @@ class Piano:
     alberi: dict | None
     indice_alberi: dict
     muro: np.ndarray | None = None   # 1 = cinta, 2 = porta, 3 = torre
+    # la mappa DOPO le citta': fiumi interrati, fossi scavati (vedi citta.py)
+    cls: np.ndarray | None = None
+    livello: np.ndarray | None = None
     scarpata: np.ndarray | None = None   # fronte dei gradoni urbani
     citta: list = field(default_factory=list)
     abitanti: list = field(default_factory=list)
@@ -799,8 +802,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     siti = (I.scegli_siti(a.cls, h, livello_mare=LIVELLO_MARE,
                           celle_per_villaggio=int(45_000 / max(op.villaggi, 1e-3)),
                           seed=31) if op.villaggi > 0 else [])
-    edifici, h, vie, muro, citta, banchi, urbano = CT.pianifica(
+    edifici, h, vie, muro, citta, banchi, urbano, cls_c, livello_c = CT.pianifica(
         a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31)
+    # Le citta' cambiano la mappa (il terreno si adatta a loro: fiumi interrati,
+    # fossi scavati): da qui in poi, e in `scrivi()`, vale la mappa cambiata.
+    a = replace(a, cls=cls_c, livello=livello_c)
     indice_ed = I.indice_per_chunk(edifici) if edifici else {}
     # Proprietario: quale edificio (indice in `edifici`) possiede ciascuna
     # cella del suo SEDIME - il lotto vero, mai sovrapposto a quello di un
@@ -1013,6 +1019,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 
     avanza(1.0, "pianificazione completata")
     return Piano(h=h, edifici=edifici, indice_edifici=indice_ed,
+                 cls=a.cls, livello=a.livello,
                  tipo_strada=tipo_strada, quota_strada=quota_strada,
                  alberi=alberi, indice_alberi=indice, muro=muro,
                  scarpata=scarpata,
@@ -1559,6 +1566,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
     from .livello_dat import ImpostazioniMondo, verifica
     from .mondo import ScrittoreMondo
 
+    if piano.cls is not None:
+        a = replace(a, cls=piano.cls, livello=piano.livello)
     imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
                             versione=op.versione)
     os.makedirs(os.path.dirname(os.path.abspath(op.uscita)) or ".", exist_ok=True)
