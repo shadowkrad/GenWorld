@@ -448,7 +448,7 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
         if min(w, d) >= 5 and t < 0.6 and r < 0.4 * min(densita, 1.0) and banchi_nuovi < 6:
             bx, bz = e.x + (w - 3) // 2, e.z + (d - 3) // 2
             q = h[bz:bz + 3, bx:bx + 3]
-            ris.banchi.append(E.Banco(x=bx, z=bz, base=int(np.median(q)) + 1,
+            ris.banchi.append(E.Banco(x=bx, z=bz, base=int(q.min()),
                                       verso=e.porta,
                                       merce=MERCI[banchi_nuovi % len(MERCI)],
                                       seme=int(rng.integers(0, 2 ** 31 - 1))))

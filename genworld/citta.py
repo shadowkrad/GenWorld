@@ -609,7 +609,7 @@ def mercato(area: np.ndarray, vie: np.ndarray, occupato: np.ndarray,
             verso = E.NORD if bz + 1 > pz else E.SUD
         else:
             verso = E.OVEST if bx + 1 > px else E.EST
-        fuori.append(E.Banco(x=bx, z=bz, base=int(np.median(quote)) + 1,
+        fuori.append(E.Banco(x=bx, z=bz, base=int(quote.min()),
                              verso=verso,
                              merce=MERCI[len(fuori) % len(MERCI)],
                              seme=int(rng.integers(0, 2 ** 31 - 1))))

@@ -629,13 +629,15 @@ class TestDistanzaMinimaDalVulcano(unittest.TestCase):
         from genworld import miniere as MI
         from genworld.motore import DISTANZA_MIN_VULCANO, zona_vulcanica
         a, mare = self.analisi()
-        h = a.h.astype(np.int32)
+        h = a.h.astype(np.float32)
         nuda = zona_vulcanica(a, 0)
-        senza = MI.pianifica(h, mare, evita=None, densita=6.0, seed=3)
+        evita = zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.BINARIO_FUORI + 4)
+        senza, con = [], []
+        for seed in range(60):
+            senza += MI.pianifica(h, mare, evita=None, densita=8.0, seed=seed, distanza_min=10)
+            con += MI.pianifica(h, mare, evita=evita, densita=8.0, seed=seed, distanza_min=10)
         self.assertTrue(any(nuda[m.z, m.x] for m in senza),
                         "il test presuppone che senza esclusione qualcuna nasca sul cono")
-        con = MI.pianifica(h, mare, densita=6.0, seed=3,
-                           evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.RAGGIO_INGRESSO))
         self.assertTrue(con)
         self.assertFalse(any(nuda[m.z, m.x] for m in con))
 
@@ -645,11 +647,13 @@ class TestDistanzaMinimaDalVulcano(unittest.TestCase):
         a, mare = self.analisi()
         h = a.h.astype(np.int32)
         nuda = zona_vulcanica(a, 0)
-        senza = AP.pianifica(h, mare, evita=None, campi=8.0, cimiteri=8.0, seed=5)
+        evita = zona_vulcanica(a, DISTANZA_MIN_VULCANO + AP.RAGGIO_CIMITERO)
+        senza, con = [], []
+        for seed in range(60):
+            senza += AP.pianifica(h, mare, evita=None, campi=60.0, cimiteri=60.0, seed=seed)
+            con += AP.pianifica(h, mare, evita=evita, campi=60.0, cimiteri=60.0, seed=seed)
         self.assertTrue(any(nuda[av.z, av.x] for av in senza),
                         "il test presuppone che senza esclusione qualcuno nasca sul cono")
-        con = AP.pianifica(h, mare, campi=8.0, cimiteri=8.0, seed=5,
-                           evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO + AP.RAGGIO_CIMITERO))
         self.assertTrue(con)
         self.assertFalse(any(nuda[av.z, av.x] for av in con))
 

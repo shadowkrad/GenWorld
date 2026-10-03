@@ -558,6 +558,43 @@ class TestStatistichePerTipo(unittest.TestCase):
         self.assertEqual(st, {"avamposti": 4, "campi": 1, "cimiteri": 1, "portali": 2})
 
 
+class TestDensitaEDistanze(unittest.TestCase):
+    """Misurato in gioco: i cimiteri spuntavano ovunque (18 su una mappa da
+    1000). Ora sono pochi e lontani fra loro."""
+
+    def mondo(self, n=1000):
+        return np.full((n, n), 90.0, np.float32), np.zeros((n, n), bool)
+
+    def test_i_cimiteri_sono_pochi(self):
+        h, mare = self.mondo()
+        av = AV.pianifica(h, mare, campi=0.0, cimiteri=1.0, portali=0.0, seed=3)
+        cim = [a for a in av if a.tipo == "cimitero"]
+        self.assertLessEqual(len(cim), 1000 * 1000 // 300_000 + 1)
+        self.assertGreater(len(cim), 0)
+
+    def test_i_campi_sono_pochi(self):
+        h, mare = self.mondo()
+        av = AV.pianifica(h, mare, campi=1.0, cimiteri=0.0, portali=0.0, seed=3)
+        self.assertLessEqual(len([a for a in av if a.tipo == "campo"]),
+                             1000 * 1000 // 150_000 + 1)
+
+    def test_due_avamposti_dello_stesso_tipo_non_stanno_a_portata_d_occhio(self):
+        h, mare = self.mondo()
+        av = AV.pianifica(h, mare, campi=4.0, cimiteri=4.0, portali=0.0, seed=5)
+        for tipo, lontano in AV.DISTANZA_FRA_SIMILI.items():
+            gruppo = [a for a in av if a.tipo == tipo]
+            for i, a in enumerate(gruppo):
+                for b in gruppo[i + 1:]:
+                    self.assertGreaterEqual((a.x - b.x) ** 2 + (a.z - b.z) ** 2, lontano ** 2,
+                                            f"due {tipo} troppo vicini")
+
+    def test_piu_densita_non_riempie_la_mappa(self):
+        """Anche con la densita' alta la distanza fra simili fa da tetto."""
+        h, mare = self.mondo()
+        av = AV.pianifica(h, mare, campi=0.0, cimiteri=20.0, portali=0.0, seed=7)
+        self.assertLessEqual(len(av), (1000 // AV.DISTANZA_FRA_SIMILI["cimitero"] + 1) ** 2)
+
+
 class TestSicurezzaFileEstranei(unittest.TestCase):
     """I file che l'utente ha buttato in `templates/strutture/` insieme alle
     case vere (il cimitero, il portale, e un cactus/pozzo decorativi non

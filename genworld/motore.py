@@ -52,6 +52,10 @@ from .rumore import dettaglio, quantizza
 
 LIVELLO_MARE = 62
 
+# che mestiere fa chi serve a un banco, dalla merce
+MERCE_MESTIERE = {"frutta": "fruttivendolo", "carne": "macellaio",
+                  "pesce": "pescatore", "verdura": "fruttivendolo"}
+
 # Distanza minima, in celle, fra il vulcano (cono, cratere, lago di lava e
 # colate) e le costruzioni sparse a caso sulla mappa: ingressi di miniera,
 # accampamenti, cimiteri, portali. Senza, niente li tratteneva dal nascere
@@ -515,8 +519,8 @@ def _pianifica_miniere(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     if op.miniere <= 0:
         return []
     evita = _costruito(a.cls.shape, edifici, muro, tipo_strada)
-    # l'ingresso e' una capanna di RAGGIO_INGRESSO celle attorno al pozzo
-    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.RAGGIO_INGRESSO)
+    # il portale, la piazzola e la trincea d'ingresso stanno fuori dal vulcano
+    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.BINARIO_FUORI + 4)
     mare_m = np.isin(a.cls, M.MARINO)
     acqua_m = mare_m | (a.cls == M.FIUME)
     miniere = MI.pianifica(h, mare_m, acqua=acqua_m, evita=evita,
@@ -574,7 +578,7 @@ def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
 def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
                       scelte: dict, citta: list, vie, tipo_strada, muro, campi,
                       banchi: list, protetto: np.ndarray, abitanti: list,
-                      merce_mestiere: dict, note: list[str]):
+                      note: list[str]):
     """Giardini, recinti, bazar e piazzette nei lotti senza casa; campana,
     fontana o pozzo e lampioni in ogni insediamento. Modifica `banchi` e
     `protetto` sul posto; ritorna (risultato, abitanti aggiornati)."""
@@ -592,9 +596,6 @@ def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
         # il banco sta dentro un lotto senza casa: il lotto resta di quel
         # edificio (nessuna casa da tenere lontana dal vicino)
         protetto[b.z:b.z1, b.x:b.x1] = True
-        abitanti.append(EN.Abitante(
-            x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
-            mestiere=merce_mestiere.get(b.merce, "fruttivendolo"), seme=b.seme))
     abitanti = abitanti + arredi_r.animali
     if arredi_r.arredi or arredi_r.banchi:
         note.append("arredi: " + ", ".join(
@@ -617,8 +618,8 @@ def _pianifica_isolate(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     evita_is |= _dil(np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME), iterations=4)
     if avamposti:
         evita_is |= AP.maschera(avamposti, a.cls.shape, margine=3)
-    for mn in miniere:
-        evita_is[max(0, mn.z - 6):mn.z + 7, max(0, mn.x - 6):mn.x + 7] = True
+    if miniere:
+        evita_is |= MI.maschera_ingresso(miniere, a.cls.shape, margine=8)
     if arredi_r.arredi:
         evita_is |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=2)
     evita_is |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 10)
@@ -633,7 +634,8 @@ def _pianifica_isolate(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
 
 def _semina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
             tipo_strada, scarpata, campi, poderi: list, frutta, avamposti: list,
-            arredi_r, isolate: list, note: list[str]) -> tuple[dict | None, dict]:
+            arredi_r, isolate: list, note: list[str],
+            miniere: list = ()) -> tuple[dict | None, dict]:
     """Alberi, canne e fiori, tolti da dove non devono stare: dentro un podere,
     le mura, la carreggiata, una casa, un giardino, un accampamento, vicino a
     uno scalino urbano o a un fiume. Ritorna (alberi, indice per chunk)."""
@@ -706,6 +708,12 @@ def _semina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
         # salotto, poche righe sopra.
         dentro_av = AP.maschera(avamposti, a.cls.shape)
         tieni = ~dentro_av[alberi["z"], alberi["x"]]
+        if not tieni.all():
+            alberi = {k: v[tieni] for k, v in alberi.items()}
+    if alberi is not None and miniere:
+        # niente albero sul portale, sul binario davanti o dentro la trincea
+        dentro_mi = MI.maschera_ingresso(miniere, a.cls.shape)
+        tieni = ~dentro_mi[alberi["z"], alberi["x"]]
         if not tieni.all():
             alberi = {k: v[tieni] for k, v in alberi.items()}
     if alberi is not None and isolate:
@@ -838,13 +846,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                 for i, e in enumerate(edifici)
                 if not modelli_case or i in scelte
                 for px, py, pz in (E.punto_lavoro(e),)]
-    # e uno per banco, davanti al suo bancone
-    MERCE_MESTIERE = {"frutta": "fruttivendolo", "carne": "macellaio",
-                      "pesce": "pescatore", "verdura": "fruttivendolo"}
-    abitanti += [EN.Abitante(x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
-                             mestiere=MERCE_MESTIERE.get(b.merce, "fruttivendolo"),
-                             seme=b.seme)
-                 for b in banchi]
+    # (i venditori dei banchi si creano dopo, a terreno definitivo)
     if edifici:
         st = CT.statistiche(edifici, vie, muro, citta, banchi)
         note.append(
@@ -970,7 +972,18 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     avanza(0.73, "arredi")
     arredi_r, abitanti = _pianifica_arredi(
         op, a, h, edifici, scelte, citta, vie, tipo_strada, muro, campi, banchi,
-        protetto, abitanti, MERCE_MESTIERE, note)
+        protetto, abitanti, note)
+
+    # I BANCHI, a terreno definitivo. Citta', campi e strade muovono le quote
+    # DOPO che il mercato e' stato disegnato: la base calcolata allora poteva
+    # restare in aria (il difetto dei "banchini sospesi"). Si rifa' qui dal
+    # punto piu' basso di ciascuno, e solo ora nascono i loro venditori.
+    for b in banchi:
+        b.base = int(h[b.z:b.z1, b.x:b.x1].min())
+    abitanti = abitanti + [
+        EN.Abitante(x=b.x + 1.5, y=float(b.base), z=b.z + 1.5,
+                    mestiere=MERCE_MESTIERE.get(b.merce, "fruttivendolo"), seme=b.seme)
+        for b in banchi]
 
     # CASE ISOLATE. Vanno dopo tutto il resto perche' il loro criterio e'
     # negativo: dove NON c'e' niente (vedi `_pianifica_isolate`).
@@ -980,7 +993,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 
     avanza(0.75, "vegetazione")
     alberi, indice = _semina(op, a, h, edifici, muro, tipo_strada, scarpata, campi,
-                             poderi, frutta, avamposti, arredi_r, isolate, note)
+                             poderi, frutta, avamposti, arredi_r, isolate, note,
+                             miniere)
 
     avanza(0.9, "fauna")
     animali = _fauna(op, a, h, edifici, muro, tipo_strada, poderi, avamposti,

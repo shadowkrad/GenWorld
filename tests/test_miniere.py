@@ -1,4 +1,4 @@
-"""Test delle miniere artificiali: pozzo, gallerie, binari, travi, filoni."""
+"""Test delle miniere artificiali: portale, rampa, piani, gallerie, binari, travi, filoni."""
 
 from __future__ import annotations
 
@@ -78,8 +78,8 @@ class TestPianifica(unittest.TestCase):
     def test_il_fondo_rispetta_i_limiti(self):
         h, mare = self.scena()
         for mn in MI.pianifica(h, mare, densita=3.0, seed=11):
-            self.assertLessEqual(mn.y_fondo, mn.y_superficie - 16)
-            self.assertGreaterEqual(mn.y_fondo, -58)
+            self.assertLessEqual(mn.y_fondo, mn.y_superficie - 10)
+            self.assertGreaterEqual(mn.y_fondo, MI.QUOTA_MINIMA_RAMPA)
 
     def test_ogni_tratto_e_dritto_e_sicuro(self):
         h, mare = self.scena()
@@ -120,7 +120,6 @@ class TestPianifica(unittest.TestCase):
         n = 0
         for mn in MI.pianifica(h, mare, densita=3.0, seed=29):
             for g in mn.giacimenti:
-                self.assertEqual(g.y, mn.y_fondo)
                 m = SS.MINERALI[[m.nome for m in SS.MINERALI].index(g.minerale)]
                 self.assertLessEqual(m.y_min, g.y)
                 self.assertLessEqual(g.y, m.y_max)
@@ -147,10 +146,10 @@ class TestPianifica(unittest.TestCase):
         vista_una_diramazione = False
         for seed in range(40):
             for mn in MI.pianifica(h, mare, densita=4.0, seed=seed):
-                # numero di bracci dal pozzo: quanti segmenti iniziano
-                # esattamente sul pozzo (x0, z0) == (mn.x, mn.z)
-                bracci = sum(1 for s in mn.segmenti
-                            if (s.x0, s.z0) == (mn.x, mn.z))
+                # numero di bracci dal fondo della rampa: quanti segmenti
+                # iniziano esattamente li'
+                fx, fz, _ = mn.rampa.fine
+                bracci = sum(1 for s in mn.segmenti if (s.x0, s.z0) == (fx, fz))
                 if len(mn.giacimenti) > bracci:
                     vista_una_diramazione = True
                     break
@@ -162,8 +161,31 @@ class TestPianifica(unittest.TestCase):
 
 class TestIndicePerChunk(unittest.TestCase):
 
-    def test_il_pozzo_e_nel_suo_chunk(self):
-        mn = MI.Miniera(x=20, z=20, y_superficie=90, y_fondo=50, segmenti=[])
+    def test_il_portale_e_nel_suo_chunk(self):
+        r = MI.Rampa(x=20, z=20, dx=1, dz=0, y=80, lunghezza=40)
+        mn = MI.Miniera(x=20, z=20, y_superficie=80, y_fondo=66, rampa=r, segmenti=[])
+        idx = MI.indice_per_chunk([mn])
+        self.assertIn(0, idx.get((1, 1), []))
+
+    def test_la_rampa_tocca_tutti_i_chunk_che_attraversa(self):
+        r = MI.Rampa(x=5, z=20, dx=1, dz=0, y=80, lunghezza=60)
+        mn = MI.Miniera(x=5, z=20, y_superficie=80, y_fondo=60, rampa=r, segmenti=[])
+        idx = MI.indice_per_chunk([mn])
+        for cx in range(0, 5):                       # da x=5 a x=65
+            self.assertIn(0, idx.get((cx, 1), []), f"manca il chunk ({cx}, 1)")
+
+    def test_una_rampa_interna_si_registra(self):
+        r = MI.Rampa(x=5, z=20, dx=1, dz=0, y=80, lunghezza=30)
+        ri = MI.Rampa(x=100, z=20, dx=0, dz=1, y=60, lunghezza=45)
+        mn = MI.Miniera(x=5, z=20, y_superficie=80, y_fondo=45, rampa=r,
+                        rampe_interne=[ri], segmenti=[])
+        idx = MI.indice_per_chunk([mn])
+        self.assertIn(0, idx.get((6, 1), []))
+        self.assertIn(0, idx.get((6, 3), []))
+
+    def test_il_binario_all_aperto_davanti_al_portale_e_registrato(self):
+        r = MI.Rampa(x=33, z=20, dx=1, dz=0, y=80, lunghezza=40)    # chunk 2, ma il binario sta a x=25
+        mn = MI.Miniera(x=33, z=20, y_superficie=80, y_fondo=66, rampa=r, segmenti=[])
         idx = MI.indice_per_chunk([mn])
         self.assertIn(0, idx.get((1, 1), []))
 
@@ -216,18 +238,6 @@ class TestPosa(unittest.TestCase):
         ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
         out[np.broadcast_to(ys < quota_terreno, out.shape)] = self.SOLIDO
         return out, h_c
-
-    def test_il_pozzo_scava_dalla_superficie_al_fondo(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn = MI.Miniera(x=8, z=8, y_superficie=90, y_fondo=50, segmenti=[])
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)
-        colonna = out[8, (ys >= 51) & (ys < 89), 8]
-        # il pozzo e' scavato quasi ovunque: per lo piu' scalette (non
-        # pietra piena), con qualche gradino d'aria pura ogni tanto.
-        self.assertGreater(int((colonna != self.SOLIDO).sum()), 30)
 
     def test_la_galleria_ha_un_binario_al_centro(self):
         out, h_c = self.colonna_piena(quota_terreno=100)
@@ -304,179 +314,6 @@ class TestPosa(unittest.TestCase):
         # una colonna vicina, non protetta, resta invece scavata come prima
         y_a1 = 50 + 1 - self.Y0
         self.assertNotEqual(int(out[9, y_a1, 8]), self.SOLIDO)
-
-    def test_protetto_c_blocca_il_pozzo(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn = MI.Miniera(x=8, z=8, y_superficie=90, y_fondo=50, segmenti=[])
-        protetto_c = np.zeros((16, 16), bool)
-        protetto_c[8, 8] = True
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,),
-               seed=1, protetto_c=protetto_c)
-        self.assertTrue((out[8, :90 - self.Y0, 8] == self.SOLIDO).all())
-
-
-class TestIngresso(unittest.TestCase):
-    """La capanna d'ingresso: pareti chiuse, una porta, una finestra, un
-    tetto pieno e due lanterne - non piu' un castelletto aperto ("un gazebo
-    con un buco nel mezzo", segnalato dall'utente in gioco)."""
-
-    Y0 = -64
-    ALTEZZA = 284
-    SOLIDO = 9999
-
-    def colonna_piena(self, quota_terreno=100):
-        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
-        h_c = np.full((16, 16), quota_terreno, np.int32)
-        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
-        out[np.broadcast_to(ys < quota_terreno, out.shape)] = self.SOLIDO
-        return out, h_c
-
-    def _mina_e_lati(self, x=8, z=8, quota_terreno=90):
-        """Una miniera di prova piu' il verso della sua porta, la cella
-        della porta e quella della finestra (sul lato opposto) - calcolati
-        con la stessa funzione usata dal codice, cosi' il test resta valido
-        qualunque lato scelga il verso deterministico."""
-        mn = MI.Miniera(x=x, z=z, y_superficie=quota_terreno, y_fondo=50,
-                        segmenti=[])
-        verso = MI._verso_ingresso(mn)
-        dxp, dzp = MI._DELTA_LATO[verso]
-        r = MI.RAGGIO_INGRESSO
-        porta = (x + dxp * r, z + dzp * r)
-        finestra = (x - dxp * r, z - dzp * r)
-        return mn, porta, finestra
-
-    def test_quattro_piloni_ai_quattro_angoli(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, _, _ = self._mina_e_lati()
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        base = 90 - self.Y0
-        r = MI.RAGGIO_INGRESSO
-        for dx, dz in ((-r, -r), (r, -r), (-r, r), (r, r)):
-            colonna = out[8 + dx, base:base + MI.ALTEZZA_INGRESSO, 8 + dz]
-            self.assertTrue((colonna == tav.palo).all(),
-                            f"pilone mancante o incompleto in ({dx}, {dz})")
-
-    def test_la_porta_e_un_vano_aperto_su_pavimento(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, (px, pz), _ = self._mina_e_lati()
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        base = 90 - self.Y0
-        self.assertEqual(int(out[px, base, pz]), tav.pavimento)
-        self.assertEqual(int(out[px, base + 1, pz]), tav.aria)
-        # base + 2, sulla soglia, e' dove pende la lanterna della porta
-        # (vedi test_due_lanterne...) - comunque non un muro ne' un pilone.
-        self.assertNotIn(int(out[px, base + 2, pz]), (tav.parete, tav.base_muro, tav.palo))
-
-    def test_la_finestra_e_sul_lato_opposto_alla_porta(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, _, (fx, fz) = self._mina_e_lati()
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        base = 90 - self.Y0
-        self.assertEqual(int(out[fx, base, fz]), tav.base_muro)
-        self.assertEqual(int(out[fx, base + 1, fz]), tav.vetro)
-        self.assertEqual(int(out[fx, base + 2, fz]), tav.parete)
-
-    def test_i_lati_senza_porta_ne_finestra_sono_pareti_piene(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, (px, pz), (fx, fz) = self._mina_e_lati()
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        base = 90 - self.Y0
-        r = MI.RAGGIO_INGRESSO
-        # il lato perpendicolare a quello porta/finestra: ruota di 90 gradi
-        dxp, dzp = (px - mn.x) // r, (pz - mn.z) // r
-        pdx, pdz = -dzp, dxp
-        wx, wz = mn.x + pdx * r, mn.z + pdz * r
-        self.assertEqual(int(out[wx, base, wz]), tav.base_muro)
-        self.assertEqual(int(out[wx, base + 1, wz]), tav.parete)
-        self.assertEqual(int(out[wx, base + 2, wz]), tav.parete)
-
-    def test_l_interno_e_vuoto_sopra_il_pavimento(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, _, _ = self._mina_e_lati()
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        base = 90 - self.Y0
-        self.assertEqual(int(out[9, base, 8]), tav.pavimento)
-        self.assertEqual(int(out[9, base + 1, 8]), tav.aria)
-        self.assertEqual(int(out[9, base + 2, 8]), tav.aria)
-
-    def test_tetto_pieno_su_tutta_la_capanna(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, (px, pz), _ = self._mina_e_lati()
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        cima = 90 - self.Y0 + MI.ALTEZZA_INGRESSO
-        r = MI.RAGGIO_INGRESSO
-        for dx, dz in ((0, 0), (r, r), (-r, -r), (px - 8, pz - 8)):
-            self.assertEqual(int(out[8 + dx, cima, 8 + dz]), tav.tetto)
-
-    def test_due_lanterne_una_sul_pozzo_una_sulla_porta(self):
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, (px, pz), _ = self._mina_e_lati()
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        cima = 90 - self.Y0 + MI.ALTEZZA_INGRESSO
-        self.assertEqual(int(out[8, cima - 1, 8]), tav.lanterna)
-        self.assertEqual(int(out[px, cima - 1, pz]), tav.lanterna)
-
-    def test_protetto_c_blocca_la_capanna(self):
-        """Stessa idea di `test_protetto_c_blocca_il_pozzo`: un angolo della
-        capanna che cade su una colonna gia' occupata in superficie (mura,
-        strade, case) non deve scriverci sopra."""
-        out, h_c = self.colonna_piena(quota_terreno=90)
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn, _, _ = self._mina_e_lati()
-        r = MI.RAGGIO_INGRESSO
-        protetto_c = np.zeros((16, 16), bool)
-        protetto_c[8 + r, 8 + r] = True          # uno dei quattro angoli
-        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,),
-               seed=1, protetto_c=protetto_c)
-        base = 90 - self.Y0
-        colonna = out[8 + r, base:base + MI.ALTEZZA_INGRESSO, 8 + r]
-        self.assertTrue((colonna != tav.palo).all())
-
-    def test_la_capanna_si_registra_anche_nel_chunk_vicino(self):
-        """Un pozzo a un blocco dal bordo del chunk deve comparire
-        registrato anche nel chunk accanto, altrimenti la capanna che vi
-        sporge non verrebbe mai disegnata li' - lo stesso difetto
-        "smezzato" delle case da template senza margine nell'indice."""
-        mn = MI.Miniera(x=15, z=8, y_superficie=90, y_fondo=50, segmenti=[])
-        idx = MI.indice_per_chunk([mn])
-        self.assertIn(0, idx.get((0, 0), []))
-        self.assertIn(0, idx.get((1, 0), []), "manca il chunk (1, 0)")
-
-    def test_la_capanna_attraversa_davvero_il_confine_del_chunk(self):
-        """Non solo l'indice: il pilone che sporge nel chunk vicino deve
-        arrivare completo anche disegnando quel secondo chunk da solo."""
-        s = FintoScrittore()
-        tav = MI.Tavolozza(s)
-        mn = MI.Miniera(x=15, z=8, y_superficie=90, y_fondo=50, segmenti=[])
-        out1, h_c = self.colonna_piena(quota_terreno=90)
-        MI.posa(out1, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        out2, h_c = self.colonna_piena(quota_terreno=90)
-        MI.posa(out2, tav, h_c, 16, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
-        base = 90 - self.Y0
-        # il pilone a (17, 10) (mn.x+2, mn.z+2) sta nel SECONDO chunk
-        # (locale (1, 10)), non nel primo
-        self.assertTrue((out1[15, base:base + MI.ALTEZZA_INGRESSO, 10]
-                         != tav.palo).all())
-        self.assertTrue((out2[1, base:base + MI.ALTEZZA_INGRESSO, 10]
-                         == tav.palo).all())
-
 
 class TestGiacimenti(unittest.TestCase):
     """La saletta a fine diramazione: vuota al centro, con il minerale
@@ -576,6 +413,427 @@ class TestGiacimenti(unittest.TestCase):
         trovato_2 = bool((out2[0:3, gy, 6:11] == minerale).any())
         self.assertTrue(trovato_1 and trovato_2,
                         "il giacimento non attraversa il confine di chunk")
+
+
+
+def collina(n=200, salita=0.5, direzione="x"):
+    """Un terreno che sale: una collina verso cui entra un portale."""
+    base = np.arange(n, dtype=np.float32) * salita + 70.0
+    h = np.tile(base[None, :], (n, 1)) if direzione == "x" else np.tile(base[:, None], (1, n))
+    return h
+
+
+class TestRampa(unittest.TestCase):
+
+    def test_scende_un_blocco_ogni_tre_di_cammino(self):
+        r = MI.Rampa(x=0, z=0, dx=1, dz=0, y=80, lunghezza=30)
+        self.assertEqual([r.cella(i)[2] for i in range(8)], [80, 80, 80, 79, 79, 79, 78, 78])
+
+    def test_le_celle_seguono_la_direzione(self):
+        r = MI.Rampa(x=10, z=10, dx=0, dz=-1, y=80, lunghezza=5)
+        self.assertEqual(r.cella(3)[:2], (10, 7))
+        self.assertEqual(r.fine[:2], (10, 5))
+
+    def test_il_gradino_e_la_prima_cella_dopo_il_salto(self):
+        r = MI.Rampa(x=0, z=0, dx=1, dz=0, y=80, lunghezza=30)
+        self.assertFalse(r.e_gradino(0))
+        self.assertFalse(r.e_gradino(2))
+        self.assertTrue(r.e_gradino(3))
+        self.assertTrue(r.e_gradino(6))
+
+
+class TestPianificaRampa(unittest.TestCase):
+
+    def pianifica(self, h, seed=3, **kw):
+        mare = np.zeros(h.shape, bool)
+        return MI.pianifica(h, mare, densita=kw.pop("densita", 3.0), seed=seed, **kw)
+
+    def test_la_discesa_e_graduale_non_un_pozzo(self):
+        """Il difetto segnalato: un pozzo verticale e sei gia' nelle miniere.
+        Per scendere di D blocchi servono almeno 3 D celle di cammino."""
+        miniere = self.pianifica(collina())
+        self.assertGreater(len(miniere), 0)
+        for mn in miniere:
+            r = mn.rampa
+            scesa = r.y - r.fine[2]
+            self.assertGreaterEqual(r.lunghezza, scesa * MI.PASSO_RAMPA - 1)
+            self.assertGreaterEqual(r.lunghezza, MI.LUNGHEZZA_RAMPA_MIN)
+
+    def test_il_portale_guarda_la_collina(self):
+        """La rampa entra nel pendio, non esce all'aria aperta dall'altra
+        parte: il terreno sale lungo la sua direzione."""
+        for mn in self.pianifica(collina(direzione="x")):
+            self.assertEqual((mn.rampa.dx, mn.rampa.dz), (1, 0))
+        for mn in self.pianifica(collina(direzione="z")):
+            self.assertEqual((mn.rampa.dx, mn.rampa.dz), (0, 1))
+
+    def test_ogni_cella_sta_sotto_terra_tranne_la_trincea(self):
+        h = collina()
+        for mn in self.pianifica(h):
+            r = mn.rampa
+            ultima = r.cella(r.lunghezza)
+            copertura = h[ultima[1], ultima[0]] - 1 - (ultima[2] + MI.ALTEZZA_GALLERIA)
+            self.assertGreaterEqual(copertura, MI.CAPPELLO, "la rampa finisce quasi in superficie")
+
+    def test_la_rampa_non_passa_sotto_l_acqua(self):
+        h = collina()
+        acqua = np.zeros(h.shape, bool)
+        acqua[:, 100:110] = True
+        mare = np.zeros(h.shape, bool)
+        for mn in MI.pianifica(h, mare, acqua=acqua, densita=3.0, seed=5):
+            for i in range(mn.rampa.lunghezza + 1):
+                x, z, _ = mn.rampa.cella(i)
+                self.assertFalse(acqua[z, x], "una rampa sotto l'acqua")
+
+    def test_il_portale_resta_fuori_dalle_strutture(self):
+        h = collina()
+        evita = np.zeros(h.shape, bool)
+        evita[:, 60:140] = True
+        for mn in self.pianifica(h, evita=evita):
+            for j in range(-MI.BINARIO_FUORI - 2, 1):
+                x, z, _ = mn.rampa.cella(j)
+                self.assertFalse(evita[z, x])
+
+    def test_le_miniere_sono_lontane_fra_loro(self):
+        miniere = self.pianifica(collina(400), densita=5.0)
+        self.assertGreater(len(miniere), 1)
+        for i, a in enumerate(miniere):
+            for b in miniere[i + 1:]:
+                self.assertGreaterEqual((a.x - b.x) ** 2 + (a.z - b.z) ** 2,
+                                        MI.DISTANZA_FRA_MINIERE ** 2)
+
+    def test_sono_poche(self):
+        """Una miniera ogni quarantacinquemila celle, non ogni quattordicimila."""
+        miniere = self.pianifica(collina(300), densita=1.0)
+        self.assertLessEqual(len(miniere), 300 * 300 // 45_000 + 1)
+
+    def test_e_deterministica(self):
+        a = self.pianifica(collina(), seed=9)
+        b = self.pianifica(collina(), seed=9)
+        self.assertEqual([(m.x, m.z, m.y_fondo) for m in a], [(m.x, m.z, m.y_fondo) for m in b])
+
+
+class TestPiani(unittest.TestCase):
+
+    def miniere(self):
+        h = collina(300, salita=0.6)
+        mare = np.zeros(h.shape, bool)
+        out = []
+        for seed in range(30):
+            out.extend(MI.pianifica(h, mare, densita=2.0, seed=seed))
+        return out
+
+    def test_certe_miniere_hanno_piu_piani(self):
+        con_piani = [m for m in self.miniere() if m.rampe_interne]
+        self.assertGreater(len(con_piani), 0, "mai un secondo piano")
+
+    def test_i_piani_scendono_sempre(self):
+        for mn in self.miniere():
+            quote = [mn.rampa.fine[2]] + [ri.fine[2] for ri in mn.rampe_interne]
+            self.assertEqual(quote, sorted(quote, reverse=True))
+            self.assertEqual(mn.y_fondo, quote[-1])
+
+    def test_ogni_rampa_interna_parte_dalla_fine_di_un_braccio(self):
+        for mn in self.miniere():
+            for ri in mn.rampe_interne:
+                fine_braccio = any((s.x1 + _d[0], s.z1 + _d[1]) == (ri.x, ri.z) and s.y == ri.y
+                                   for s in mn.segmenti for _d in [(MI._asse(s))])
+                self.assertTrue(fine_braccio, "una rampa che non parte da nessun braccio")
+
+    def test_i_piani_sono_al_massimo_tre(self):
+        for mn in self.miniere():
+            self.assertLessEqual(1 + len(mn.rampe_interne), MI.LIVELLI_MAX)
+
+    def test_la_rampa_interna_e_tutta_coperta(self):
+        h = collina(300, salita=0.6)
+        mare = np.zeros(h.shape, bool)
+        for mn in MI.pianifica(h, mare, densita=3.0, seed=2):
+            for ri in mn.rampe_interne:
+                for i in range(ri.lunghezza + 1):
+                    x, z, y = ri.cella(i)
+                    self.assertGreaterEqual(h[z, x] - 1 - (y + MI.ALTEZZA_GALLERIA), MI.CAPPELLO)
+
+
+class TestMineraleInProfondita(unittest.TestCase):
+    """La ricompensa di scendere: poco sotto la superficie il comune, in fondo
+    i minerali rari."""
+
+    def frequenze(self, y, profondita, n=3000):
+        rng = np.random.default_rng(1)
+        conteggio = {}
+        for _ in range(n):
+            nome = MI._scegli_minerale(y, rng, profondita)
+            conteggio[nome] = conteggio.get(nome, 0) + 1
+        return conteggio
+
+    def test_in_superficie_vince_il_carbone(self):
+        f = self.frequenze(30, 0.0)
+        self.assertEqual(max(f, key=f.get), "coal_ore")
+
+    def test_in_fondo_il_raro_pesa_piu_del_comune(self):
+        sopra = self.frequenze(0, 0.0)
+        sotto = self.frequenze(0, 1.0)
+        raro_sopra = sopra.get("diamond_ore", 0) / sum(sopra.values())
+        raro_sotto = sotto.get("diamond_ore", 0) / sum(sotto.values())
+        self.assertGreater(raro_sotto, raro_sopra * 5)
+
+    def test_in_fondo_il_carbone_quasi_sparisce(self):
+        sotto = self.frequenze(8, 1.0)
+        self.assertLess(sotto.get("coal_ore", 0) / sum(sotto.values()), 0.05)
+
+    def test_nessun_minerale_fuori_dalla_sua_quota(self):
+        rng = np.random.default_rng(2)
+        for y in (-55, 0, 40, 100):
+            for _ in range(100):
+                nome = MI._scegli_minerale(y, rng, 0.5)
+                if nome is None:
+                    continue
+                m = SS.MINERALI[[x.nome for x in SS.MINERALI].index(nome)]
+                self.assertTrue(m.y_min <= y <= m.y_max, f"{nome} a y={y}")
+
+    def test_la_profondita_relativa_cresce_scendendo(self):
+        self.assertAlmostEqual(MI._profondita_relativa(80, 80), 0.0)
+        self.assertGreater(MI._profondita_relativa(0, 80), MI._profondita_relativa(60, 80))
+        self.assertLessEqual(MI._profondita_relativa(-200, 80), 1.0)
+
+    def test_le_miniere_profonde_hanno_minerali_piu_rari(self):
+        h = collina(300, salita=0.6)
+        mare = np.zeros(h.shape, bool)
+        comuni = ("coal_ore", "copper_ore", "iron_ore")
+        trovato_raro = False
+        for seed in range(30):
+            for mn in MI.pianifica(h, mare, densita=2.0, seed=seed):
+                for g in mn.giacimenti:
+                    if g.y < 20 and g.minerale not in comuni:
+                        trovato_raro = True
+        self.assertTrue(trovato_raro, "nessun minerale raro in fondo a nessuna miniera")
+
+
+class TestPosaRampa(unittest.TestCase):
+
+    Y0 = -64
+    ALTEZZA = 284
+    SOLIDO = 9999
+
+    def mondo(self, quota_terreno=100):
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        h_c = np.full((16, 16), quota_terreno, np.int32)
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out[np.broadcast_to(ys < quota_terreno, out.shape)] = self.SOLIDO
+        return out, h_c
+
+    def posa(self, rampa, quota_terreno=100, protetto_c=None, ox=0, oz=0):
+        out, h_c = self.mondo(quota_terreno)
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        mn = MI.Miniera(x=rampa.x, z=rampa.z, y_superficie=rampa.y,
+                        y_fondo=rampa.fine[2], rampa=rampa, segmenti=[])
+        MI.posa(out, tav, h_c, ox, oz, self.Y0, [mn], [0], (self.SOLIDO,),
+                seed=1, protetto_c=protetto_c)
+        return out, tav, s
+
+    def rampa(self, **kw):
+        return MI.Rampa(x=kw.get("x", 2), z=kw.get("z", 8), dx=1, dz=0,
+                        y=kw.get("y", 90), lunghezza=kw.get("lunghezza", 13))
+
+    def test_la_galleria_e_larga_tre_e_alta_tre(self):
+        out, tav, s = self.posa(self.rampa(y=70), quota_terreno=100)
+        x = 8
+        y_pav = 70 - (x - 2) // MI.PASSO_RAMPA
+        for dz in (-1, 0, 1):
+            for dy in (1, 2, 3):
+                v = int(out[x, y_pav + dy - self.Y0, 8 + dz])
+                self.assertIn(v, (s.id_aria, tav.rotaia["east_west"], tav.palo,
+                                  tav.lanterna) + tuple(tav.rotaia.values()),
+                              f"cella piena a dz={dz} dy={dy}")
+        self.assertEqual(int(out[x, y_pav + 4 - self.Y0, 8]), self.SOLIDO, "il soffitto e' sparito")
+
+    def test_il_pavimento_e_pieno(self):
+        out, tav, s = self.posa(self.rampa(y=70), quota_terreno=100)
+        for x in range(2, 15):
+            y_pav = 70 - (x - 2) // MI.PASSO_RAMPA
+            for dz in (-1, 0, 1):
+                self.assertNotEqual(int(out[x, y_pav - self.Y0, 8 + dz]), s.id_aria)
+
+    def test_il_binario_segue_la_discesa(self):
+        out, tav, s = self.posa(self.rampa(y=70), quota_terreno=100)
+        piatto = tav.rotaia["east_west"]
+        salita = tav.rotaia["ascending_west"]            # sale verso monte (ovest)
+        visti_piatti, visti_in_pendenza = 0, 0
+        for x in range(2, 15):
+            i = x - 2
+            y_rotaia = 70 - i // MI.PASSO_RAMPA + 1
+            v = int(out[x, y_rotaia - self.Y0, 8])
+            if i > 0 and i % MI.PASSO_RAMPA == 0:
+                self.assertEqual(v, salita, f"cella {i}: ci vuole la rotaia in pendenza")
+                visti_in_pendenza += 1
+            elif v == piatto:
+                visti_piatti += 1
+        self.assertGreater(visti_in_pendenza, 2)
+        self.assertGreater(visti_piatti, 4)
+
+    def test_le_rotaie_in_pendenza_hanno_la_direzione_giusta_per_ogni_verso(self):
+        for (dx, dz), attesa in (((1, 0), "ascending_west"), ((-1, 0), "ascending_east"),
+                                 ((0, 1), "ascending_north"), ((0, -1), "ascending_south")):
+            self.assertEqual(MI._VERSO_SALITA[(dx, dz)], attesa)
+
+    def test_si_vedono_i_telai_di_travi(self):
+        out, tav, s = self.posa(self.rampa(y=70), quota_terreno=100)
+        self.assertTrue((out == tav.palo).any(), "nessun palo")
+        travi = tav.trave["z"]                     # la rampa va a est: la trave corre su z
+        self.assertTrue((out == travi).any(), "nessuna trave")
+
+    def test_la_trincea_e_aperta_fino_al_cielo(self):
+        """Dove sopra c'e' poca terra la galleria e' una trincea, non un
+        tunnel: l'aria arriva alla superficie."""
+        out, tav, s = self.posa(self.rampa(y=96), quota_terreno=100)
+        x = 3
+        y_sup = 100 - self.Y0
+        self.assertEqual(int(out[x, y_sup - 1, 8]), s.id_aria, "la trincea e' coperta")
+
+    def test_il_tunnel_e_coperto(self):
+        out, tav, s = self.posa(self.rampa(y=70), quota_terreno=100)
+        self.assertEqual(int(out[5, 90 - self.Y0, 8]), self.SOLIDO, "il tunnel e' aperto")
+
+    def test_protetto_c_blocca_la_rampa(self):
+        protetto = np.zeros((16, 16), bool)
+        protetto[8, 8] = True
+        out, tav, s = self.posa(self.rampa(y=70), quota_terreno=100, protetto_c=protetto)
+        self.assertTrue((out[8, :100 - self.Y0, 8] == self.SOLIDO).all())
+
+    def test_la_rampa_a_cavallo_di_due_chunk_arriva_completa(self):
+        r = MI.Rampa(x=10, z=8, dx=1, dz=0, y=70, lunghezza=20)
+        primo, tav, s = self.posa(r, ox=0)
+        secondo, _, _ = self.posa(r, ox=16)
+        # nel secondo chunk (x da 16 a 31) ci sono le celle 6..20 della rampa
+        y = 70 - (16 - 10) // MI.PASSO_RAMPA
+        self.assertEqual(int(secondo[0, y + 2 - self.Y0, 8 + 1]), s.id_aria)
+        self.assertGreater(int((primo == tav.rotaia["east_west"]).sum()), 0)
+        self.assertGreater(int((secondo == tav.rotaia["east_west"]).sum()), 0)
+
+    def test_la_rampa_su_z_funziona_uguale(self):
+        r = MI.Rampa(x=8, z=2, dx=0, dz=1, y=70, lunghezza=13)
+        out, tav, s = self.posa(r)
+        self.assertGreater(int((out == tav.rotaia["north_south"]).sum()), 4)
+        self.assertGreater(int((out == tav.rotaia["ascending_north"]).sum()), 1)
+
+
+class TestPortale(unittest.TestCase):
+
+    Y0 = -64
+    ALTEZZA = 284
+    SOLIDO = 9999
+
+    def posa(self, quota_terreno=71, protetto_c=None):
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        h_c = np.full((16, 16), quota_terreno, np.int32)
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out[np.broadcast_to(ys < quota_terreno, out.shape)] = self.SOLIDO
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        r = MI.Rampa(x=12, z=8, dx=1, dz=0, y=quota_terreno - 1, lunghezza=40)
+        mn = MI.Miniera(x=12, z=8, y_superficie=r.y, y_fondo=r.fine[2], rampa=r, segmenti=[])
+        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1,
+                protetto_c=protetto_c)
+        return out, tav, s, r
+
+    def test_due_pali_e_un_architrave(self):
+        out, tav, s, r = self.posa()
+        fy = r.y - self.Y0
+        for dz in (-2, 2):
+            for dy in range(1, 4):
+                self.assertEqual(int(out[12, fy + dy, 8 + dz]), tav.palo, f"palo dz={dz} dy={dy}")
+        for dz in range(-2, 3):
+            self.assertEqual(int(out[12, fy + 4, 8 + dz]), tav.trave["z"])
+
+    def test_l_apertura_e_libera(self):
+        out, tav, s, r = self.posa()
+        fy = r.y - self.Y0
+        for dz in (-1, 0, 1):
+            for dy in (1, 2):
+                self.assertIn(int(out[12, fy + dy, 8 + dz]),
+                              (s.id_aria, tav.rotaia["east_west"]), f"dz={dz} dy={dy}")
+
+    def test_i_muretti_di_pietra_e_le_lanterne(self):
+        out, tav, s, r = self.posa()
+        fy = r.y - self.Y0
+        self.assertEqual(int(out[12, fy + 1, 8 + 3]), tav.base_muro)
+        self.assertEqual(int(out[12, fy + 1, 8 - 3]), tav.base_muro)
+        self.assertEqual(int(out[12, fy + 3, 8 + 1]), tav.lanterna)
+
+    def test_il_binario_esce_all_aperto_davanti_al_portale(self):
+        out, tav, s, r = self.posa()
+        fy = r.y - self.Y0
+        for j in range(1, MI.BINARIO_FUORI + 1):
+            self.assertEqual(int(out[12 - j, fy + 1, 8]), tav.rotaia["east_west"], f"j={j}")
+
+    def test_la_piazzola_e_piana_e_libera(self):
+        out, tav, s, r = self.posa(quota_terreno=71)
+        fy = r.y - self.Y0
+        for j in range(1, MI.BINARIO_FUORI + 1):
+            for dz in (-2, -1, 1, 2):
+                self.assertNotEqual(int(out[12 - j, fy, 8 + dz]), s.id_aria, "piazzola senza fondo")
+                for dy in range(1, 4):
+                    self.assertEqual(int(out[12 - j, fy + dy, 8 + dz]), s.id_aria)
+
+    def test_la_piazzola_riempie_dove_il_terreno_sta_piu_in_basso(self):
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        h_c = np.full((16, 16), 71, np.int32)
+        h_c[:12, :] = 67                                      # davanti alla collina il suolo scende
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out[np.broadcast_to(ys < h_c[:, None, :], out.shape)] = self.SOLIDO
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        r = MI.Rampa(x=12, z=8, dx=1, dz=0, y=70, lunghezza=40)
+        mn = MI.Miniera(x=12, z=8, y_superficie=70, y_fondo=r.fine[2], rampa=r, segmenti=[])
+        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
+        fy = 70 - self.Y0
+        for j in range(1, MI.BINARIO_FUORI + 1):
+            self.assertNotEqual(int(out[12 - j, fy, 8]), s.id_aria)
+            for y in range(67, 70):
+                self.assertNotEqual(int(out[12 - j, y - self.Y0, 8]), s.id_aria, f"buco a y={y}")
+
+    def test_protetto_c_blocca_il_portale(self):
+        protetto = np.ones((16, 16), bool)
+        out, tav, s, r = self.posa(protetto_c=protetto)
+        self.assertFalse((out == tav.trave["z"]).any())
+
+
+class TestMascheraIngresso(unittest.TestCase):
+
+    def test_copre_portale_binario_e_trincea(self):
+        r = MI.Rampa(x=50, z=50, dx=1, dz=0, y=80, lunghezza=60)
+        mn = MI.Miniera(x=50, z=50, y_superficie=80, y_fondo=60, rampa=r, segmenti=[])
+        m = MI.maschera_ingresso([mn], (100, 120))
+        self.assertTrue(m[50, 50])
+        self.assertTrue(m[50, 50 - MI.BINARIO_FUORI])
+        self.assertTrue(m[50, 60])
+        self.assertFalse(m[50, 90], "la maschera non deve seguire tutto il tunnel")
+        self.assertFalse(m[10, 10])
+
+    def test_senza_miniere_e_vuota(self):
+        self.assertFalse(MI.maschera_ingresso([], (50, 50)).any())
+
+
+class TestCarrelliRampa(unittest.TestCase):
+
+    def test_c_e_un_carrello_davanti_al_portale(self):
+        r = MI.Rampa(x=50, z=50, dx=1, dz=0, y=80, lunghezza=60)
+        mn = MI.Miniera(x=50, z=50, y_superficie=80, y_fondo=60, rampa=r, segmenti=[])
+        carrelli = MI.carrelli([mn], seed=1)
+        davanti = [c for c in carrelli if c.x < 50 and abs(c.z - 50.5) < 1]
+        self.assertEqual(len(davanti), 1)
+        self.assertEqual(davanti[0].y, 81.0)
+
+    def test_i_carrelli_della_rampa_stanno_sul_binario_in_pendenza(self):
+        r = MI.Rampa(x=50, z=50, dx=1, dz=0, y=80, lunghezza=80)
+        mn = MI.Miniera(x=50, z=50, y_superficie=80, y_fondo=60, rampa=r, segmenti=[])
+        for c in MI.carrelli([mn], seed=2):
+            if c.x <= 50:
+                continue
+            i = int(c.x) - 50
+            self.assertEqual(c.y, r.cella(i)[2] + 1.0)
+            self.assertFalse(r.e_gradino(i), "un carrello sul tratto in pendenza")
 
 
 if __name__ == "__main__":

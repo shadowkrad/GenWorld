@@ -136,6 +136,11 @@ class Nemico:
 # Pianificazione
 # --------------------------------------------------------------------------
 
+# distanza minima, in celle, fra due avamposti dello STESSO tipo: nessun
+# luogo si ripete a portata d'occhio
+DISTANZA_FRA_SIMILI = {"campo": 130, "cimitero": 220, "portale": 400}
+
+
 def _libero(occupati: list[tuple[int, int, int]], x: int, z: int, raggio: int,
            margine: int = 5) -> bool:
     """Nessun avamposto - campo o cimitero, non importa - troppo vicino a
@@ -190,8 +195,13 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, evita: np.ndarray | None = 
     # sparso come un pozzo. Il portale e' rado anche rispetto a campo e
     # cimitero: e' un landmark, non una struttura che ci si aspetta di
     # incontrare spesso - da qui il `celle_per` molto piu' alto.
-    piani = [("campo", campi, RAGGIO_CAMPO, RAGGIO_CAMPO, 40_000),
-             ("cimitero", cimiteri, mezzo_cx, mezzo_cz, 55_000)]
+    #
+    # Misurato in gioco: con 40.000 e 55.000 celle ciascuno i cimiteri
+    # spuntavano ovunque (18 su una mappa da 1000), e un cimitero ogni dieci
+    # passi smette di essere un luogo e diventa un'epidemia. Ora sono pochi e
+    # lontani fra loro (`DISTANZA_FRA_SIMILI`): un posto che si scopre.
+    piani = [("campo", campi, RAGGIO_CAMPO, RAGGIO_CAMPO, 150_000),
+             ("cimitero", cimiteri, mezzo_cx, mezzo_cz, 300_000)]
     if modelli_portale:
         piani.append(("portale", portali, mezzo_px, mezzo_pz, 600_000))
     modelli_per_tipo = {"cimitero": modelli_cimitero, "portale": modelli_portale}
@@ -211,6 +221,10 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, evita: np.ndarray | None = 
             if mare[z, x] or (evita is not None and evita[z, x]):
                 continue
             if not _libero(occupati, x, z, raggio):
+                continue
+            lontano = DISTANZA_FRA_SIMILI.get(tipo, 0)
+            if any(a.tipo == tipo and (a.x - x) ** 2 + (a.z - z) ** 2 < lontano ** 2
+                   for a in fuori):
                 continue
             y = int(altezze[z, x])
             modelli = modelli_per_tipo.get(tipo)
