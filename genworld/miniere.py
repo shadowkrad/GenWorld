@@ -1,35 +1,36 @@
-"""Miniere artificiali: condotti scavati da qualcuno, non dall'acqua.
+"""Miniere artificiali: gallerie scavate da qualcuno, non dall'acqua.
 
 `sottosuolo.py` fa le caverne - cunicoli organici, un cammino casuale con
 inerzia - e i filoni ambientali. Una miniera e' il contrario per costruzione:
-dritta dove una caverna serpeggia, con un pozzo d'ingresso invece di sbucare
-dal nulla, un binario nel mezzo, delle travi che la tengono su. E' la stessa
-distinzione che passa fra un fiume e un canale.
+dritta dove una caverna serpeggia, con un ingresso costruito invece di
+sbucare dal nulla, un binario nel mezzo, delle travi che la tengono su.
 
-Una miniera e':
+Una miniera e' fatta cosi', come quelle americane di collina:
 
-* un **pozzo** verticale con la scala, dalla superficie fino al fondo;
-* dal fondo, alcuni **bracci** - gallerie dritte che ogni tanto svoltano ad
-  angolo retto, mai a caso: la svolta e' l'unica scelta, la direzione fra le
-  due prima di ripartire;
-* da un braccio, spesso, una **diramazione** secondaria che si stacca a
-  meta' percorso - un vero albero di gallerie, non solo raggi dal pozzo;
-* in fondo a ogni braccio e a ogni diramazione, un **giacimento**: una
-  saletta scavata con un grumo grande di UN minerale solo incastonato
-  nelle sue pareti, ben visibile appena si arriva - il motivo per cui quel
-  ramo e' stato scavato, non un filoncino a caso lungo il tragitto.
+* un **portale** di travi di tronco sul fianco di un rilievo - due pali, un
+  architrave, i muretti di pietra ai lati, le lanterne - con il binario che
+  esce all'aperto e un carrello fermo davanti;
+* una **rampa**: la galleria entra nella collina e SCENDE piano, un blocco ogni
+  tre di cammino, con le travi di sostegno ogni quattro blocchi e i binari in
+  pendenza. All'inizio, dove la roccia sopra e' poca, e' una trincea aperta; poi
+  si copre. Non c'e' un pozzo: per arrivare in fondo si cammina (o si va in
+  carrello) per decine di blocchi;
+* in fondo alla rampa, alcuni **bracci** - gallerie dritte che ogni tanto
+  svoltano ad angolo retto, mai a caso - e da un braccio, spesso, una
+  **diramazione** secondaria che si stacca a meta' percorso: un albero di
+  gallerie, non solo raggi. E dalla fine di un braccio, spesso, **un'altra
+  rampa** che scende a un secondo livello, poi a un terzo: la miniera ha piani,
+  e ogni piano e' piu' ricco del precedente;
+* in fondo a ogni braccio, un **giacimento**: una saletta con un grumo grande di
+  UN minerale solo incastonato nelle pareti. Il minerale dipende dalla
+  profondita': poco sotto la superficie carbone e rame, in fondo - dove la
+  discesa e' costata fatica - i minerali rari. Sono la ricompensa di arrivare
+  fin laggiu'.
 
-Le gallerie si scavano alla cieca rispetto al rilievo sopra di loro tranne
-per un controllo: prima di allungare un tratto si verifica che passi sotto
-il cappello di sicurezza e non sotto un corso d'acqua, esattamente come le
-caverne - altrimenti un tratto lungo puo' sbucare su un fianco di collina
-lontano dal pozzo, o allagarsi sotto un fiume che al momento della
-pianificazione della miniera esiste gia'.
-
-Lungo il percorso, ogni tanto, anche un piccolo filone incidentale - stessa
-tavola di `sottosuolo`, stessa rarita' (il diamante resta il piu' raro): un
-extra in piu', non il motivo per cui la miniera e' degna di essere stata
-scavata - quello lo sono i giacimenti in fondo ai rami.
+Le gallerie si scavano alla cieca rispetto al rilievo sopra di loro tranne per
+un controllo: prima di allungare un tratto si verifica che passi sotto il
+cappello di sicurezza e non sotto un corso d'acqua, esattamente come le
+caverne.
 """
 
 from __future__ import annotations
@@ -44,13 +45,27 @@ _MINERALE_PER_NOME = {m.nome: m for m in MINERALI}
 
 LARGHEZZA = 1           # meta' larghezza della galleria oltre il centro (3 celle)
 CAPPELLO = 4            # non scavare piu' vicino della superficie di questo
-PASSO_TRAVE = 6         # ogni quanti blocchi un paio di travi di sostegno
+PASSO_TRAVE = 6         # ogni quanti blocchi un paio di travi di sostegno (bracci)
 DISTANZA_MINIMA_TRATTO = 6
 LUNGHEZZA_TRATTO = (9, 22)
 LUNGHEZZA_DIRAMAZIONE = (6, 14)     # le diramazioni secondarie sono piu' corte
 PROB_DIRAMAZIONE = 0.55             # probabilita' che un braccio ne stacchi una
 RAGGIO_GIACIMENTO_VUOTO = 2         # raggio della saletta scavata vuota
 GIACIMENTO_QUANTI = (28, 55)        # blocchi di minerale nel grumo che la incastona
+
+# La rampa
+PASSO_RAMPA = 3                     # un blocco di discesa ogni PASSO_RAMPA di cammino
+PROFONDITA_RAMPA = (16, 32)         # di quanto scende, al massimo
+ALTEZZA_GALLERIA = 3                # celle libere sopra il pavimento della rampa
+COPERTURA_RAMPA = 2                 # terra sopra il soffitto perche' sia una galleria
+LUNGHEZZA_RAMPA_MIN = 30            # una rampa piu' corta non e' una discesa graduale
+PASSO_TRAVE_RAMPA = 4               # un telaio di travi ogni 4 celle di rampa
+QUOTA_MINIMA_RAMPA = -50            # sotto, il fondo e' troppo vicino alla bedrock
+BINARIO_FUORI = 6                   # celle di binario all'aperto, davanti al portale
+DISTANZA_FRA_MINIERE = 90           # nessuna miniera a portata d'occhio di un'altra
+LIVELLI_MAX = 3                     # piani di una miniera, il primo compreso
+PROB_LIVELLO_SOTTO = 0.92           # probabilita' di scendere ancora, per ogni piano
+PROFONDITA_RAMPA_INTERNA = (16, 28) # di quanto scende una rampa fra due piani
 
 DIREZIONI = ((1, 0), (-1, 0), (0, 1), (0, -1))
 
@@ -103,11 +118,42 @@ class Giacimento:
 
 
 @dataclass
-class Miniera:
+class Rampa:
+    """La galleria in discesa che parte dal portale.
+
+    La cella `i` e' `(x + dx*i, z + dz*i)` e il suo pavimento sta a
+    `y - i // PASSO_RAMPA`: scende di un blocco ogni `PASSO_RAMPA`. Il binario
+    sta un blocco sopra il pavimento, ed e' in pendenza solo sulla prima cella
+    dopo ogni gradino.
+    """
     x: int
     z: int
-    y_superficie: int
-    y_fondo: int
+    dx: int
+    dz: int
+    y: int              # quota del pavimento nella cella 0, dove sta il portale
+    lunghezza: int      # indice dell'ultima cella: la rampa ne ha lunghezza + 1
+
+    def cella(self, i: int) -> tuple[int, int, int]:
+        return (self.x + self.dx * i, self.z + self.dz * i, self.y - i // PASSO_RAMPA)
+
+    @property
+    def fine(self) -> tuple[int, int, int]:
+        return self.cella(self.lunghezza)
+
+    def e_gradino(self, i: int) -> bool:
+        """La cella `i` e' la prima dopo un gradino: il suo binario scende."""
+        return i > 0 and i % PASSO_RAMPA == 0
+
+
+@dataclass
+class Miniera:
+    x: int                      # il portale
+    z: int
+    y_superficie: int           # quota del pavimento del portale
+    y_fondo: int                # quota delle gallerie in fondo alla rampa
+    rampa: Rampa | None = None
+    # le rampe fra un piano e il successivo: partono dalla fine di un braccio
+    rampe_interne: list[Rampa] = field(default_factory=list)
     segmenti: list[Segmento] = field(default_factory=list)
     giacimenti: list[Giacimento] = field(default_factory=list)
 
@@ -153,7 +199,7 @@ def _sicuro(altezze: np.ndarray, acqua: np.ndarray, x0: int, z0: int,
 
     Stessa idea del cappello delle caverne (`sottosuolo.CAPPELLO`): senza
     questo controllo un tratto lungo puo' sbucare su un fianco di collina
-    lontano dal pozzo, o aprirsi sotto un fiume o un lago.
+    lontano dall'imbocco, o aprirsi sotto un fiume o un lago.
     """
     H, W = altezze.shape
     n = max(2, int(max(abs(x1 - x0), abs(z1 - z0))))
@@ -175,8 +221,8 @@ def _scava_ramo(x: int, z: int, direzione: tuple[int, int], y: int, n_tratti: in
     """Un ramo di galleria: fino a `n_tratti` tratti dritti, con una svolta a
     90 gradi (mai dritta, mai indietro) fra un tratto e il successivo - si
     ferma prima se non trova piu' un tratto sicuro. Usata sia per i bracci
-    principali dal pozzo sia per le diramazioni secondarie che si staccano
-    da un braccio: stessa meccanica, lunghezze diverse (`lunghezze`).
+    principali dal fondo della rampa sia per le diramazioni secondarie che si
+    staccano da un braccio: stessa meccanica, lunghezze diverse (`lunghezze`).
 
     Ritorna i segmenti scavati, il punto dove il ramo finisce e la
     direzione dell'ultimo tratto - quello che serve a `_galleria` per
@@ -215,34 +261,50 @@ def _scava_ramo(x: int, z: int, direzione: tuple[int, int], y: int, n_tratti: in
     return segmenti, x, z, direzione_prec
 
 
-def _scegli_minerale(y: int, rng: np.random.Generator) -> str | None:
-    """Il minerale per un giacimento a fine diramazione: fra quelli validi
-    alla quota `y`, pesato sulla stessa rarita' (`per_chunk`) del campo
-    ambientale di `sottosuolo` - il "criterio" e' lo stesso di sempre, solo
-    applicato a colpo sicuro a fine ramo invece che a un dado per colonna
-    lungo tutta la galleria. `None` se nessun minerale copre questa quota
-    (capita solo ai bordi delle fasce, mine molto superficiali o profonde)."""
+def _profondita_relativa(y: int, y_superficie: int) -> float:
+    """0 in superficie, 1 sulla bedrock (y = -60): quanto e' profonda una quota."""
+    return float(np.clip((y_superficie - y) / max(1.0, y_superficie + 60.0), 0.0, 1.0))
+
+
+def _scegli_minerale(y: int, rng: np.random.Generator,
+                     profondita: float = 0.5) -> str | None:
+    """Il minerale per un giacimento: fra quelli validi alla quota `y`.
+
+    Il peso e' la rarita' elevata a un esponente che dipende dalla
+    PROFONDITA: vicino alla superficie (0) vince il comune - carbone, rame,
+    ferro; in fondo (1) il rapporto si rovescia e vincono i rari - oro,
+    redstone, lapislazzuli, diamante, smeraldo. E' il motivo per cui conviene
+    scendere fino in fondo. `None` se nessun minerale copre questa quota.
+    """
     candidati = [m for m in MINERALI if m.y_min <= y <= m.y_max]
     if not candidati:
         return None
-    pesi = np.array([m.per_chunk for m in candidati], np.float64)
+    esponente = 1.5 - 3.0 * float(np.clip(profondita, 0.0, 1.0))
+    pesi = np.array([m.per_chunk for m in candidati], np.float64) ** esponente
     return candidati[int(rng.choice(len(candidati), p=pesi / pesi.sum()))].nome
 
 
 def _galleria(cx: int, cz: int, y: int, altezze: np.ndarray, acqua: np.ndarray,
-             rng: np.random.Generator) -> tuple[list[Segmento], list[Giacimento]]:
-    """I bracci che partono dal fondo del pozzo, con le loro svolte, le
+              rng: np.random.Generator, escludi: tuple = (),
+              y_superficie: int | None = None) -> tuple[list[Segmento], list[Giacimento]]:
+    """I bracci che partono dal fondo della rampa, con le loro svolte, le
     diramazioni secondarie che si staccano da un braccio a meta' percorso, e
     un giacimento in fondo a ognuno - un vero albero di gallerie che porta
-    da qualche parte, non un mazzo di raggi dal pozzo che finiscono nel
-    nulla."""
+    da qualche parte, non un mazzo di raggi che finiscono nel nulla.
+
+    `escludi` sono le direzioni da non prendere (la rampa da cui si arriva).
+    """
     segmenti: list[Segmento] = []
     giacimenti: list[Giacimento] = []
     n_bracci = int(rng.integers(2, 5))
-    usate: set[tuple[int, int]] = set()
+    usate: set[tuple[int, int]] = set(escludi)
+    if y_superficie is None:
+        y_superficie = int(altezze[min(max(cz, 0), altezze.shape[0] - 1),
+                                   min(max(cx, 0), altezze.shape[1] - 1)])
+    prof = _profondita_relativa(y, y_superficie)
 
     def termina(x: int, z: int, direzione: tuple[int, int]) -> None:
-        nome = _scegli_minerale(y, rng)
+        nome = _scegli_minerale(y, rng, prof)
         if nome is None:
             return
         giacimenti.append(Giacimento(x=x + direzione[0], z=z + direzione[1],
@@ -250,7 +312,7 @@ def _galleria(cx: int, cz: int, y: int, altezze: np.ndarray, acqua: np.ndarray,
 
     for _ in range(n_bracci):
         libere = [d for d in DIREZIONI if d not in usate]
-        scelte = libere if libere else list(DIREZIONI)
+        scelte = libere if libere else [d for d in DIREZIONI if d not in escludi]
         direzione = scelte[int(rng.integers(0, len(scelte)))]
         usate.add(direzione)
         ramo, fx, fz, fdir = _scava_ramo(cx, cz, direzione, y, int(rng.integers(1, 4)),
@@ -281,83 +343,296 @@ def _galleria(cx: int, cz: int, y: int, altezze: np.ndarray, acqua: np.ndarray,
     return segmenti, giacimenti
 
 
+def _direzione_in_salita(altezze: np.ndarray, x: int, z: int,
+                         rng: np.random.Generator) -> tuple[int, int]:
+    """La direzione cardinale verso cui il terreno sale di piu': e' li' che
+    un portale entra in una collina. Su terreno piatto, una a caso."""
+    H, W = altezze.shape
+    migliore, salita = None, -1e9
+    ordine = list(DIREZIONI)
+    rng.shuffle(ordine)
+    for dx, dz in ordine:
+        xx = min(max(x + dx * 16, 0), W - 1)
+        zz = min(max(z + dz * 16, 0), H - 1)
+        s = float(altezze[zz, xx] - altezze[z, x])
+        if s > salita:
+            migliore, salita = (dx, dz), s
+    return migliore
+
+
+def _pianifica_rampa(x: int, z: int, direzione: tuple[int, int], altezze: np.ndarray,
+                     acqua: np.ndarray, mare: np.ndarray, evita: np.ndarray | None,
+                     rng: np.random.Generator) -> Rampa | None:
+    """La rampa che parte dal portale in `(x, z)` e scende nella direzione data.
+
+    Cella per cella, finche' non ha la profondita' voluta: si ferma (e si
+    accorcia) dove la galleria incontrerebbe acqua, uscirebbe dal bordo della
+    mappa o non avrebbe abbastanza terra sopra. Le prime celle possono avere
+    poca copertura - sono la trincea d'ingresso - ma non dentro un lotto o una
+    strada (`evita`). Ritorna None se la rampa viene troppo corta per essere
+    una discesa graduale.
+    """
+    H, W = altezze.shape
+    dx, dz = direzione
+    y0 = int(altezze[z, x]) - 1                  # pavimento al livello del terreno
+    if evita is not None:
+        # il portale, la piazzola e il binario che lo precede: niente strutture
+        for j in range(-BINARIO_FUORI - 2, 1):
+            for k in range(-RAGGIO_PORTALE, RAGGIO_PORTALE + 1):
+                lx, lz = x + dx * j - dz * k, z + dz * j + dx * k
+                if not (0 <= lx < W and 0 <= lz < H) or evita[lz, lx]:
+                    return None
+    profondita = int(rng.integers(*PROFONDITA_RAMPA))
+    massima = profondita * PASSO_RAMPA
+    ultima = -1
+    for i in range(0, massima + 1):
+        cx, cz = x + dx * i, z + dz * i
+        yi = y0 - i // PASSO_RAMPA
+        if yi < QUOTA_MINIMA_RAMPA:
+            break
+        coperto = True
+        for k in (-1, 0, 1):
+            lx, lz = cx - dz * k, cz + dx * k      # lato perpendicolare
+            if not (2 <= lx < W - 2 and 2 <= lz < H - 2):
+                coperto = None
+                break
+            if acqua[lz, lx] or mare[lz, lx]:
+                coperto = None
+                break
+            copertura = altezze[lz, lx] - 1 - (yi + ALTEZZA_GALLERIA)
+            if copertura < COPERTURA_RAMPA:
+                coperto = False
+        if coperto is None:
+            break
+        if not coperto:
+            # trincea aperta: ammessa solo in apertura, e fuori dalle strutture
+            if i >= 22:
+                break
+            if evita is not None and any(
+                    evita[cz + dx * k, cx - dz * k] for k in (-1, 0, 1)):
+                break
+        ultima = i
+    if ultima < LUNGHEZZA_RAMPA_MIN:
+        return None
+    # la rampa deve finire coperta: l'ultima cella deve avere terra sopra
+    while ultima >= LUNGHEZZA_RAMPA_MIN:
+        cx, cz = x + dx * ultima, z + dz * ultima
+        yi = y0 - ultima // PASSO_RAMPA
+        if altezze[cz, cx] - 1 - (yi + ALTEZZA_GALLERIA) >= CAPPELLO:
+            break
+        ultima -= 1
+    if ultima < LUNGHEZZA_RAMPA_MIN:
+        return None
+    return Rampa(x=x, z=z, dx=dx, dz=dz, y=y0, lunghezza=ultima)
+
+
+def _rampa_interna(x: int, z: int, direzione: tuple[int, int], y: int,
+                   altezze: np.ndarray, acqua: np.ndarray,
+                   rng: np.random.Generator) -> Rampa | None:
+    """Una rampa fra due piani: parte dalla fine di un braccio e scende ancora,
+    tutta sotto terra (stesso cappello delle gallerie). None se non c'e' posto
+    per almeno sette blocchi di discesa."""
+    H, W = altezze.shape
+    dx, dz = direzione
+    massima = int(rng.integers(*PROFONDITA_RAMPA_INTERNA)) * PASSO_RAMPA
+    ultima = -1
+    for i in range(0, massima + 1):
+        cx, cz = x + dx * i, z + dz * i
+        yi = y - i // PASSO_RAMPA
+        if yi < QUOTA_MINIMA_RAMPA:
+            break
+        ok = True
+        for k in (-1, 0, 1):
+            lx, lz = cx - dz * k, cz + dx * k
+            if not (2 <= lx < W - 2 and 2 <= lz < H - 2) or acqua[lz, lx]:
+                ok = False
+                break
+            if altezze[lz, lx] - 1 - (yi + ALTEZZA_GALLERIA) < CAPPELLO:
+                ok = False
+                break
+        if not ok:
+            break
+        ultima = i
+    if ultima < 7 * PASSO_RAMPA:
+        return None
+    return Rampa(x=x, z=z, dx=dx, dz=dz, y=y, lunghezza=ultima)
+
+
+def _scendi_ancora(mn: Miniera, altezze: np.ndarray, acqua: np.ndarray,
+                   rng: np.random.Generator) -> bool:
+    """Da un braccio dell'ultimo piano parte una rampa verso il piano sotto: si
+    prende il giacimento in fondo a un braccio, lo si toglie (la rampa passa di
+    li') e si scava da quel punto in giu'. Poi i bracci del nuovo piano.
+    Ritorna True se ha aggiunto un piano."""
+    ultimo = mn.y_fondo
+    candidati = []
+    for g in mn.giacimenti:
+        if g.y != ultimo:
+            continue
+        for s in mn.segmenti:
+            if s.y != ultimo:
+                continue
+            dx, dz = _asse(s)
+            if (s.x1 + dx, s.z1 + dz) == (g.x, g.z):
+                candidati.append((g, (dx, dz)))
+                break
+    if not candidati:
+        return False
+    # si prova da ogni fine di braccio, in ordine sparso, finche' una ha posto
+    for k in rng.permutation(len(candidati)):
+        g, d = candidati[int(k)]
+        rampa = _rampa_interna(g.x, g.z, d, ultimo, altezze, acqua, rng)
+        if rampa is None:
+            continue
+        fx, fz, fy = rampa.fine
+        segmenti, giacimenti = _galleria(fx, fz, fy, altezze, acqua, rng,
+                                         escludi=((-d[0], -d[1]),),
+                                         y_superficie=mn.y_superficie + 1)
+        if not segmenti:
+            continue
+        mn.giacimenti.remove(g)
+        mn.rampe_interne.append(rampa)
+        mn.segmenti.extend(segmenti)
+        mn.giacimenti.extend(giacimenti)
+        mn.y_fondo = fy
+        return True
+    return False
+
+
 def pianifica(altezze: np.ndarray, mare: np.ndarray, acqua: np.ndarray | None = None,
-             evita: np.ndarray | None = None, densita: float = 1.0,
-             seed: int = 0) -> list[Miniera]:
-    """Sceglie ingressi sparsi e scava pozzo e gallerie da ciascuno.
+              evita: np.ndarray | None = None, densita: float = 1.0,
+              seed: int = 0, celle_per: int = 45_000,
+              distanza_min: int = DISTANZA_FRA_MINIERE) -> list[Miniera]:
+    """Sceglie dove mettere i portali e scava rampa e gallerie da ciascuno.
 
     `acqua` e' la maschera di TUTTA l'acqua (mare, fiumi, laghi): le
     gallerie non devono passare sotto nessuna delle tre. `evita` e'
-    opzionale - lotti, mura, strade: un ingresso in mezzo a una casa si
+    opzionale - lotti, mura, strade: un portale in mezzo a una casa si
     vede, anche se la miniera stessa non ha altri legami con gli
     insediamenti (sono sparse a caso sulla mappa, non vicino ai paesi).
+
+    Sono poche e lontane (`celle_per`, `distanza_min`): una miniera e' un
+    luogo che si trova, non qualcosa che si inciampa ogni dieci passi.
     """
     H, W = altezze.shape
     if acqua is None:
         acqua = mare
     rng = np.random.default_rng(seed)
-    quanti = int(max(0, round(H * W / 14_000 * densita)))
+    quanti = int(max(0, round(H * W / celle_per * densita)))
     fuori: list[Miniera] = []
     tentativi = 0
-    limite = quanti * 8 + 30
+    limite = quanti * 40 + 60
     while len(fuori) < quanti and tentativi < limite:
         tentativi += 1
-        z = int(rng.integers(12, H - 12))
-        x = int(rng.integers(12, W - 12))
-        if mare[z, x] or (evita is not None and evita[z, x]):
+        z = int(rng.integers(20, H - 20))
+        x = int(rng.integers(20, W - 20))
+        if mare[z, x] or acqua[z, x] or (evita is not None and evita[z, x]):
             continue
-        y_sup = int(altezze[z, x])
-        y_fondo = y_sup - int(rng.integers(20, 48))
-        y_fondo = max(y_fondo, -58)
-        if y_sup - y_fondo < 16:
+        if any((m.x - x) ** 2 + (m.z - z) ** 2 < distanza_min ** 2 for m in fuori):
             continue
-        segmenti, giacimenti = _galleria(x, z, y_fondo, altezze, acqua, rng)
+        direzione = _direzione_in_salita(altezze, x, z, rng)
+        rampa = _pianifica_rampa(x, z, direzione, altezze, acqua, mare, evita, rng)
+        if rampa is None:
+            continue
+        fx, fz, fy = rampa.fine
+        segmenti, giacimenti = _galleria(fx, fz, fy, altezze, acqua, rng,
+                                         escludi=((-direzione[0], -direzione[1]),),
+                                         y_superficie=rampa.y + 1)
         if not segmenti:
             continue
-        fuori.append(Miniera(x=x, z=z, y_superficie=y_sup, y_fondo=y_fondo,
-                             segmenti=segmenti, giacimenti=giacimenti))
+        mn = Miniera(x=x, z=z, y_superficie=rampa.y, y_fondo=fy, rampa=rampa,
+                     segmenti=segmenti, giacimenti=giacimenti)
+        # i piani sotto: finche' c'e' posto e la sorte vuole, si scende ancora
+        for _ in range(LIVELLI_MAX - 1):
+            if rng.random() > PROB_LIVELLO_SOTTO or not _scendi_ancora(mn, altezze, acqua, rng):
+                break
+        fuori.append(mn)
     return fuori
 
 
+def _celle_chunk(x0: int, x1: int, z0: int, z1: int, m: int, passo: int) -> set:
+    return {(cx, cz) for cz in range((z0 - m) // passo, (z1 + m) // passo + 1)
+            for cx in range((x0 - m) // passo, (x1 + m) // passo + 1)}
+
+
+RAGGIO_PORTALE = 3      # il portale e' largo 7 (3 + 1 + 3) e l'apron lo precede
+
+
 def indice_per_chunk(miniere: list[Miniera], passo: int = 16) -> dict:
-    """Ogni miniera va registrata in tutti i chunk che pozzo e gallerie
-    toccano - stessa idea di `insediamenti.indice_per_chunk`."""
+    """Ogni miniera va registrata in tutti i chunk che portale, rampa e
+    gallerie toccano - stessa idea di `insediamenti.indice_per_chunk`."""
     fuori: dict[tuple[int, int], list[int]] = {}
     for i, mn in enumerate(miniere):
-        # margine di RAGGIO_INGRESSO (la capanna d'ingresso, vedi
-        # `_carica_ingresso`): senza, un pozzo vicino al bordo di un chunk
-        # registra la miniera solo li', e la capanna che sporge nel chunk
-        # accanto non verrebbe mai disegnata - "smezzata", il difetto che
-        # ebbero le case da template.
-        celle = {((mn.x + dx) // passo, (mn.z + dz) // passo)
-                for dx in (-RAGGIO_INGRESSO, RAGGIO_INGRESSO)
-                for dz in (-RAGGIO_INGRESSO, RAGGIO_INGRESSO)}
+        celle: set = set()
+        r = mn.rampa
+        if r is not None:
+            # il portale e il binario all'aperto che lo precede
+            ax, az, _ = r.cella(-BINARIO_FUORI - 2)
+            celle |= _celle_chunk(min(ax, r.x), max(ax, r.x), min(az, r.z),
+                                  max(az, r.z), RAGGIO_PORTALE + 1, passo)
+            for k in range(0, r.lunghezza + 1):
+                cx, cz, _ = r.cella(k)
+                celle |= _celle_chunk(cx, cx, cz, cz, LARGHEZZA + 2, passo)
+        for ri in mn.rampe_interne:
+            for k in range(0, ri.lunghezza + 1):
+                cx, cz, _ = ri.cella(k)
+                celle |= _celle_chunk(cx, cx, cz, cz, LARGHEZZA + 2, passo)
         for s in mn.segmenti:
             x0, x1 = sorted((s.x0, s.x1))
             z0, z1 = sorted((s.z0, s.z1))
-            m = LARGHEZZA + 2
-            for cz in range((z0 - m) // passo, (z1 + m) // passo + 1):
-                for cx in range((x0 - m) // passo, (x1 + m) // passo + 1):
-                    celle.add((cx, cz))
+            celle |= _celle_chunk(x0, x1, z0, z1, LARGHEZZA + 2, passo)
         # margine del giacimento (saletta vuota + il grumo di minerale che
-        # la incastona, vedi `_carica_giacimento`): stesso motivo della
-        # capanna sopra - senza margine una saletta a cavallo di un confine
-        # di chunk si vedrebbe "smezzata" nel chunk dove non e' registrata.
+        # la incastona, vedi `_carica_giacimento`): senza margine una saletta a
+        # cavallo di un confine di chunk si vedrebbe "smezzata".
         mg = RAGGIO_GIACIMENTO_VUOTO + 3
         for g in mn.giacimenti:
-            for cz in range((g.z - mg) // passo, (g.z + mg) // passo + 1):
-                for cx in range((g.x - mg) // passo, (g.x + mg) // passo + 1):
-                    celle.add((cx, cz))
+            celle |= _celle_chunk(g.x, g.x, g.z, g.z, mg, passo)
         for cella in celle:
             fuori.setdefault(cella, []).append(i)
     return fuori
 
 
+def maschera_ingresso(miniere: list[Miniera], shape: tuple[int, int],
+                      margine: int = 3) -> np.ndarray:
+    """Dove sta in superficie quello che si vede di una miniera: il portale, il
+    binario che lo precede e la trincea d'ingresso. Serve a tenerci fuori gli
+    alberi (un tronco dentro la trincea resterebbe a mezz'aria)."""
+    H, W = shape
+    m = np.zeros(shape, bool)
+    for mn in miniere:
+        r = mn.rampa
+        if r is None:
+            continue
+        for i in range(-BINARIO_FUORI - 2, min(r.lunghezza, 24) + 1):
+            cx, cz, _ = r.cella(i)
+            m[max(0, cz - margine):min(H, cz + margine + 1),
+              max(0, cx - margine):min(W, cx + margine + 1)] = True
+    return m
+
+
 def carrelli(miniere: list[Miniera], seed: int = 0) -> list[Carrello]:
-    """Un carrello ogni tanto, appoggiato sul binario di una galleria."""
+    """Un carrello fermo davanti al portale, uno ogni tanto lungo la rampa e
+    uno ogni tanto sul binario delle gallerie in fondo."""
     rng = np.random.default_rng(seed)
     fuori: list[Carrello] = []
     for i, mn in enumerate(miniere):
+        r = mn.rampa
+        if r is not None:
+            cx, cz, cy = r.cella(-3)
+            fuori.append(Carrello(x=cx + 0.5, y=float(r.y + 1), z=cz + 0.5, seme=i * 97 + 1))
+            for k in range(8, r.lunghezza - 4, 14):
+                if r.e_gradino(k) or r.e_gradino(k + 1) or rng.random() > 0.55:
+                    continue
+                cx, cz, cy = r.cella(k)
+                fuori.append(Carrello(x=cx + 0.5, y=float(cy + 1), z=cz + 0.5,
+                                      seme=i * 97 + 10 + k))
+        for ri in mn.rampe_interne:
+            for k in range(6, ri.lunghezza - 4, 16):
+                if ri.e_gradino(k) or ri.e_gradino(k + 1) or rng.random() > 0.5:
+                    continue
+                cx, cz, cy = ri.cella(k)
+                fuori.append(Carrello(x=cx + 0.5, y=float(cy + 1), z=cz + 0.5,
+                                      seme=i * 97 + 500 + k))
         for s in mn.segmenti:
             if rng.random() > 0.35:
                 continue
@@ -375,11 +650,14 @@ def statistiche(miniere: list[Miniera]) -> dict:
     gallerie = sum(len(mn.segmenti) for mn in miniere)
     lunghezza = sum(abs(s.x1 - s.x0) + abs(s.z1 - s.z0)
                     for mn in miniere for s in mn.segmenti)
+    rampe = [mn.rampa.lunghezza for mn in miniere if mn.rampa is not None]
     giacimenti = sum(len(mn.giacimenti) for mn in miniere)
     return {
         "miniere": len(miniere),
         "gallerie": gallerie,
         "lunghezza": int(lunghezza),
+        "rampa_media": float(np.mean(rampe)) if rampe else 0.0,
+        "piani": float(np.mean([1 + len(mn.rampe_interne) for mn in miniere])),
         "giacimenti": giacimenti,
         "quota_media_fondo": float(np.mean([mn.y_fondo for mn in miniere])),
     }
@@ -395,32 +673,28 @@ class Tavolozza:
     def __init__(self, scrittore):
         s = scrittore
         self.aria = s.id_aria
-        self.scala = {lato: s.blocco("ladder", facing=lato)
-                      for lato in ("north", "south", "east", "west")}
         self.rotaia = {forma: s.blocco("rail", shape=forma) for forma in (
             "north_south", "east_west", "north_east", "north_west",
-            "south_east", "south_west")}
+            "south_east", "south_west",
+            "ascending_north", "ascending_south", "ascending_east", "ascending_west")}
         self.palo = s.blocco("log", axis="y", material="oak", stripped="true")
+        # le travi orizzontali sono tronchi interi, non scortecciati: si
+        # distinguono dai pali verticali e danno il colore del legno grezzo
+        self.trave = {"x": s.blocco("log", axis="x", material="oak", stripped="false"),
+                      "z": s.blocco("log", axis="z", material="oak", stripped="false")}
         # ATTENZIONE al nome universale. Non e' "wall_torch": nel formato
         # universale di PyMCTranslate torcia a terra e torcia a muro sono
         # LO STESSO blocco ("torch"), distinti solo dalla proprieta'
         # `facing` ("up" per quella a terra). Scriverlo come "wall_torch"
         # supera il controllo di andata (si salva senza errori) ma fallisce
-        # al ritorno - lo stesso tranello gia' descritto in
-        # `mondo.ScrittoreMondo.blocco` per i blocchi senza proprieta': qui
-        # le proprieta' c'erano, ma il nome era comunque sbagliato, e in
-        # gioco la torcia non compariva.
+        # al ritorno, e in gioco la torcia non compariva.
         self.torcia = {lato: s.blocco("torch", facing=lato)
                        for lato in ("north", "south", "east", "west")}
-        # Capanna d'ingresso (vedi `_carica_ingresso`): una stanza chiusa di
-        # base in pietra e pareti di assi, con un tetto pieno - non piu' un
-        # castelletto aperto. `self.palo` (sopra) fa gia' da pilone d'angolo.
         self.base_muro = s.blocco("stone_bricks", variant="normal")
-        self.parete = s.blocco("planks", material="oak")
-        self.pavimento = s.blocco("planks", material="oak")
-        self.tetto = s.blocco("stone_bricks", variant="normal")
-        self.vetro = s.blocco("glass_pane", north="false", south="false",
-                              east="false", west="false")
+        self.muretto = s.blocco("wall", material="cobblestone", up="true", north="none",
+                                south="none", east="none", west="none")
+        self.ghiaia = s.blocco("gravel")
+        self.lastra = s.blocco("slab", material="oak", type="bottom")
         self.lanterna = s.blocco("lantern", hanging="true", waterlogged="false")
         self.minerale = {}
         for m in MINERALI:
@@ -436,131 +710,176 @@ def _asse(seg: Segmento) -> tuple[int, int]:
     return dx, dz
 
 
-def _carica_pozzo(out, tav, h_c, mn: Miniera, ox: int, oz: int, y0: int,
-                  protetto_c=None) -> None:
-    lx, lz = mn.x - ox, mn.z - oz
-    if not (0 <= lx < 16 and 0 <= lz < 16):
-        return
-    if protetto_c is not None and protetto_c[lx, lz]:
-        return
-    H = out.shape[1]
-    top = mn.y_superficie - 1 - y0
-    fondo = mn.y_fondo - y0
-    for ly in range(max(1, fondo), min(top + 1, H)):
-        out[lx, ly, lz] = tav.aria
-    # la scala e' appesa al lato sud del pozzo, che resta pieno apposta
-    for ly in range(max(1, fondo), min(top, H)):
-        if ly % 5 == 0:
-            continue    # ogni tanto un gradino libero, non tutta scala
-        out[lx, ly, lz] = tav.scala["north"]
+_VERSO_SALITA = {(1, 0): "ascending_west", (-1, 0): "ascending_east",
+                 (0, 1): "ascending_north", (0, -1): "ascending_south"}
 
 
-RAGGIO_INGRESSO = 2     # meta' lato della capanna (5x5) intorno al pozzo
-ALTEZZA_INGRESSO = 3    # altezza delle pareti, dal pavimento al tetto
+def _carica_rampa(out, tav, rng, h_c, r: Rampa, y_superficie: int, ox: int, oz: int,
+                  y0: int, scavabile: tuple, protetto_c=None) -> None:
+    """La rampa: si scava cella per cella (tre di larghezza, tre di altezza),
+    dove la terra sopra e' poca si apre in trincea, il pavimento e' sempre
+    pieno, il binario segue i gradini con una rotaia in pendenza sulla prima
+    cella dopo ognuno, e ogni quattro celle un telaio di travi regge il
+    soffitto.
 
-_LATI_CARDINALI = ("north", "south", "east", "west")
-_DELTA_LATO = {"north": (0, -1), "south": (0, 1), "east": (1, 0), "west": (-1, 0)}
-
-
-def _verso_ingresso(mn: Miniera) -> str:
-    """Il lato dove si apre la porta della capanna - deterministico sulla
-    posizione, cosi' la stessa miniera ha sempre lo stesso ingresso a ogni
-    rigenerazione con lo stesso seed, senza dover aggiungere un campo alla
-    dataclass `Miniera` solo per questo."""
-    h = (mn.x * 374761393) ^ (mn.z * 668265263)
-    return _LATI_CARDINALI[h & 0x3]
-
-
-def _carica_ingresso(out, tav, mn: Miniera, ox: int, oz: int, y0: int,
-                     protetto_c=None) -> None:
-    """La capanna d'ingresso: pareti chiuse in pietra e assi su tre lati,
-    una porta sul quarto, una finestra sul lato opposto, un tetto pieno e
-    due lanterne appese - non piu' il castelletto aperto segnalato come "un
-    gazebo con un buco nel mezzo" (screenshot dell'utente), ma un vero
-    ripostiglio di minatori con la botola nel pavimento.
-
-    Gira su TUTTO il chunk, esattamente come `_carica_segmento`, non solo
-    sulla colonna del pozzo: la capanna e' 5x5, quindi un pozzo vicino al
-    bordo di un chunk la mette a cavallo di due. Funziona solo se
-    `indice_per_chunk` registra la miniera anche nel chunk vicino - senza
-    quel margine si vedrebbe "smezzata", il difetto che ebbero le case da
-    template.
-
-    Non conosce l'altezza vera del terreno colonna per colonna (`h_c` non
-    arriva qui, solo `mn.y_superficie`, la quota nel punto del pozzo): su un
-    terreno inclinato la capanna resta comunque un parallelepipedo piatto,
-    stessa semplificazione gia' presente nel castelletto precedente. Pareti,
-    porta e pavimento vengono pero' sempre ripuliti esplicitamente (non solo
-    disegnati sopra), cosi' la stanza resta vuota e la porta resta aperta
-    anche quando sotto c'era gia' qualcosa.
+    Si cammina lungo le celle della rampa (non su tutto il chunk): un chunk
+    ne tocca poche decine.
     """
     H = out.shape[1]
-    base = mn.y_superficie - y0
-    cima = base + ALTEZZA_INGRESSO
-    verso = _verso_ingresso(mn)
-    dxp, dzp = _DELTA_LATO[verso]
-    px, pz = dxp * RAGGIO_INGRESSO, dzp * RAGGIO_INGRESSO   # cella della porta
-    fx, fz = -px, -pz                                       # cella della finestra
-
-    for lx in range(16):
-        wx = ox + lx
-        dx = wx - mn.x
-        if abs(dx) > RAGGIO_INGRESSO:
-            continue
-        for lz in range(16):
-            wz = oz + lz
-            dz = wz - mn.z
-            if abs(dz) > RAGGIO_INGRESSO:
+    lat = (-r.dz, r.dx)                           # il lato, perpendicolare alla rampa
+    asse_trave = "x" if r.dx == 0 else "z"        # la trave corre sul lato
+    for i in range(0, r.lunghezza + 1):
+        cx, cz, fy = r.cella(i)
+        ly_f = fy - y0
+        # il primo telaio e' il portale stesso: niente pali dentro l'apertura
+        telaio = i > 0 and i % PASSO_TRAVE_RAMPA == 0
+        for k in (-1, 0, 1):
+            wx, wz = cx + lat[0] * k, cz + lat[1] * k
+            lx, lz = wx - ox, wz - oz
+            if not (0 <= lx < 16 and 0 <= lz < 16):
                 continue
             if protetto_c is not None and protetto_c[lx, lz]:
-                continue          # qui sotto c'e' gia' altro in superficie
-
-            if 0 <= cima < H:
-                out[lx, cima, lz] = tav.tetto      # tetto pieno, pozzo e porta compresi
-
-            if dx == 0 and dz == 0:
-                continue          # il pozzo stesso, gia' scavato da _carica_pozzo
-
-            bordo = max(abs(dx), abs(dz)) == RAGGIO_INGRESSO
-            angolo = bordo and abs(dx) == RAGGIO_INGRESSO and abs(dz) == RAGGIO_INGRESSO
-            porta = bordo and not angolo and dx == px and dz == pz
-            finestra = bordo and not angolo and not porta and dx == fx and dz == fz
-
-            if angolo:
-                for ly in range(base, base + ALTEZZA_INGRESSO):
-                    if 0 <= ly < H:
-                        out[lx, ly, lz] = tav.palo
                 continue
-
-            if bordo and not porta:
-                if 0 <= base < H:
-                    out[lx, base, lz] = tav.base_muro
-                for ly in (base + 1, base + 2):
-                    if not (0 <= ly < H):
-                        continue
-                    out[lx, ly, lz] = tav.vetro if (finestra and ly == base + 1) else tav.parete
-                continue
-
-            # interno della capanna, o vano della porta: pavimento, e vuoto
-            # sopra - una vera stanza, non un blocco pieno con un'etichetta.
-            if 0 <= base < H:
-                out[lx, base, lz] = tav.pavimento
-            for ly in (base + 1, base + 2):
-                if 0 <= ly < H:
+            sup = int(h_c[lx, lz])                 # primo blocco libero sopra il terreno
+            # pavimento: sempre pieno. Dove il terreno sta piu' in basso (il
+            # davanti di una collina) si riempie di ghiaia fino a terra.
+            if 1 <= ly_f < H:
+                if out[lx, ly_f, lz] == tav.aria:
+                    for d in range(0, 8):
+                        if not (1 <= ly_f - d < H) or out[lx, ly_f - d, lz] != tav.aria:
+                            break
+                        out[lx, ly_f - d, lz] = tav.ghiaia
+            # vuoto: tre celle, o fino alla superficie se la terra sopra e' poca
+            alto = max(fy + ALTEZZA_GALLERIA, sup - 1)
+            aperta = sup - 1 - (fy + ALTEZZA_GALLERIA) < COPERTURA_RAMPA
+            fino = alto if aperta else fy + ALTEZZA_GALLERIA
+            for y in range(fy + 1, fino + 1):
+                ly = y - y0
+                if 1 <= ly < H:
                     out[lx, ly, lz] = tav.aria
+            if k != 0:
+                if telaio and 1 <= ly_f + 1 < H:
+                    for y in range(fy + 1, fy + ALTEZZA_GALLERIA):
+                        ly = y - y0
+                        if 1 <= ly < H:
+                            out[lx, ly, lz] = tav.palo
+                continue
+            # il binario e le travi sul centro
+            forma = "east_west" if r.dz == 0 else "north_south"
+            if r.e_gradino(i):
+                forma = _VERSO_SALITA[(r.dx, r.dz)]
+            if 1 <= ly_f + 1 < H:
+                out[lx, ly_f + 1, lz] = tav.rotaia[forma]
+            ly_t = fy + ALTEZZA_GALLERIA - y0
+            if telaio and 1 <= ly_t < H:
+                out[lx, ly_t, lz] = tav.trave[asse_trave]
+                # una lanterna ogni due telai, appesa sotto la trave
+                if i % (PASSO_TRAVE_RAMPA * 2) == PASSO_TRAVE_RAMPA and 1 <= ly_t - 1 < H:
+                    out[lx, ly_t - 1, lz] = tav.lanterna
+        if telaio:
+            # la trave si completa sui due lati (il centro e' gia' stato fatto)
+            for k in (-1, 1):
+                wx, wz = cx + lat[0] * k, cz + lat[1] * k
+                lx, lz = wx - ox, wz - oz
+                if not (0 <= lx < 16 and 0 <= lz < 16):
+                    continue
+                if protetto_c is not None and protetto_c[lx, lz]:
+                    continue
+                ly_t = fy + ALTEZZA_GALLERIA - y0
+                if 1 <= ly_t < H:
+                    out[lx, ly_t, lz] = tav.trave[asse_trave]
+        # un filone ogni tanto sulla parete, piu' ricco quanto piu' si scende
+        if i > 10 and rng.random() < 0.07:
+            prof = _profondita_relativa(fy, y_superficie + 1)
+            nome = _scegli_minerale(fy, rng, prof)
+            m = _MINERALE_PER_NOME.get(nome) if nome else None
+            if m is not None:
+                lato = 1 if rng.random() < 0.5 else -1
+                gx = cx + lat[0] * (LARGHEZZA + 2) * lato - ox
+                gz = cz + lat[1] * (LARGHEZZA + 2) * lato - oz
+                profondo = fy < QUOTA_ARDESIA - FASCIA_ARDESIA // 2
+                quanti = int(rng.integers(m.grumo[0], m.grumo[1] + 1))
+                grumo(out, gx, gz, fy + int(rng.integers(0, 2)), y0, h_c,
+                      tav.minerale[(m.nome, profondo)], quanti, scavabile,
+                      protetto=protetto_c)
 
-    # lanterne: una appesa al tetto sopra il pozzo, una sopra la soglia
-    for lx0, lz0 in ((mn.x - ox, mn.z - oz), (mn.x + px - ox, mn.z + pz - oz)):
-        if not (0 <= lx0 < 16 and 0 <= lz0 < 16):
-            continue
-        if protetto_c is not None and protetto_c[lx0, lz0]:
-            continue
-        if 0 <= cima - 1 < H:
-            out[lx0, cima - 1, lz0] = tav.lanterna
+
+def _carica_portale(out, tav, h_c, mn: Miniera, ox: int, oz: int, y0: int,
+                    protetto_c=None) -> None:
+    """Il portale: due pali di tronco e un architrave, i muretti di pietra ai
+    lati, un tettuccio, le lanterne. Davanti, una piazzola piana col binario
+    che esce all'aperto (il carrello fermo lo mette `carrelli()`).
+
+    Come la rampa lavora sulle celle, non sul chunk intero: il portale e'
+    largo sette e la piazzola lunga sei, quindi puo' stare a cavallo di due
+    chunk.
+    """
+    r = mn.rampa
+    if r is None:
+        return
+    H = out.shape[1]
+    lat = (-r.dz, r.dx)
+    asse_trave = "x" if r.dx == 0 else "z"
+    fy = r.y
+
+    def posa(wx: int, wz: int, y: int, blocco: int, solo_aria: bool = False) -> None:
+        lx, lz, ly = wx - ox, wz - oz, y - y0
+        if not (0 <= lx < 16 and 0 <= lz < 16 and 1 <= ly < H):
+            return
+        if protetto_c is not None and protetto_c[lx, lz]:
+            return
+        if solo_aria and out[lx, ly, lz] != tav.aria:
+            return
+        out[lx, ly, lz] = blocco
+
+    # il portale a i = 0
+    for k in range(-RAGGIO_PORTALE, RAGGIO_PORTALE + 1):
+        wx, wz = r.x + lat[0] * k, r.z + lat[1] * k
+        if abs(k) == 2:
+            for y in range(fy + 1, fy + 5):
+                posa(wx, wz, y, tav.palo)                    # i due pali
+        if abs(k) <= 2:
+            posa(wx, wz, fy + 4, tav.trave[asse_trave])      # architrave
+            posa(wx, wz, fy + 5, tav.lastra)                 # tettuccio
+        if abs(k) == 3:
+            for y in range(fy, fy + 3):
+                posa(wx, wz, y, tav.base_muro)               # i muretti laterali
+            posa(wx, wz, fy + 3, tav.muretto)
+        if abs(k) == 1:
+            posa(wx, wz, fy + 3, tav.lanterna)               # sotto l'architrave
+
+    # la piazzola e il binario all'aperto, davanti al portale
+    for j in range(1, BINARIO_FUORI + 1):
+        cx, cz = r.x - r.dx * j, r.z - r.dz * j
+        for k in (-2, -1, 0, 1, 2):
+            wx, wz = cx + lat[0] * k, cz + lat[1] * k
+            lx, lz = wx - ox, wz - oz
+            if not (0 <= lx < 16 and 0 <= lz < 16):
+                continue
+            if protetto_c is not None and protetto_c[lx, lz]:
+                continue
+            sup = int(h_c[lx, lz])
+            # si porta il suolo alla quota del pavimento: riempiendo se sta
+            # piu' in basso, scavando se piu' in alto
+            for y in range(max(1 + y0, fy - 6), fy + 1):
+                ly = y - y0
+                if 1 <= ly < H and out[lx, ly, lz] == tav.aria:
+                    out[lx, ly, lz] = tav.ghiaia
+            ly_f = fy - y0
+            if 1 <= ly_f < H:
+                out[lx, ly_f, lz] = tav.ghiaia
+            for y in range(fy + 1, max(fy + 5, sup)):
+                ly = y - y0
+                if 1 <= ly < H:
+                    out[lx, ly, lz] = tav.aria
+            if k == 0 and 1 <= ly_f + 1 < H:
+                forma = "east_west" if r.dz == 0 else "north_south"
+                out[lx, ly_f + 1, lz] = tav.rotaia[forma]
 
 
 def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,
-                     y0: int, scavabile: tuple, protetto_c=None) -> None:
+                     y0: int, scavabile: tuple, protetto_c=None,
+                     profondita: float = 0.5) -> None:
     H = out.shape[1]
     dx, dz = _asse(seg)
     lungo_x = dz == 0
@@ -621,11 +940,9 @@ def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,
                     out[lx, a2, lz] = tav.torcia[lato]
 
             if rng.random() < 0.10:
-                candidati = [m for m in MINERALI if m.y_min <= seg.y <= m.y_max]
-                if candidati:
-                    pesi = np.array([m.per_chunk for m in candidati], np.float64)
-                    m = candidati[int(rng.choice(len(candidati),
-                                                 p=pesi / pesi.sum()))]
+                nome = _scegli_minerale(seg.y, rng, profondita)
+                m = _MINERALE_PER_NOME.get(nome) if nome else None
+                if m is not None:
                     lato_dx, lato_dz = (0, 1) if lungo_x else (1, 0)
                     verso = 1 if rng.random() < 0.5 else -1
                     dist = LARGHEZZA + int(rng.integers(2, 4))
@@ -635,7 +952,7 @@ def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,
                     profondo = gy < QUOTA_ARDESIA - FASCIA_ARDESIA // 2
                     quanti = int(rng.integers(m.grumo[0], m.grumo[1] + 1))
                     grumo(out, gx, gz, gy, y0, h_c,
-                         tav.minerale[(m.nome, profondo)], quanti, scavabile)
+                          tav.minerale[(m.nome, profondo)], quanti, scavabile)
 
 
 def _carica_giacimento(out, tav, h_c, rng, g: Giacimento, ox: int, oz: int,
@@ -676,14 +993,14 @@ def _carica_giacimento(out, tav, h_c, rng, g: Giacimento, ox: int, oz: int,
     profondo = gy < QUOTA_ARDESIA - FASCIA_ARDESIA // 2
     quanti = int(rng.integers(*GIACIMENTO_QUANTI))
     grumo(out, gx, gz, gy, y0, h_c, tav.minerale[(m.nome, profondo)], quanti,
-         scavabile, protetto=protetto_c)
+          scavabile, protetto=protetto_c)
 
 
 def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
-        y0: int, miniere: list[Miniera], quali, scavabile: tuple,
-        seed: int = 0, protetto_c: np.ndarray | None = None) -> None:
-    """Pozzi, gallerie, binari, travi, filoni e giacimenti dentro il chunk
-    (16, H, 16).
+         y0: int, miniere: list[Miniera], quali, scavabile: tuple,
+         seed: int = 0, protetto_c: np.ndarray | None = None) -> None:
+    """Portali, rampe, gallerie, binari, travi, filoni e giacimenti dentro il
+    chunk (16, H, 16).
 
     `scavabile` e' la stessa idea di `sottosuolo.Tavolozza.scavabile`: solo
     quello che e' gia' pietra (o ardesia, o uno strato) prende un filone -
@@ -691,20 +1008,26 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
     una casa capitata sopra per caso.
 
     `protetto_c` (16x16, opzionale) e' la stessa maschera di
-    `sottosuolo.posa()`: un ingresso non puo' nascere dentro un
-    insediamento (`evita` in `pianifica()`), ma una galleria puo' comunque
-    attraversarne uno durante il percorso - qui si evita di scavare aria
-    sotto cio' che e' gia' disegnato in superficie.
+    `sottosuolo.posa()`: un portale non puo' nascere dentro un insediamento
+    (`evita` in `pianifica()`), ma una galleria puo' comunque attraversarne
+    uno durante il percorso - qui si evita di scavare aria sotto cio' che e'
+    gia' disegnato in superficie.
     """
     for i in quali:
         mn = miniere[i]
         rng = np.random.default_rng(
             ((mn.x * 73856093) ^ (mn.z * 19349663) ^ (seed * 83492791)) & 0x7FFFFFFF)
-        _carica_pozzo(out, tav, h_c, mn, ox, oz, y0, protetto_c)
-        _carica_ingresso(out, tav, mn, ox, oz, y0, protetto_c)
+        prof = _profondita_relativa(mn.y_fondo, mn.y_superficie + 1)
+        if mn.rampa is not None:
+            _carica_rampa(out, tav, rng, h_c, mn.rampa, mn.y_superficie, ox, oz, y0,
+                          scavabile, protetto_c)
+        for ri in mn.rampe_interne:
+            _carica_rampa(out, tav, rng, h_c, ri, mn.y_superficie, ox, oz, y0,
+                          scavabile, protetto_c)
+        _carica_portale(out, tav, h_c, mn, ox, oz, y0, protetto_c)
         for seg in mn.segmenti:
             _carica_segmento(out, tav, rng, h_c, seg, ox, oz, y0, scavabile,
-                             protetto_c)
+                             protetto_c, prof)
         for g in mn.giacimenti:
             _carica_giacimento(out, tav, h_c, rng, g, ox, oz, y0, scavabile,
                                protetto_c)

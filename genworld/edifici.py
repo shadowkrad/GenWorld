@@ -546,7 +546,17 @@ def costruisci_banco(out: np.ndarray, y0: int, ox: int, oz: int,
     y = b.base
     x0, z0, x1, z1 = b.x, b.z, b.x1 - 1, b.z1 - 1
 
+    def vuoto(gx, gy, gz):
+        lx, lz, ly = gx - ox, gz - oz, gy - y0
+        return 0 <= lx < 16 and 0 <= lz < 16 and 0 <= ly < H and out[lx, ly, lz] == tav.aria
+
     for gx, gz in ((x0, z0), (x1, z0), (x0, z1), (x1, z1)):
+        # il palo scende finche' non trova terra: su un pendio uno dei quattro
+        # appoggiava sull'aria e il banco sembrava sospeso
+        for k in range(1, 9):
+            if not vuoto(gx, y - k, gz):
+                break
+            posa(gx, y - k, gz, palo)
         for k in range(3):
             posa(gx, y + k, gz, palo)
     for gx in range(x0, x1 + 1):
