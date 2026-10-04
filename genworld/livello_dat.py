@@ -13,6 +13,7 @@ riempirsi di terreno vanilla a caso.
 
 from __future__ import annotations
 
+import os
 import time
 from dataclasses import dataclass, field
 
@@ -209,8 +210,37 @@ def costruisci(imp: ImpostazioniMondo) -> NamedTag:
     return NamedTag(CompoundTag({"Data": data}), "")
 
 
+# Dalle versioni piu' recenti (26.2) Minecraft non legge piu' le impostazioni
+# di generazione dal level.dat ma da `data/minecraft/world_gen_settings.dat`:
+# senza quel file il mondo non si apre ("Overworld settings missing", e la
+# schermata "errori nei pacchetti di dati"). Soglia: stessa di
+# `mondo.DATA_VERSION_DIMENSIONI`, dove cambia anche la cartella delle dimensioni.
+DATA_VERSION_IMPOSTAZIONI_A_PARTE = 4786
+
+
+def costruisci_impostazioni_generazione(imp: ImpostazioniMondo) -> NamedTag:
+    """Contenuto di `world_gen_settings.dat`: i dati salvati hanno la forma
+    {DataVersion, data}."""
+    return NamedTag(CompoundTag({
+        "DataVersion": IntTag(imp.data_version),
+        "data": CompoundTag({
+            "seed": LongTag(imp.seed),
+            "generate_features": ByteTag(0),
+            "bonus_chest": ByteTag(0),
+            "dimensions": _dimensioni(imp.seed),
+        }),
+    }), "")
+
+
 def scrivi(percorso_level_dat: str, imp: ImpostazioniMondo) -> None:
+    """Scrive level.dat e, per le versioni che lo vogliono, il file a parte con
+    le impostazioni di generazione (nella cartella `data/minecraft` del mondo)."""
     costruisci(imp).save_to(percorso_level_dat, compressed=True)
+    if imp.data_version >= DATA_VERSION_IMPOSTAZIONI_A_PARTE:
+        cartella = os.path.join(os.path.dirname(percorso_level_dat), "data", "minecraft")
+        os.makedirs(cartella, exist_ok=True)
+        costruisci_impostazioni_generazione(imp).save_to(
+            os.path.join(cartella, "world_gen_settings.dat"), compressed=True)
 
 
 # --------------------------------------------------------------------------
