@@ -41,6 +41,25 @@ class TestVersioniRecenti(unittest.TestCase):
                 with self.subTest(versione=v):
                     self.apri(v)
 
+    def test_le_impostazioni_di_generazione_stanno_in_un_file_a_parte(self):
+        """Minecraft 26.2 le legge da data/minecraft/world_gen_settings.dat: senza,
+        'Overworld settings missing' e il mondo non si apre."""
+        from amulet_nbt import load
+        for versione, atteso in (((26, 2, 0), True), ((1, 21, 4), False)):
+            with tempfile.TemporaryDirectory() as d:
+                imp = ImpostazioniMondo(nome="t", versione=versione)
+                os.makedirs(d, exist_ok=True)
+                from genworld import livello_dat
+                livello_dat.scrivi(os.path.join(d, "level.dat"), imp)
+                f = os.path.join(d, "data", "minecraft", "world_gen_settings.dat")
+                self.assertEqual(os.path.isfile(f), atteso)
+                if atteso:
+                    radice = load(f).compound
+                    self.assertEqual(int(radice["DataVersion"]), imp.data_version)
+                    dims = radice["data"]["dimensions"]
+                    self.assertIn("minecraft:overworld", dims)
+                    self.assertIn("seed", radice["data"])
+
     def test_le_versioni_recenti_usano_la_cartella_della_dimensione(self):
         self.assertTrue(self.apri((26, 2, 0)))
         self.assertFalse(self.apri((1, 21, 4)))
