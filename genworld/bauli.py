@@ -46,7 +46,7 @@ OGGETTI: tuple[tuple[str, int, int], ...] = (
     ("torch", 2, 8),
     ("arrow", 4, 12),
     ("flint", 1, 6),
-    ("wool", 1, 4),
+    ("white_wool", 1, 4),
     ("paper", 1, 6),
 )
 
