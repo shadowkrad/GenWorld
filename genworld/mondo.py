@@ -11,6 +11,7 @@ l'intero mondo in memoria.
 
 from __future__ import annotations
 
+import glob
 import os
 import shutil
 from typing import Iterator
@@ -30,6 +31,7 @@ from . import livello_dat
 Y_MIN = -64
 Y_MAX = 320
 DIMENSIONE = "minecraft:overworld"
+DATA_VERSION_DIMENSIONI = 4786      # da qui le dimensioni stanno in dimensions/<ns>/<nome>
 ARIA = "air"
 
 
@@ -102,6 +104,15 @@ class ScrittoreMondo:
         # Scrivendolo prima, `load_level` legge i limiti veri (-64..320).
         livello_dat.scrivi(os.path.join(self.percorso, "level.dat"), self.imp)
 
+        # Dalle versioni piu' recenti (DataVersion 4786 in su, cioe' 26.2) le
+        # dimensioni stanno in `dimensions/<namespace>/<nome>/` e amulet
+        # registra una dimensione solo se la sua cartella `region` esiste
+        # gia': in un mondo appena creato non c'e', e `bounds` falliva con
+        # DimensionDoesNotExist. La si crea prima di aprire il livello.
+        if self.imp.data_version >= DATA_VERSION_DIMENSIONI:
+            os.makedirs(os.path.join(self.percorso, "dimensions", "minecraft",
+                                     "overworld", "region"), exist_ok=True)
+
         self._livello = amulet.load_level(self.percorso)
         limiti = self._livello.bounds(DIMENSIONE).min
         if limiti[1] > Y_MIN:
@@ -143,9 +154,13 @@ class ScrittoreMondo:
         nessuna cartella: Minecraft la ricrea lui alla prima entita' che
         salva. Undici megabyte in meno, per giunta.
         """
-        cartella = os.path.join(self.percorso, "entities")
-        if os.path.isdir(cartella):
-            shutil.rmtree(cartella)
+        # nelle versioni recenti le entita' stanno anche dentro la cartella
+        # della dimensione (`dimensions/minecraft/overworld/entities`)
+        for cartella in [os.path.join(self.percorso, "entities"),
+                         *glob.glob(os.path.join(glob.escape(self.percorso),
+                                                 "dimensions", "*", "*", "entities"))]:
+            if os.path.isdir(cartella):
+                shutil.rmtree(cartella)
 
     # -- palette ------------------------------------------------------------
 

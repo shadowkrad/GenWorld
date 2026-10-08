@@ -145,7 +145,13 @@ def scrivi_regioni(percorso_mondo: str, abitanti: list, data_version: int) -> di
     for (cx, cz), gruppo in per_chunk.items():
         per_regione.setdefault((cx >> 5, cz >> 5), {})[(cx, cz)] = gruppo
 
-    cartella = os.path.join(percorso_mondo, "entities")
+    # dalle versioni recenti (vedi `mondo.DATA_VERSION_DIMENSIONI`) le entita'
+    # stanno dentro la cartella della dimensione
+    if data_version >= 4786:
+        cartella = os.path.join(percorso_mondo, "dimensions", "minecraft",
+                                "overworld", "entities")
+    else:
+        cartella = os.path.join(percorso_mondo, "entities")
     os.makedirs(cartella, exist_ok=True)
     for (rx, rz), chunk in per_regione.items():
         _scrivi_regione(os.path.join(cartella, f"r.{rx}.{rz}.mca"),
