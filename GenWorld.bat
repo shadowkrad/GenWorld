@@ -38,10 +38,10 @@ if errorlevel 1 goto :rifai_ambiente
 rem Le dipendenze si controllano importandole davvero: un pacchetto presente
 rem ma rotto (il caso classico: numpy salito alla 2 sotto amulet) non si vede
 rem guardando l'elenco di pip.
-"%PY%" -c "import PySide6, amulet, scipy, PIL" >nul 2>nul
+"%PY%" -c "import genworld, PySide6, amulet, scipy, PIL" >nul 2>nul
 if errorlevel 1 call :installa_dipendenze
 
-"%PY%" -c "import PySide6, amulet, scipy, PIL" >nul 2>nul
+"%PY%" -c "import genworld, PySide6, amulet, scipy, PIL" >nul 2>nul
 if errorlevel 1 goto :dipendenze_mancanti
 
 "%PY%" -c "import numpy,sys; sys.exit(0 if numpy.__version__[0]=='1' else 1)" >nul 2>nul
@@ -115,13 +115,13 @@ goto :eof
 rem ---------------------------------------------------------------------------
 rem  0 = la versione va bene, 1 = e' troppo nuova per numpy 1.
 :controlla_versione
-set "RISPOSTA="
-for /f "delims=" %%v in ('"%PY%" -c "import sys; print(str(sys.version_info[0]) + '.' + str(sys.version_info[1]))" 2^>nul') do set "RISPOSTA=%%v"
-if "%RISPOSTA%"=="3.12" exit /b 0
-if "%RISPOSTA%"=="3.11" exit /b 0
-if "%RISPOSTA%"=="3.10" exit /b 0
-if "%RISPOSTA%"=="3.9" exit /b 0
-exit /b 1
+rem Niente "for /f" con il percorso fra virgolette: cmd toglie le virgolette
+rem esterne di tutta la riga e il comando si rompe, il controllo falliva
+rem sempre e l'ambiente veniva rifatto (e cancellato) a ogni avvio. Si chiama
+rem python direttamente e si legge l'errorlevel; l'appartenenza a un elenco
+rem fisso evita "<" e ">" dentro il -c.
+"%PY%" -c "import sys; sys.exit(0 if sys.version_info[0] == 3 and sys.version_info[1] in (9, 10, 11, 12) else 1)" >nul 2>nul
+exit /b %errorlevel%
 
 rem ---------------------------------------------------------------------------
 :crea_ambiente
@@ -148,7 +148,7 @@ rmdir /s /q "%GENWORLD_VENV%"
 set "GENWORLD_RIFATTO=1"
 call :crea_ambiente
 call :installa_dipendenze
-"%PY%" -c "import PySide6, amulet, scipy, PIL" >nul 2>nul
+"%PY%" -c "import genworld, PySide6, amulet, scipy, PIL" >nul 2>nul
 if errorlevel 1 goto :dipendenze_mancanti
 echo Avvio GenWorld...
 "%PY%" -m genworld.gui
