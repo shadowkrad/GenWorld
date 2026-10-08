@@ -205,7 +205,17 @@ def pianifica(
     # --- quota della sede stradale --------------------------------------
     # La strada segue il terreno ma non i suoi sobbalzi: si prende la media
     # locale. Senza, il tracciato copia ogni dosso e diventa una scalinata.
-    liscio = uniform_filter(h.astype(np.float32), 9)
+    # L'acqua non deve abbassare la strada accanto: il fosso di una citta' (tre
+    # blocchi piu' in basso) la faceva scendere di uno vicino alla riva, e
+    # l'impalcato del ponte, alla quota giusta, restava un blocco sopra la
+    # strada. Dove c'e' acqua si media la terra piu' vicina.
+    h_terra = h
+    acqua_s = np.isin(cls, ACQUA)
+    if acqua_s.any() and not acqua_s.all():
+        from scipy.ndimage import distance_transform_edt
+        idx = distance_transform_edt(acqua_s, return_distances=False, return_indices=True)
+        h_terra = h[idx[0], idx[1]]
+    liscio = uniform_filter(h_terra.astype(np.float32), 9)
     q = np.where(strada, np.maximum(np.round(liscio), livello_mare + 1), 0)
 
     # --- dove serve un ponte --------------------------------------------
