@@ -123,3 +123,22 @@ class TestPianificazione(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestStradaVicinoAllAcqua(unittest.TestCase):
+
+    def test_un_fosso_non_abbassa_la_strada_che_lo_costeggia(self):
+        """Il fosso di una citta' sta tre blocchi sotto la piana: la media del
+        terreno sulla strada lo contava, e la strada scendeva di uno vicino
+        alla riva, un blocco sotto l'impalcato del ponte."""
+        cls = np.full((60, 60), M.PIANURA, np.uint8)
+        h = np.full((60, 60), 75, np.int32)
+        cls[:, 28:31] = M.FIUME
+        h[:, 28:31] = 72
+        liv = np.full((60, 60), 62.0, np.float32)
+        vie = np.zeros((60, 60), np.uint8)
+        vie[30, :] = 2                       # una strada che attraversa il fosso
+        _, quota, _ = S.pianifica(cls, h, liv, [(30, 10, 20), (30, 50, 20)], [],
+                                  livello_mare=62, vie=vie)
+        sponda = quota[30, 26]
+        self.assertEqual(int(sponda), 75, "la strada sulla riva deve stare a quota piana")
+        self.assertEqual(int(quota[30, 29]), int(sponda), "l'impalcato a quota della strada")

@@ -1191,6 +1191,11 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
     # asciutto o in un braccio di mare.
     liv = (np.full((16, 16), LIVELLO_MARE, np.int32) if liv_c is None
            else np.asarray(liv_c).astype(np.int32))[:, None, :]
+    # Mai sotto il mare: alle foci il livello di un fiume scendeva a 58 accanto
+    # al mare a 62, e l'acqua del mare restava con l'aria sopra il fiume
+    # (la verifica automatica ne ha trovate 9231 celle). Un fiume che sfocia
+    # nel mare ha il pelo del mare, non uno piu' basso.
+    liv = np.maximum(liv, LIVELLO_MARE)
     liquido = (~solido) & (ys <= liv)
     out[liquido] = scrittore.blocco("water")
     if lava_c is not None and np.any(lava_c):
