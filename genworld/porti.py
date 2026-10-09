@@ -325,10 +325,10 @@ def _faro_da_modello(m, indice: int, citta: list, h, mare, occ, livello_mare: in
                 fp = h[z0:z0 + iz, x0:x0 + ix]
                 lo, hi = np.percentile(fp, (5, 95))
                 base = int(np.median(fp))
-                if hi - lo > 5 or base <= livello_mare:
+                if hi - lo > 9 or base <= livello_mare:
                     continue
                 vicino = float(dist_mare[z0:z0 + iz, x0:x0 + ix].min())
-                if vicino > 20:
+                if vicino > 26:
                     continue
                 punteggio = -float(hi - lo) - 0.05 * vicino
                 if meglio is None or punteggio > meglio[0]:
