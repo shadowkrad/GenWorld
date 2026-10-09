@@ -68,6 +68,7 @@ MERCE_MESTIERE = {"frutta": "fruttivendolo", "carne": "macellaio",
 # una parete di basalto. Le case non serve: stanno gia' solo su terreno
 # abitabile e poco ripido (`insediamenti.scegli_siti`).
 DISTANZA_MIN_VULCANO = 12
+DISTANZA_AVAMPOSTI_DA_ABITATI = 16     # margine fra un campo, cimitero o portale e le case o le mura
 
 # Blocchi di superficie per classe di terreno.
 SUPERFICIE = {
@@ -580,6 +581,14 @@ def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
                     *AP._mezza_estensione(modelli_cim or None, AP.RAGGIO_CIMITERO),
                     *AP._mezza_estensione(modelli_portale or None, AP.RAGGIO_PORTALE))
     evita_av |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + raggio_av)
+    # Distanza dalle citta' e dalle case: `AP.pianifica` guarda `evita` solo nella
+    # cella centrale, quindi un portale o un cimitero nasceva a ridosso delle mura
+    # (anche sopra il fossato). Si tiene fuori tutto cio' che sta entro l'ingombro
+    # piu' grande + un margine da edifici e mura.
+    from scipy.ndimage import distance_transform_edt as _edt
+    strutture = _costruito(a.cls.shape, edifici, muro, None)
+    if strutture.any():
+        evita_av |= _edt(~strutture) <= raggio_av + DISTANZA_AVAMPOSTI_DA_ABITATI
     avamposti = AP.pianifica(h, mare_av, evita=evita_av,
                              campi=op.accampamenti, cimiteri=op.cimiteri,
                              portali=op.portali, seed=61,
@@ -588,7 +597,7 @@ def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     if avamposti:
         # i campi si piantano su un pianoro e il terreno sotto si spiana del
         # tutto: a gradoni, l'accampamento restava a pezzi a quote diverse
-        AP.spiana_campi(avamposti, h, seme=op.seed)
+        AP.spiana_avamposti(avamposti, h, seme=op.seed)
         protetto |= AP.maschera(avamposti, a.cls.shape)
         st = AP.statistiche(avamposti)
         note.append(f"avamposti: {st['campi']} accampamenti, "
