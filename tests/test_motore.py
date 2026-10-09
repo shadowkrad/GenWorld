@@ -504,17 +504,27 @@ class TestSpondeFiumi(unittest.TestCase):
         nuda = np.ones((16, 16), bool)
         sponda = np.ones((16, 16), bool)
         cima, s = self.chunk(sponda=sponda, nuda=nuda)
-        terra = s.blocco("dirt")
+        erba = s.blocco("grass_block")
         pietra = s.blocco("stone")
-        self.assertGreater(int((cima == terra).sum()), 0)
+        self.assertGreater(int((cima == erba).sum()), 0)
         self.assertLess(int((cima == pietra).sum()), cima.size)
 
-    def test_la_sponda_e_per_lo_piu_terra(self):
+    def test_la_sponda_prende_la_vegetazione_intorno_non_la_terra_brulla(self):
         nuda = np.zeros((16, 16), bool)
         sponda = np.ones((16, 16), bool)
         cima, s = self.chunk(sponda=sponda, nuda=nuda)
-        terra = s.blocco("dirt")
-        self.assertGreater(int((cima == terra).sum()), cima.size // 2)
+        erba = s.blocco("grass_block")
+        self.assertGreater(int((cima == erba).sum()), cima.size * 9 // 10)
+        for brulla in ("dirt", "coarse_dirt"):
+            self.assertEqual(int((cima == s.blocco(brulla)).sum()), 0, brulla)
+
+    def test_nel_deserto_la_sponda_e_sabbia(self):
+        s = FintoScrittore()
+        h_c = np.full((16, 16), 70, np.int32)
+        cls_c = np.full((16, 16), M.DESERTO, np.uint8)
+        out = blocchi_chunk(s, h_c, cls_c, sponda_c=np.ones((16, 16), bool))
+        cima = out[:, 70 - 1 + 64, :]
+        self.assertGreater(int((cima == s.blocco("sand")).sum()), cima.size * 9 // 10)
 
     def test_la_sponda_ha_anche_qualche_roccia_che_sporge(self):
         nuda = np.zeros((16, 16), bool)
@@ -850,3 +860,71 @@ class TestPilastriPonte(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVarcoPortale(unittest.TestCase):
+    """Il varco delle mura e' un portale: arco, battenti, lanterna, merli."""
+
+    def test_orientamento_del_varco(self):
+        from genworld import motore as MO
+        M = np.zeros((16 + 2 * MO.ORLO_VARCO, 16 + 2 * MO.ORLO_VARCO), np.uint8)
+        c = MO.ORLO_VARCO
+        M[:, c + 5:c + 8] = 1                   # muro lungo il primo asse, spesso 3
+        M[c + 4:c + 9, c + 5:c + 8] = 2         # varco largo 5
+        self.assertEqual(MO._orientamento_varco(M, 6, 6), (0, 2, 1))
+        self.assertEqual(MO._orientamento_varco(M, 4, 5), (0, 0, 0))
+        self.assertIsNone(MO._orientamento_varco(M, 12, 6))     # e' muro
+
+
+class TestIndiceDelChunk(unittest.TestCase):
+    def test_un_chunk_non_allineato_vede_entrambe_le_celle(self):
+        """Il centro del mondo (lato // 2) non e' un multiplo di 16: il chunk
+        che parte a 500 copre le celle di indice 31 e 32."""
+        from genworld import motore as MO
+        indice = {(31, 8): [1], (32, 8): [2], (32, 9): [3], (40, 40): [9]}
+        self.assertEqual(sorted(MO._dal_chunk(indice, 500, 132)), [1, 2, 3])
+        self.assertEqual(MO._dal_chunk(indice, 512, 128), [2])
+
+
+class TestCintaMerliTorriScale(unittest.TestCase):
+    ALTEZZA = 220 + 64
+
+    def costruisci(self, muro_c, orlo=None):
+        s = FintoScrittore()
+        h_c = np.full((16, 16), 70, np.int32)
+        cls_c = np.full((16, 16), M.PIANURA, np.uint8)
+        out = blocchi_chunk(s, h_c, cls_c, muro_c=muro_c, ox=0, oz=0, muro_orlo_c=orlo)
+        return out, s
+
+    def test_i_merli_ci_sono_anche_se_il_muro_corre_sul_confine_del_chunk(self):
+        muro = np.zeros((16, 16), np.uint8)
+        muro[0:3, :] = 1                  # il filo esterno sta sulla prima colonna
+        orlo = np.pad(muro, 5)            # fuori dal chunk, il vicino e' vuoto
+        out, s = self.costruisci(muro, orlo)
+        pietra = s.blocco("stone_bricks", variant="normal")
+        cima = 70 + 7 + 64
+        self.assertTrue((out[0, cima, :] == pietra).any(), "nessun merlo sul filo")
+
+    def test_il_cammino_di_ronda_passa_dentro_le_torri(self):
+        muro = np.zeros((16, 16), np.uint8)
+        muro[:, 6:9] = 1
+        muro[6:9, 6:9] = 3
+        out, s = self.costruisci(muro)
+        aria = s.id_aria
+        base = 70 + 64
+        for k in (7, 8):
+            self.assertEqual(int(out[7, base + k, 7]), aria, "la riga di mezzo e' chiusa")
+        self.assertNotEqual(int(out[7, base + 7, 6]), aria, "anche il bordo e' sgombro")
+
+    def test_un_gradino_ha_pietra_sotto_e_la_scala_sopra(self):
+        from genworld.motore import SCALA_BASE
+        muro = np.zeros((16, 16), np.uint8)
+        muro[:, 9:12] = 1
+        muro[8, 8] = SCALA_BASE + (1 * 4 + 0) * 8 + 3        # sale verso est, 4o gradino
+        out, s = self.costruisci(muro)
+        base = 70 + 64
+        scala = s.blocco("stairs", material="stone_brick", facing="east",
+                         half="bottom", shape="straight", waterlogged="false")
+        self.assertEqual(int(out[8, base + 3, 8]), scala)
+        for k in range(3):
+            self.assertNotEqual(int(out[8, base + k, 8]), s.id_aria)

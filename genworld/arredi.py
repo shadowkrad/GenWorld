@@ -116,12 +116,43 @@ def _acqua() -> tuple[str, dict]:
 # Arredi di misura fissa
 # --------------------------------------------------------------------------
 
+PASSO_LAMPIONI_PAESE = 9         # celle fra due lampioni dentro un abitato
+PASSO_LAMPIONI_CAMPAGNA = 15     # e fuori, lungo le strade fra i paesi
+
+
 def lampione() -> Disegno:
     """Un palo di steccato scuro con la lanterna in cima."""
     d = Disegno("lampione", 1, 4, 1)
     for y in range(3):
         d.metti(0, y, 0, "dark_oak_fence")
     d.metti(0, 3, 0, "lantern", hanging="false", waterlogged="false")
+    return d
+
+
+def lampione_a_braccio(verso: str = "+x") -> Disegno:
+    """Il lampione di strada: un palo di tronco scuro alto cinque e un braccio
+    orizzontale da cui pende la lanterna, come i lampioni dei paesi di una
+    volta (riferimento dato in gioco: uno screenshot).
+
+    `verso` e' dove sta il braccio rispetto al palo: "+x", "-x", "+z", "-z". Si
+    sceglie quello che porta la lanterna sopra la strada. L'ingombro e' 2x1 o
+    1x2 - il palo da una parte, la lanterna dall'altra - e il disegno si
+    posa con `x, z` all'angolo minimo.
+    """
+    lungo_x = verso[1] == "x"
+    d = Disegno("lampione_a_braccio", 2 if lungo_x else 1, 5, 1 if lungo_x else 2)
+    positivo = verso[0] == "+"
+    pal = (0 if positivo else 1)
+    arm = 1 - pal
+    asse = "x" if lungo_x else "z"
+
+    def cella(i: int, y: int) -> tuple[int, int, int]:
+        return (i, y, 0) if lungo_x else (0, y, i)
+
+    for y in range(5):
+        d.metti(*cella(pal, y), "dark_oak_log", axis="y")
+    d.metti(*cella(arm, 4), "dark_oak_log", axis=asse)
+    d.metti(*cella(arm, 3), "lantern", hanging="true", waterlogged="false")
     return d
 
 
@@ -141,10 +172,87 @@ def campana() -> Disegno:
     return d
 
 
+def _ottagono(r: int, taglio: int):
+    """Le celle (dx, dz) dal centro di un ottagono: quadrato di raggio `r` con
+    gli angoli smussati (somma dei moduli oltre `taglio`)."""
+    return {(dx, dz) for dx in range(-r, r + 1) for dz in range(-r, r + 1)
+            if abs(dx) + abs(dz) <= taglio}
+
+
 def fontana() -> Disegno:
+    """La fontana della piazza: bacino ottagonale e due piatti sovrapposti.
+
+    Dal riferimento dato in gioco (uno screenshot): vasca bassa di mattoni
+    con un orlo di pietra scura, un pilastro centrale, due piatti
+    che si stringono verso l'alto, le tende d'acqua che cadono dall'orlo e
+    una guglia in cima. 9 x 11 x 9.
+
+    L'acqua vera sta dove e' sigillata: nel bacino e nei due piatti, chiusi
+    da un orlo pieno. Le tende e la guglia sono vetro azzurro, non acqua:
+    un blocco d'acqua scritto a mano e circondato d'aria si mette a scorrere
+    alla prima occasione e allaga la piazza, il vetro sta fermo e si legge
+    allo stesso modo da lontano.
+    """
+    d = Disegno("fontana", 9, 11, 9)
+    c = 4
+    vetro = ("blue_stained_glass", {})
+
+    def mattone(x: int, y: int, z: int, spesso: bool = False) -> None:
+        h = (x * 73856093) ^ (z * 19349663) ^ (y * 83492791)
+        r = h % 100
+        nome = ("mossy_stone_bricks" if r < 22 else
+                "cracked_stone_bricks" if r < 34 else "stone_bricks")
+        d.metti(x, y, z, nome)
+
+    def orlo(cella, forma):
+        dx, dz = cella
+        return any((dx + a, dz + b) not in forma
+                   for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+
+    nome, prop = _acqua()
+    # bacino: pavimento e orlo di mattoni, dentro l'acqua
+    bacino = _ottagono(4, 6)
+    for dx, dz in bacino:
+        x, z = c + dx, c + dz
+        if orlo((dx, dz), bacino):
+            mattone(x, 0, z)
+            d.metti(x, 1, z, "stone_brick_slab", type="bottom", waterlogged="false")
+        else:
+            d.metti(x, 0, z, nome, **prop)
+
+    def piatto(r, taglio, y_fondo):
+        forma = _ottagono(r, taglio)
+        for dx, dz in forma:
+            x, z = c + dx, c + dz
+            mattone(x, y_fondo, z)
+            if orlo((dx, dz), forma):
+                d.metti(x, y_fondo + 1, z, "stone_bricks")
+            elif (dx, dz) != (0, 0):
+                d.metti(x, y_fondo + 1, z, nome, **prop)
+
+    # pilastro centrale, con qualche mattone scolpito
+    for y in range(0, 9):
+        d.metti(c, y, c, "chiseled_stone_bricks" if y in (1, 3, 5) else "stone_bricks")
+    piatto(3, 4, 3)                     # il piatto basso, fondo a y=3
+    piatto(2, 3, 7)                     # il piatto alto, fondo a y=7
+    # tende d'acqua: dall'orlo del piatto basso e di quello alto
+    for dx, dz in ((2, 0), (-2, 0), (0, 2), (0, -2), (2, 1), (2, -1), (-2, 1),
+                   (-2, -1), (1, 2), (-1, 2), (1, -2), (-1, -2)):
+        d.metti(c + dx, 1, c + dz, *vetro[:1], **vetro[1])
+        d.metti(c + dx, 2, c + dz, *vetro[:1], **vetro[1])
+    for dx, dz in ((2, 0), (-2, 0), (0, 2), (0, -2), (1, 1), (1, -1), (-1, 1), (-1, -1)):
+        d.metti(c + dx, 5, c + dz, *vetro[:1], **vetro[1])
+        d.metti(c + dx, 6, c + dz, *vetro[:1], **vetro[1])
+    # guglia
+    d.metti(c, 9, c, *vetro[:1], **vetro[1])
+    d.metti(c, 10, c, *vetro[:1], **vetro[1])
+    return d
+
+
+def fontana_piccola() -> Disegno:
     """Una vasca di 5 x 5 con un pilastro al centro. L'acqua sta dentro un
     anello pieno: sorgenti chiuse su tutti i lati, non scorrono via."""
-    d = Disegno("fontana", 5, 3, 5)
+    d = Disegno("fontana_piccola", 5, 3, 5)
     nome, prop = _acqua()
     for x in range(5):
         for z in range(5):
@@ -414,14 +522,18 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
         pz, px = c.piazza
         # una citta' vuole la fontana; se in piazza non ce n'e' il posto (i
         # banchi del mercato le stanno sul bordo) si ripiega sul pozzo
-        opzioni = ([("fontana", 5, fontana), ("pozzo", 3, pozzo)] if c.raggio >= 24
+        opzioni = ([("fontana", 9, fontana), ("fontana", 5, fontana_piccola),
+                    ("pozzo", 3, pozzo)] if c.raggio >= 24
                    else [("pozzo", 3, pozzo)])
+        r_campana = 2
         for civico, dx, fabbrica in opzioni:
             p = cerca(px, pz, dx, dx, 0, 8)
             if p is not None:
-                posa(civico, p[0], p[1], dx, dx, indice(civico, fabbrica))
+                posa(civico, p[0], p[1], dx, dx,
+                     indice(fabbrica.__name__, fabbrica))
+                r_campana = dx // 2 + 2          # la campana accanto, non sotto la fontana
                 break
-        q = cerca(px, pz, 3, 1, 2, 12)
+        q = cerca(px, pz, 3, 1, r_campana, 12)
         if q is not None:
             posa("campana", q[0], q[1], 3, 1, indice("campana", campana))
 
@@ -477,28 +589,40 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
                                            seme=int(rng.integers(0, 2 ** 31 - 1))))
         occ[e.z:e.z + d, e.x:e.x + w] = True
 
-    # 3) lampioni lungo le vie principali
-    if vie is not None and vie.any():
-        principali = binary_dilation(vie >= 2, iterations=3)
-        bordo = binary_dilation(carreggiata, iterations=1) & ~carreggiata & principali
+    # 3) lampioni lungo TUTTE le strade: fitti in paese, piu' radi in campagna,
+    # cosi' di notte una strada si segue da un lampione al successivo. Si scorre
+    # il bordo in ordine di mappa e se ne prende uno ogni `passo` celle: su una
+    # strada dritta viene fuori una fila regolare su un lato solo.
+    if strada.any():
+        bordo = binary_dilation(strada, iterations=1) & ~strada & ~occ
+        zz, xx = np.nonzero(bordo)
+        centri = [(c.z, c.x, c.raggio * 1.1) for c in citta]
         lampioni: list[tuple[int, int]] = []
-        for c in citta:
-            zz, xx = np.nonzero(bordo)
-            dist = np.hypot(zz - c.z, xx - c.x)
-            dentro = dist <= c.raggio * 0.95
-            ordine = np.argsort(dist[dentro])
-            zz, xx = zz[dentro][ordine], xx[dentro][ordine]
-            massimo = max(3, int(c.raggio / 5 * densita))
-            presi = 0
-            for z, x in zip(zz.tolist(), xx.tolist()):
-                if presi >= massimo:
-                    break
-                if occ[z, x] or carreggiata[z, x]:
-                    continue
-                if any((x - lx) ** 2 + (z - lz) ** 2 < 81 for lx, lz in lampioni):
-                    continue
-                lampioni.append((x, z))
-                posa("lampione", x, z, 1, 1, indice("lampione", lampione),
-                     base=int(h[z, x]))
-                presi += 1
+        griglia: dict[tuple[int, int], list[tuple[int, int]]] = {}
+        for z, x in zip(zz.tolist(), xx.tolist()):
+            if occ[z, x]:
+                continue                      # un lampione appena posato ha preso il posto
+            in_paese = any((z - cz) ** 2 + (x - cx) ** 2 <= r * r for cz, cx, r in centri)
+            passo = PASSO_LAMPIONI_PAESE if in_paese else PASSO_LAMPIONI_CAMPAGNA
+            gz, gx = z // 16, x // 16
+            if any((x - lx) ** 2 + (z - lz) ** 2 < passo * passo
+                   for dz_ in (-1, 0, 1) for dx_ in (-1, 0, 1)
+                   for lx, lz in griglia.get((gz + dz_, gx + dx_), ())):
+                continue
+            # il braccio va sopra la strada: dalla parte in cui c'e' la carreggiata
+            if x + 1 < W and strada[z, x + 1]:
+                verso, px, pz, dx, dz = "+x", x, z, 2, 1
+            elif x > 0 and strada[z, x - 1]:
+                verso, px, pz, dx, dz = "-x", x - 1, z, 2, 1
+            elif z + 1 < H and strada[z + 1, x]:
+                verso, px, pz, dx, dz = "+z", x, z, 1, 2
+            else:
+                verso, px, pz, dx, dz = "-z", x, z - 1, 1, 2
+            if px < 0 or pz < 0:
+                continue
+            lampioni.append((x, z))
+            griglia.setdefault((gz, gx), []).append((x, z))
+            posa("lampione", px, pz, dx, dz,
+                 indice(f"lampione{verso}", lambda v=verso: lampione_a_braccio(v)),
+                 base=int(h[z, x]))
     return ris

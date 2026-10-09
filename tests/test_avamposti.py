@@ -135,7 +135,12 @@ class TestNemici(unittest.TestCase):
         av = AV.Avamposto(x=20, z=20, y=90, tipo="campo")
         nem = AV.nemici([av], seed=1)
         self.assertGreater(len(nem), 0)
-        self.assertTrue(all(n.specie in ("zombie", "scheletro") for n in nem))
+        self.assertTrue(all(n.specie in ("zombie", "scheletro", "cavallo") for n in nem))
+
+    def test_il_campo_ha_due_cavalli(self):
+        av = AV.Avamposto(x=20, z=20, y=90, tipo="campo")
+        nem = AV.nemici([av], seed=1)
+        self.assertEqual(sum(n.specie == "cavallo" for n in nem), 2)
 
     def test_il_cimitero_ha_almeno_uno_scheletro(self):
         av = AV.Avamposto(x=20, z=20, y=90, tipo="cimitero")
@@ -178,16 +183,49 @@ class TestPosaCampo(unittest.TestCase):
         self.assertEqual(int(out[7, base, 8]), tav.panca_z)
         self.assertEqual(int(out[9, base, 8]), tav.panca_z)
 
-    def test_i_barili_sono_sugli_angoli_opposti(self):
+    def campo(self):
         out = self.colonna_piena(90)
         s = FintoScrittore()
         tav = AV.Tavolozza(s)
         av = AV.Avamposto(x=8, z=8, y=90, tipo="campo")
         AV.posa(out, tav, 0, 0, self.Y0, [av], [0])
-        base = 90 - self.Y0
-        r = AV.RAGGIO_CAMPO
-        self.assertEqual(int(out[8 + r - 1, base, 8 + r - 1]), tav.barile)
-        self.assertEqual(int(out[8 - r + 1, base, 8 - r + 1]), tav.barile)
+        return out, tav, 90 - self.Y0
+
+    def test_i_barili_stanno_in_giro_attorno_al_fuoco(self):
+        out, tav, base = self.campo()
+        for dx, dz in AV.BARILI_CAMPO:
+            self.assertEqual(int(out[8 + dx, base, 8 + dz]), tav.barile)
+
+    def test_il_terreno_calpestato_e_un_cerchio(self):
+        out, tav, base = self.campo()
+        calpestato = set(tav.calpestato)
+        self.assertIn(int(out[8 + 5, base - 1, 8]), calpestato)
+        self.assertIn(int(out[8, base - 1, 8 - 5]), calpestato)
+        # l'angolo del quadrato e' fuori dal cerchio (raggio 6,4): terreno vergine
+        self.assertNotIn(int(out[8 + 6, base - 1, 8 + 6]), calpestato)
+
+    def test_il_forziere_e_il_fieno_ci_sono(self):
+        out, tav, base = self.campo()
+        dx, dz = AV.FORZIERE_CAMPO
+        self.assertIn(int(out[8 + dx, base, 8 + dz]), set(tav.forziere.values()))
+        fieno = sum(int(out[8 + fx, base + st, 8 + fz]) == tav.fieno
+                    for fx, fz, st in AV.FIENO_CAMPO)
+        self.assertEqual(fieno, len(AV.FIENO_CAMPO))
+
+    def test_il_campo_segue_il_terreno_in_pendenza(self):
+        out = self.colonna_piena(90)
+        s = FintoScrittore()
+        tav = AV.Tavolozza(s)
+        av = AV.Avamposto(x=8, z=8, y=90, tipo="campo")
+        h_c = np.full((16, 16), 90, np.int32)
+        h_c[:, 12:] = 92                              # il lato est e' piu' alto
+        ys = np.arange(self.Y0, self.Y0 + out.shape[1])[None, :, None]
+        out[:] = s.id_aria
+        out[np.broadcast_to(ys < h_c[:, None, :], out.shape)] = 9999
+        AV.posa(out, tav, 0, 0, self.Y0, [av], [0], h_c=h_c)
+        calpestato = set(tav.calpestato)
+        self.assertIn(int(out[8, 90 - 1 - self.Y0, 8 + 3]), calpestato)      # lato basso (z=11)
+        self.assertIn(int(out[8, 92 - 1 - self.Y0, 8 + 5]), calpestato)      # lato alto (z=13)
 
     def test_la_staccionata_ha_un_varco_a_sud(self):
         out = self.colonna_piena(90)
@@ -631,3 +669,21 @@ class TestSicurezzaFileEstranei(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestSpianaCampi(unittest.TestCase):
+    def test_il_terreno_sotto_il_campo_diventa_piano(self):
+        h = (80 + (np.arange(100)[None, :] // 2) % 4 + np.zeros((100, 1))).astype(np.int32)
+        av = AV.Avamposto(x=50, z=50, y=int(h[50, 50]), tipo="campo")
+        self.assertEqual(AV.spiana_campi([av], h, seme=1), 1)
+        r = AV.RAGGIO_CAMPO
+        zona = h[50 - r:50 + r + 1, 50 - r:50 + r + 1]
+        self.assertEqual(len(np.unique(zona)), 1)
+        self.assertEqual(av.y, int(zona[0, 0]))
+
+    def test_un_pendio_ripido_non_ospita_un_campo(self):
+        h = np.tile((60 + np.arange(300) // 2).astype(np.int32), (300, 1))   # una rampa
+        mare = np.zeros(h.shape, bool)
+        campi = [a for a in AV.pianifica(h, mare, campi=3.0, cimiteri=0, portali=0, seed=3)
+                 if a.tipo == "campo"]
+        self.assertEqual(campi, [])
