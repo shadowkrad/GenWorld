@@ -53,8 +53,18 @@ desktop.ini
 .coverage
 htmlcov/
 
-# Schemi di terzi (castello, navi): sono acquisti o scaricati, non si ripubblicano.
-# Restano sul disco; il generatore li legge da qui.
-templates/castelli/
-templates/navi/
-templates/navi_inutilizzate/
+# Template scaricati o acquistati (case, cimiteri, portali, castelli, navi...):
+# restano SOLO sul disco di chi li usa, mai nel repository - sono lavoro di
+# altri e il repository e' pubblico. Del contenuto di ogni cartella non si
+# pubblica niente: si pubblica la struttura (il `.gitkeep` e un `LEGGIMI.md`
+# che dice cosa ci va dentro). `templates/case` e' un'altra cosa: sono case
+# esportate dal generatore stesso, e restano tracciate.
+templates/strutture/*
+templates/cimiteri/*
+templates/portali/*
+templates/altro/*
+templates/castelli/*
+templates/navi/*
+templates/navi_inutilizzate/*
+!templates/*/.gitkeep
+!templates/*/LEGGIMI.md
