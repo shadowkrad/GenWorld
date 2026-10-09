@@ -175,16 +175,18 @@ class TestMura(unittest.TestCase):
         self.assertEqual(int((self.muro[100, :] > 0).sum()), 2 * C.SPESSORE_MURA)
         # spessore misurato lontano dalle porte e dalle torri
         riga = self.muro[100 + 10, :]
-        self.assertEqual(int((riga > 0).sum()), 2 * C.SPESSORE_MURA)
+        self.assertEqual(int(((riga > 0) & (riga < C.SCALA_BASE)).sum()),
+                         2 * C.SPESSORE_MURA)
 
-    def test_quattro_porte_larghe_tre(self):
-        self.assertEqual(int((self.muro == 2).sum()), 4 * 3 * C.SPESSORE_MURA)
+    def test_quattro_porte_larghe_cinque(self):
+        self.assertEqual(int((self.muro == 2).sum()),
+                         4 * (2 * C.SEMILARGHEZZA_PORTA + 1) * C.SPESSORE_MURA)
 
     def test_ci_sono_le_torri_agli_angoli_e_accanto_alle_porte(self):
         torre = self.muro == 3
         self.assertTrue(torre[100 - 42, 100 - 42])
         self.assertTrue(torre[100 + 42, 100 + 42])
-        self.assertTrue(torre[100 - 42, 100 + 3])        # accanto a una porta
+        self.assertTrue(torre[100 - 42, 100 + C.SEMILARGHEZZA_PORTA + 1])  # accanto a una porta
         self.assertGreater(int(torre.sum()), 60)
 
     def test_le_porte_sono_varchi_non_muro(self):
@@ -237,6 +239,37 @@ class TestTerreno(unittest.TestCase):
         _, h2, *_ = piano([(180, 150, 55)], cls, h, liv)
         salto = np.abs(np.diff(h2[180, :].astype(int)))
         self.assertLessEqual(int(salto[100:230].max()), 3)
+
+    def test_un_dirupo_accanto_alla_citta_diventa_una_scarpata(self):
+        """Il terreno che scende di 15 blocchi a ridosso della piana non resta
+        uno strapiombo: la scarpata e' larga quanto serve."""
+        cls, h, liv = pianura(360, 80)
+        h[:, 206:] = 65
+        _, h2, *_ = piano([(180, 150, 55)], cls, h, liv)
+        salto = np.abs(np.diff(h2[180, :].astype(int)))
+        self.assertLessEqual(int(salto[204:300].max()), 1)
+
+    def test_una_costa_alta_diventa_riva_non_parete(self):
+        """Mare accanto a una piana alta 20 blocchi sul pelo dell'acqua: il
+        terreno si adatta con una riva di terra, non resta una parete a picco."""
+        cls, h, liv = pianura(360, 82)
+        cls[:, 205:] = MARE
+        h[:, 205:] = 45
+        _, h2, _, _, citta, _, _, cls2, _ = piano([(180, 150, 55)], cls, h, liv)
+        self.assertEqual(len(citta), 1)
+        riga = h2[180, 200:300].astype(int)
+        terra = ~np.isin(cls2[180, 200:300], ACQUA)
+        salti = np.abs(np.diff(riga))[terra[:-1] & terra[1:]]
+        self.assertLessEqual(int(salti.max()), 2)
+        self.assertGreater(int(terra.sum()), 20, "nessuna riva costruita sull'acqua")
+
+    def test_la_scarpata_non_e_un_righello(self):
+        cls, h, liv = pianura(360, 80)
+        h[:, 206:] = 60
+        _, h2, *_ = piano([(180, 150, 55)], cls, h, liv)
+        D, _, _ = C._distanza(h.shape, 180, 150)
+        anello = (D == 80)
+        self.assertGreater(len(np.unique(h2[anello])), 2, "la scarpata e' uniforme")
 
     def test_il_resto_della_mappa_non_cambia(self):
         cls, h, liv = pianura()
@@ -418,6 +451,42 @@ class TestSitiInadatti(unittest.TestCase):
                 self.assertGreaterEqual(c.edifici, min(C.MIN_LOTTI_CITTA, C.MIN_LOTTI_VILLAGGIO))
 
 
+class TestDistanzaFraCitta(unittest.TestCase):
+
+    def test_due_citta_murate_non_stanno_una_accanto_all_altra(self):
+        cls, h, liv = pianura(500, 75)
+        siti = [(250, 120, 55), (250, 200, 55), (250, 280, 55), (170, 200, 55)]
+        _, _, _, _, citta, *_ = piano(siti, cls, h, liv)
+        murate = [c for c in citta if c.murata]
+        for i, a in enumerate(murate):
+            for b in murate[i + 1:]:
+                d = max(abs(a.z - b.z), abs(a.x - b.x))
+                self.assertGreaterEqual(
+                    d, a.raggio + b.raggio + C.DISTANZA_FRA_CITTA_MURATE,
+                    "due cinte troppo vicine")
+
+
+class TestScalinate(unittest.TestCase):
+
+    def test_una_scalinata_per_lato_addossata_alla_cinta(self):
+        cls, h, liv = pianura()
+        _, _, _, muro, citta, *_ = piano([(180, 180, 55)], cls, h, liv)
+        self.assertEqual(len(citta), 1)
+        gradini = muro >= C.SCALA_BASE
+        self.assertEqual(int(gradini.sum()), 4 * C.LUNGHEZZA_SCALA)
+        # ogni gradino sta a contatto con la cinta (la sua faccia interna)
+        zz, xx = np.nonzero(gradini)
+        for z, x in zip(zz, xx):
+            vicini = muro[z - 1:z + 2, x - 1:x + 2]
+            self.assertTrue(((vicini >= 1) & (vicini <= 3)).any(), "gradino lontano dal muro")
+
+    def test_i_gradini_salgono_da_zero_a_sei(self):
+        cls, h, liv = pianura()
+        _, _, _, muro, *_ = piano([(180, 180, 55)], cls, h, liv)
+        passi = sorted(int((v - C.SCALA_BASE) % 8) for v in muro[muro >= C.SCALA_BASE])
+        self.assertEqual(passi, sorted(list(range(C.LUNGHEZZA_SCALA)) * 4))
+
+
 class TestStatistiche(unittest.TestCase):
 
     def test_conta_cinta_porte_e_torri(self):
@@ -426,7 +495,7 @@ class TestStatistiche(unittest.TestCase):
         self.assertEqual(st["citta"], 1)
         self.assertEqual(st["edifici"], len(ed))
         self.assertGreater(st["mura"], 0)
-        self.assertEqual(st["porte"], 36)
+        self.assertEqual(st["porte"], 4 * (2 * C.SEMILARGHEZZA_PORTA + 1) * C.SPESSORE_MURA)
         self.assertGreater(st["torri"], 0)
 
 
@@ -443,3 +512,27 @@ class TestScarpate(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestVulcani(unittest.TestCase):
+    def test_la_scarpata_non_taglia_un_vulcano(self):
+        from genworld.mappa import VULCANO
+        cls, h, liv = pianura(360, 75)
+        zz, xx = np.mgrid[:360, :360]
+        d_cono = np.hypot(zz - 180, xx - 230)
+        h = (75 + 60 * np.clip(1 - d_cono / 25, 0, None)).astype(np.int32)
+        cls[d_cono < 25] = VULCANO
+        originale = h.copy()
+        D, _, _ = C._distanza(h.shape, 180, 150)
+        # la citta' e' abbastanza vicina perche' la scarpata arrivi al cono
+        C._spiana(h, cls.copy(), liv.copy(), cls, D, 46, True, 75, 62)
+        self.assertTrue((h[cls == VULCANO] == originale[cls == VULCANO]).all())
+
+    def test_una_citta_non_nasce_a_ridosso_di_un_vulcano(self):
+        from genworld.mappa import VULCANO
+        cls, h, liv = pianura(360, 75)
+        zz, xx = np.mgrid[:360, :360]
+        cls[np.hypot(zz - 180, xx - 260) < 25] = VULCANO
+        _, _, _, _, citta, *_ = piano([(180, 170, 55)], cls, h, liv)
+        for c in citta:
+            self.assertGreaterEqual(abs(c.x - 260) - 25, c.raggio + C.DISTANZA_DAL_VULCANO - 1)
