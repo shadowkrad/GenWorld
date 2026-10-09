@@ -66,5 +66,7 @@ templates/altro/*
 templates/castelli/*
 templates/navi/*
 templates/navi_inutilizzate/*
+templates/moli/*
+templates/fari/*
 !templates/*/.gitkeep
 !templates/*/LEGGIMI.md

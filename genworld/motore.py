@@ -161,6 +161,9 @@ class Opzioni:
     # cartelle di schemi `.schem` / `.litematic` / `.nbt`. Vuote = niente.
     templates_castello: str = ""
     templates_nave: str = ""
+    # molo (banchina con casetta) e faro da schema o da mondo, per `porti.py`
+    templates_molo: str = ""
+    templates_faro: str = ""
     castelli: float = 1.0
     navi: float = 1.0
     porti: float = 1.0       # molo, barche e faro per gli abitati sulla costa
@@ -658,6 +661,13 @@ def _modelli_monumenti(op: Opzioni) -> tuple[list, list]:
                      op.templates_nave if op.navi > 0 else "", op.versione)
 
 
+def _modelli_porti(op: Opzioni) -> tuple[list, list]:
+    """(moli, fari) da schema; vuoti se non c'e' nessuna cartella."""
+    if op.porti <= 0 or not (op.templates_molo or op.templates_faro):
+        return [], []
+    return MN.carica_porti(op.templates_molo, op.templates_faro, op.versione)
+
+
 def _pianifica_monumenti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
                          banchi: list, muro, tipo_strada, campi, urbano,
                          avamposti: list, miniere: list, arredi_r,
@@ -724,16 +734,27 @@ def _pianifica_porti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     if isolate:
         evita |= IS.maschera(isolate, a.cls.shape, margine=3)
     ver = TM.traduttore(op.versione)
+    moli, fari = _modelli_porti(op)
+    primo_molo = n_case + len(castelli) + len(navi)
     pezzi, extra = PO.pianifica(
         citta, a.cls, h, M.MARINO, LIVELLO_MARE, evita, navi,
-        primo_barche=n_case + len(castelli), primo_extra=n_case + len(castelli) + len(navi),
-        ver=ver, seed=op.seed + 97)
+        primo_barche=n_case + len(castelli),
+        primo_extra=primo_molo + len(moli) + len(fari),
+        ver=ver, seed=op.seed + 97,
+        moli=moli, primo_molo=primo_molo, fari=fari, primo_faro=primo_molo + len(moli))
     if pezzi:
         protetto |= IS.maschera(pezzi, a.cls.shape)
-        moli = sum(1 for p in pezzi if p.modello >= n_case + len(castelli) + len(navi)
-                   and p.larghezza != PO.LATO_FARO)
-        note.append(f"porti: {moli} moli, {len(pezzi) - len(extra)} barche ormeggiate, "
-                    f"{sum(1 for p in pezzi if p.larghezza == PO.LATO_FARO and p.profondita == PO.LATO_FARO)} fari")
+        da_schema = len(moli) + len(fari)
+        e_molo = lambda p: (primo_molo <= p.modello < primo_molo + len(moli)          # noqa: E731
+                            or (not moli and p.modello >= primo_molo + da_schema
+                                and p.larghezza != PO.LATO_FARO and 3 in (p.larghezza, p.profondita)))
+        e_faro = lambda p: (primo_molo + len(moli) <= p.modello < primo_molo + da_schema  # noqa: E731
+                            or (not fari and p.larghezza == PO.LATO_FARO
+                                and p.profondita == PO.LATO_FARO))
+        n_moli = sum(1 for p in pezzi if e_molo(p))
+        n_fari = sum(1 for p in pezzi if e_faro(p))
+        note.append(f"porti: {n_moli} moli, {len(pezzi) - n_moli - n_fari} barche ormeggiate, "
+                    f"{n_fari} fari")
     else:
         note.append("porti: nessun abitato abbastanza vicino a un mare con fondale basso")
     return pezzi, extra
@@ -2015,7 +2036,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             if op.templates_castello or op.templates_nave:
                 castelli_m, navi_m = _modelli_monumenti(op)
                 modelli = modelli + castelli_m + navi_m
-            modelli = modelli + list(piano.modelli_extra)
+            moli_m, fari_m = _modelli_porti(op)
+            modelli = modelli + moli_m + fari_m + list(piano.modelli_extra)
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:

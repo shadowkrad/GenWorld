@@ -19,6 +19,7 @@ altrimenti si allagherebbe.
 
 from __future__ import annotations
 
+import json
 import os
 
 import numpy as np
@@ -80,6 +81,62 @@ def _traducibile(ver, nome: str, prop: dict) -> bool:
     return out.namespace != "universal_minecraft"
 
 
+def _volume(percorso: str, regione: tuple | None = None):
+    """Legge un volume con Amulet (schema o mondo): (celle (x, y, z) di indici
+    nella palette, palette di (nome universale, proprieta')).
+
+    `regione` = (x0, y0, z0, x1, y1, z1), estremo alto escluso, in coordinate del
+    livello; senza, l'intero schema. I chunk che non esistono restano non
+    specificati (-1).
+    """
+    import amulet
+    from amulet.api.errors import ChunkDoesNotExist
+
+    lev = amulet.load_level(percorso)
+    try:
+        dim = lev.dimensions[0]
+        if regione is None:
+            box = lev.bounds(dim)
+            x0, y0, z0 = (int(v) for v in box.min)
+            x1, y1, z1 = (int(v) for v in box.max)
+        else:
+            x0, y0, z0, x1, y1, z1 = regione
+        W, H, L = x1 - x0, y1 - y0, z1 - z0
+        celle = np.full((W, H, L), -1, np.int32)
+        voci: list[tuple[str, dict]] = []
+        indice: dict = {}
+        for cx in range(x0 // 16, (x1 - 1) // 16 + 1):
+            for cz in range(z0 // 16, (z1 - 1) // 16 + 1):
+                try:
+                    ch = lev.get_chunk(cx, cz, dim)
+                except ChunkDoesNotExist:
+                    continue
+                pal = ch.block_palette
+                lut = np.zeros(len(pal), np.int32)
+                for i in range(len(pal)):
+                    b = pal[i]
+                    chiave = (b.base_name, tuple(sorted((k, str(v)) for k, v in b.properties.items())))
+                    if chiave not in indice:
+                        indice[chiave] = len(voci)
+                        voci.append((chiave[0], dict(chiave[1])))
+                    lut[i] = indice[chiave]
+                gx0, gx1 = max(x0, cx * 16), min(x1, cx * 16 + 16)
+                gz0, gz1 = max(z0, cz * 16), min(z1, cz * 16 + 16)
+                if gx0 >= gx1 or gz0 >= gz1:
+                    continue
+                for sy in ch.blocks.sub_chunks:
+                    gy0, gy1 = max(y0, sy * 16), min(y1, sy * 16 + 16)
+                    if gy0 >= gy1:
+                        continue
+                    sub = np.asarray(ch.blocks.get_sub_chunk(sy))
+                    celle[gx0 - x0:gx1 - x0, gy0 - y0:gy1 - y0, gz0 - z0:gz1 - z0] = lut[
+                        sub[gx0 - cx * 16:gx1 - cx * 16, gy0 - sy * 16:gy1 - sy * 16,
+                            gz0 - cz * 16:gz1 - cz * 16]]
+    finally:
+        lev.close()
+    return celle, voci
+
+
 def _flotta(percorso: str, versione) -> list[TM.Modello]:
     """Un file `.schematic` (vecchio formato, id numerici) con PIU' imbarcazioni
     dentro: ognuna diventa un modello a se'.
@@ -92,36 +149,9 @@ def _flotta(percorso: str, versione) -> list[TM.Modello]:
     proporzione all'altezza), e l'aria dentro lo scafo sotto quella linea si
     tiene, cosi' non si allaga.
     """
-    import amulet
     from scipy.ndimage import binary_dilation, binary_fill_holes, label
 
-    lev = amulet.load_level(percorso)
-    try:
-        box = lev.bounds("main")
-        W, H, L = (int(box.max[i] - box.min[i]) for i in range(3))
-        celle = np.full((W, H, L), -1, np.int32)
-        voci: list[tuple[str, dict]] = []
-        indice: dict = {}
-        for cx, cz in lev.all_chunk_coords("main"):
-            ch = lev.get_chunk(cx, cz, "main")
-            pal = ch.block_palette
-            lut = np.zeros(len(pal), np.int32)
-            for i in range(len(pal)):
-                b = pal[i]
-                chiave = (b.base_name, tuple(sorted((k, str(v)) for k, v in b.properties.items())))
-                if chiave not in indice:
-                    indice[chiave] = len(voci)
-                    voci.append((chiave[0], dict(chiave[1])))
-                lut[i] = indice[chiave]
-            for sy in ch.blocks.sub_chunks:
-                sub = np.asarray(ch.blocks.get_sub_chunk(sy))
-                x0, y0, z0 = cx * 16, sy * 16, cz * 16
-                xs, ys, zs = (min(16, W - x0), min(16, H - y0), min(16, L - z0))
-                if xs <= 0 or ys <= 0 or zs <= 0 or x0 < 0 or y0 < 0 or z0 < 0:
-                    continue
-                celle[x0:x0 + xs, y0:y0 + ys, z0:z0 + zs] = lut[sub[:xs, :ys, :zs]]
-    finally:
-        lev.close()
+    celle, voci = _volume(percorso)
 
     nomi = [n for n, _ in voci]
     aria = [i for i, n in enumerate(nomi) if n == "air"]
@@ -159,6 +189,138 @@ def _flotta(percorso: str, versione) -> list[TM.Modello]:
         m.linea_acqua = linea
         fuori.append(m)
     return fuori
+
+
+def _meta(cartella: str) -> dict:
+    """`meta.json` accanto agli schemi: {nome del file senza estensione: {...}}."""
+    percorso = os.path.join(cartella, "meta.json")
+    if not os.path.isfile(percorso):
+        return {}
+    try:
+        with open(percorso, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def _bbox(piena: np.ndarray):
+    xs, ys, zs = np.nonzero(piena)
+    return (slice(xs.min(), xs.max() + 1), slice(ys.min(), ys.max() + 1),
+            slice(zs.min(), zs.max() + 1))
+
+
+def _molo(percorso: str, meta: dict, versione) -> TM.Modello:
+    """Un molo da schema (`.schematic` vecchio): un tratto di riva, la banchina di
+    tavole su pali e una casetta sopra. Parametri di posa da `meta`:
+    `terra` (il verso, nel modello, in cui si va verso terra: "+x"), `costa_x`
+    e `centro_z` (dove, nel modello, finisce la terra e dov'e' il mezzo del
+    fronte) e `linea_acqua` (l'ultimo strato sott'acqua).
+    """
+    celle, voci = _volume(percorso)
+    ver = TM.traduttore(versione)
+    ok = np.array([_traducibile(ver, n, p) for n, p in voci] + [False])
+    aria = np.array([n == "air" for n, _ in voci] + [True])
+    celle = np.where((celle >= 0) & ok[celle] & ~aria[celle], celle, -1)
+    sl = _bbox(celle >= 0)
+    celle = np.ascontiguousarray(celle[sl])
+    meta = dict(meta)
+    meta["costa_x"] = int(meta.get("costa_x", 0)) - sl[0].start
+    meta["centro_z"] = int(meta.get("centro_z", celle.shape[2] // 2)) - sl[2].start
+    meta["linea_acqua"] = int(meta.get("linea_acqua", 1)) - sl[1].start
+    m = TM.Modello(nome=os.path.splitext(os.path.basename(percorso))[0],
+                   celle=celle, tavolozza=list(voci))
+    m.linea_acqua = meta["linea_acqua"]
+    m.meta = meta
+    return m
+
+
+def _faro(percorso: str, meta: dict, versione) -> TM.Modello:
+    """Un faro preso da un MONDO (una cartella con `level.dat`): si legge la
+    regione data in `meta["regione"]` (x0, y0, z0, x1, y1, z1), `meta["terreno_y"]`
+    e' la quota dell'ultimo strato di terra del mondo piatto. Restano le
+    costruzioni e i due strati di terra sotto la loro impronta (cosi' il modello si
+    interra come una casa: vedi `Modello.affondo`); l'aria racchiusa dentro resta
+    aria, il resto dello scavo no.
+    """
+    from scipy.ndimage import binary_fill_holes
+
+    regione = tuple(meta["regione"])
+    celle, voci = _volume(percorso, regione)
+    ver = TM.traduttore(versione)
+    ok = np.array([_traducibile(ver, n, p) for n, p in voci] + [False])
+    e_aria = np.array([n == "air" for n, _ in voci] + [True])
+    celle = np.where((celle >= 0) & ok[celle], celle, -1)
+    gy = int(meta["terreno_y"]) - regione[1]            # indice dell'ultimo strato di terra
+    solido = (celle >= 0) & ~e_aria[celle]
+    sopra = solido[:, gy + 1:, :]
+    impronta = sopra.any(axis=1)
+    if not impronta.any():
+        raise ValueError(f"{percorso}: niente costruzione sopra la quota {meta['terreno_y']}")
+    voce_aria = len(voci)
+    tavolozza = list(voci) + [("air", {})]
+    fuori = np.full(celle.shape, -1, np.int32)
+    # costruzione: tutto cio' che non e' aria
+    fuori[:, gy + 1:, :] = np.where(solido[:, gy + 1:, :], celle[:, gy + 1:, :], -1)
+    # aria racchiusa (stanze, scale): per strato, i buchi dell'impronta piena
+    for y in range(gy + 1, celle.shape[1]):
+        piena = fuori[:, y, :] >= 0
+        if piena.any():
+            dentro = binary_fill_holes(piena) & ~piena
+            fuori[:, y, :][dentro] = voce_aria
+    # i due strati di terra, solo sotto l'impronta
+    for y in (gy - 1, gy):
+        if 0 <= y < celle.shape[1]:
+            terra = (celle[:, y, :] >= 0) & ~e_aria[celle[:, y, :]] & impronta
+            fuori[:, y, :] = np.where(terra, celle[:, y, :], -1)
+    sl = _bbox(fuori >= 0)
+    fuori = np.ascontiguousarray(fuori[sl][:, max(gy - 1, 0) - sl[1].start:, :]
+                                 if sl[1].start <= max(gy - 1, 0) else fuori[sl])
+    m = TM.Modello(nome=str(meta.get("nome", os.path.splitext(os.path.basename(percorso))[0])),
+                   celle=fuori, tavolozza=tavolozza)
+    m.meta = dict(meta)
+    return m
+
+
+def carica_porti(moli: str, fari: str, versione=(1, 21, 4)) -> tuple[list, list]:
+    """(moli, fari) da schema: i moli da `.schematic`/`.schem`/`.nbt`, i fari da
+    schemi o da mondi (cartelle con `level.dat`). Un file rotto non ferma gli altri."""
+    fuori_m: list[TM.Modello] = []
+    for cartella in _cartelle(moli):
+        if not os.path.isdir(cartella):
+            continue
+        meta = _meta(cartella)
+        for nome in sorted(os.listdir(cartella)):
+            base, est = os.path.splitext(nome)
+            if est.lower() not in (".schematic", ".schem", ".nbt", ".litematic"):
+                continue
+            try:
+                m = _molo(os.path.join(cartella, nome), meta.get(base, {}), versione)
+                m.stili = frozenset({"_escluso"})
+                fuori_m.append(m)
+            except Exception as guaio:                    # noqa: BLE001
+                print(f"  molo saltato: {nome} ({guaio})")
+    fuori_f: list[TM.Modello] = []
+    for cartella in _cartelle(fari):
+        if not os.path.isdir(cartella):
+            continue
+        meta = _meta(cartella)
+        for nome in sorted(os.listdir(cartella)):
+            percorso = os.path.join(cartella, nome)
+            try:
+                if os.path.isdir(percorso) and os.path.isfile(os.path.join(percorso, "level.dat")):
+                    if nome not in meta:
+                        print(f"  faro saltato: {nome} (manca la regione in meta.json)")
+                        continue
+                    m = _faro(percorso, meta[nome], versione)
+                elif nome.lower().endswith((".schem", ".schematic", ".nbt", ".litematic")):
+                    m = TM.carica(percorso, versione)
+                else:
+                    continue
+                m.stili = frozenset({"_escluso"})
+                fuori_f.append(m)
+            except Exception as guaio:                    # noqa: BLE001
+                print(f"  faro saltato: {nome} ({guaio})")
+    return fuori_m, fuori_f
 
 
 def carica(castelli: str, navi: str, versione=(1, 21, 4)) -> tuple[list, list]:

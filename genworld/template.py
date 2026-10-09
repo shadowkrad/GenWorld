@@ -98,6 +98,9 @@ class Modello:
     non_tradotti: frozenset[str] = field(default_factory=frozenset)
     # strato (dal basso) dell'ultimo blocco d'acqua di una nave: li' sta il mare
     linea_acqua: int = -1
+    # parametri di posa letti da `meta.json` accanto al file (moli: lato di terra,
+    # allineamento alla costa, linea d'acqua)
+    meta: dict = field(default_factory=dict)
 
     @property
     def acquatico(self) -> bool:
@@ -129,7 +132,13 @@ class Modello:
         gli strati consecutivi dal basso che sono per lo piu' terreno (oltre il
         60% delle celle piene), fino a `AFFONDO_MAX`: il modello si abbassa di
         tanti, e la sua erba prende il posto di quella del lotto.
+
+        `meta["affondo"]` (da `meta.json`) lo impone: un faro su un'altura di
+        pietra con la cima d'erba sembrerebbe una cantina, e si interrerebbe
+        di nove strati.
         """
+        if "affondo" in self.meta:
+            return int(self.meta["affondo"])
         terreno = np.array([n in _TERRENO for n, _ in self.tavolozza] + [False])
         strati = 0
         for y in range(min(self.dy, AFFONDO_MAX)):
@@ -831,8 +840,12 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
         sotto_g = out[ax0:ax0 + nx, g - 1, az0:az0 + nz]
         top = sopra[:, None, :]
         sub = sotto_g[:, None, :]
-        m_erba = dentro & ee[stato] & (top > 0)
-        m_terra = dentro & et[stato] & (sub > 0)
+        # mai l'acqua come terreno: un molo con la sua riva, posato in parte nel mare,
+        # non deve perdere la riva
+        acqua = (cat._scrittore.blocco("water") if getattr(cat, "_scrittore", None) is not None
+                 else -1)
+        m_erba = dentro & ee[stato] & (top > 0) & (top != acqua)
+        m_terra = dentro & et[stato] & (sub > 0) & (sub != acqua) & (top != acqua)
         valori = np.where(m_erba, np.broadcast_to(top, valori.shape), valori)
         valori = np.where(m_terra, np.broadcast_to(sub, valori.shape), valori)
         # piante: solo dove il terreno del posto e' erba (o lo e' anche nel

@@ -141,3 +141,62 @@ class TestPosto(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestMoloDaSchema(unittest.TestCase):
+    """Il molo da schema: allineato alla costa e girato verso il mare."""
+
+    def modello(self):
+        # 12 lungo x (terra a x >= 6), 3 alto, 10 lungo z; un marcatore (7) a (6, 1, 5)
+        celle = np.full((12, 3, 10), -1, np.int32)
+        celle[:, 1, :] = 0
+        celle[6, 1, 5] = 1
+        m = TM.Modello(nome="molo", celle=celle, tavolozza=[("planks", {}), ("log", {})])
+        m.linea_acqua = 1
+        m.meta = {"costa_x": 6, "centro_z": 5, "linea_acqua": 1, "affondo": 0}
+        return m
+
+    def test_ruotare_un_punto_segue_la_rotazione_del_catalogo(self):
+        m = self.modello()
+        cat = TM.Catalogo([m], None)
+        for q in range(4):
+            x, z = PO._ruota_punto(6, 5, m.dx, m.dz, q)
+            ruotato = cat.celle(0, q)
+            self.assertEqual(int(ruotato[x, 1, z]), 1, f"q={q}")
+
+    def test_il_molo_si_posa_con_la_terra_verso_terra(self):
+        from genworld.citta import Citta
+        for costa_x, lato_mare in ((200, "est"), (100, "ovest")):
+            n = 300
+            cls = np.full((n, n), PIANURA, np.uint8)
+            h = np.full((n, n), 64, np.int32)
+            if lato_mare == "est":
+                cls[:, costa_x:] = MARE
+                h[:, costa_x:] = 58
+                c = Citta(z=150, x=170, raggio=15, piazza=(150, 170), murata=False, lato=15)
+            else:
+                cls[:, :costa_x] = MARE
+                h[:, :costa_x] = 58
+                c = Citta(z=150, x=130, raggio=15, piazza=(150, 130), murata=False, lato=15)
+            m = self.modello()
+            occ = np.zeros((n, n), bool)
+            res = PO._molo_da_modello(m, 50, c, h, cls == MARE, occ, 62)
+            self.assertIsNotNone(res, lato_mare)
+            pezzo, (pz, px, (dz, dx)) = res
+            self.assertEqual((dz, dx), (0, 1) if lato_mare == "est" else (0, -1))
+            self.assertEqual(pezzo.modello, 50)
+            self.assertEqual(pezzo.base, 62 - 1 + 0)
+            # la meta' di mare del modello sta sul mare, quella di terra sulla terra
+            lungo = slice(pezzo.x, pezzo.x + pezzo.larghezza)
+            fascia = cls[pezzo.z:pezzo.z + pezzo.profondita, lungo]
+            self.assertTrue((fascia == MARE).any() and (fascia != MARE).any())
+
+    def test_senza_riva_non_c_e_molo(self):
+        from genworld.citta import Citta
+        n = 200
+        cls = np.full((n, n), PIANURA, np.uint8)
+        h = np.full((n, n), 64, np.int32)
+        c = Citta(z=100, x=100, raggio=15, piazza=(100, 100), murata=False, lato=15)
+        res = PO._molo_da_modello(self.modello(), 0, c, h, cls == MARE,
+                                  np.zeros((n, n), bool), 62)
+        self.assertIsNone(res)

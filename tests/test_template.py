@@ -687,3 +687,18 @@ class TestTerrenoDelPosto(unittest.TestCase):
         cat = T.Catalogo([self.modello()], s)
         T.costruisci(out, 0, 0, 0, cat, 0, 0, 5, 5, 8)
         self.assertTrue((out == s.blocco("plant")).any())
+
+
+class TestTerrenoNonDiventaAcqua(unittest.TestCase):
+    def test_la_riva_di_un_molo_non_si_riempie_d_acqua(self):
+        s = FintoScrittore()
+        celle = np.full((3, 3, 3), -1, np.int32)
+        celle[:, 0, :] = 1
+        celle[:, 1, :] = 0
+        m = T.Modello(nome="m", celle=celle, tavolozza=[("grass_block", {}), ("dirt", {})])
+        cat = T.Catalogo([m], s)
+        acqua = s.blocco("water")
+        out = np.zeros((16, 40, 16), np.uint32)
+        out[:, :10, :] = acqua                                  # un mare
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 5, 5, 8)
+        self.assertFalse((out[5:8, 8:10, 5:8] == acqua).any(), "la riva e' diventata acqua")
