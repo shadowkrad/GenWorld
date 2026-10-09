@@ -56,11 +56,18 @@ GIACIMENTO_QUANTI = (28, 55)        # blocchi di minerale nel grumo che la incas
 # La rampa
 PASSO_RAMPA = 3                     # un blocco di discesa ogni PASSO_RAMPA di cammino
 PROFONDITA_RAMPA = (16, 32)         # di quanto scende, al massimo
-ALTEZZA_GALLERIA = 3                # celle libere sopra il pavimento della rampa
+# Celle libere sopra il pavimento della rampa. Il telaio mette la trave in cima e
+# la lanterna appesa un blocco sotto: con tre celle restava UN blocco di luce
+# sotto la lanterna e il personaggio (alto due) non passava. Con quattro ne
+# restano due.
+ALTEZZA_GALLERIA = 4
 COPERTURA_RAMPA = 2                 # terra sopra il soffitto perche' sia una galleria
 LUNGHEZZA_RAMPA_MIN = 30            # una rampa piu' corta non e' una discesa graduale
 PASSO_TRAVE_RAMPA = 4               # un telaio di travi ogni 4 celle di rampa
 QUOTA_MINIMA_RAMPA = -50            # sotto, il fondo e' troppo vicino alla bedrock
+LUNGHEZZA_IMBOCCO = 7                # quanto la roccia dell'imbocco si addentra
+LARGHEZZA_IMBOCCO = 5                # e quanto si allarga ai lati del portale
+ALTEZZA_IMBOCCO = 7                  # altezza della roccia sopra il pavimento, sulla facciata
 BINARIO_FUORI = 6                   # celle di binario all'aperto, davanti al portale
 DISTANZA_FRA_MINIERE = 90           # nessuna miniera a portata d'occhio di un'altra
 LIVELLI_MAX = 3                     # piani di una miniera, il primo compreso
@@ -376,9 +383,12 @@ def _pianifica_rampa(x: int, z: int, direzione: tuple[int, int], altezze: np.nda
     dx, dz = direzione
     y0 = int(altezze[z, x]) - 1                  # pavimento al livello del terreno
     if evita is not None:
-        # il portale, la piazzola e il binario che lo precede: niente strutture
-        for j in range(-BINARIO_FUORI - 2, 1):
-            for k in range(-RAGGIO_PORTALE, RAGGIO_PORTALE + 1):
+        # il portale, la piazzola, il binario che lo precede e la collina
+        # dell'imbocco (larga LARGHEZZA_IMBOCCO per parte, lunga
+        # LUNGHEZZA_IMBOCCO verso l'interno): niente strutture, campi
+        # compresi, con un giro di margine
+        for j in range(-BINARIO_FUORI - 2, LUNGHEZZA_IMBOCCO + 2):
+            for k in range(-LARGHEZZA_IMBOCCO - 2, LARGHEZZA_IMBOCCO + 3):
                 lx, lz = x + dx * j - dz * k, z + dz * j + dx * k
                 if not (0 <= lx < W and 0 <= lz < H) or evita[lz, lx]:
                     return None
@@ -593,7 +603,7 @@ def indice_per_chunk(miniere: list[Miniera], passo: int = 16) -> dict:
 
 
 def maschera_ingresso(miniere: list[Miniera], shape: tuple[int, int],
-                      margine: int = 3) -> np.ndarray:
+                      margine: int = LARGHEZZA_IMBOCCO + 1) -> np.ndarray:
     """Dove sta in superficie quello che si vede di una miniera: il portale, il
     binario che lo precede e la trincea d'ingresso. Serve a tenerci fuori gli
     alberi (un tronco dentro la trincea resterebbe a mezz'aria)."""
@@ -696,6 +706,36 @@ class Tavolozza:
         self.ghiaia = s.blocco("gravel")
         self.lastra = s.blocco("slab", material="oak", type="bottom")
         self.lanterna = s.blocco("lantern", hanging="true", waterlogged="false")
+        # la roccia attorno all'imbocco: pietra con un po' di variazione
+        self.roccia = [s.blocco("stone"), s.blocco("stone"), s.blocco("cobblestone"),
+                       s.blocco("andesite"), s.blocco("mossy_cobblestone")]
+        # il resto della collina: terra con l'erba in cima
+        self.terra = s.blocco("dirt")
+        self.erba = s.blocco("grass_block")
+        self.assi = s.blocco("planks", material="oak")
+        self.cassa = {v: s.blocco("chest", facing=v, type="single", waterlogged="false")
+                      for v in ("north", "south", "east", "west")}
+        self.falda = {v: s.blocco("stairs", facing=v, half="bottom", shape="straight",
+                                  material="oak", waterlogged="false")
+                      for v in ("north", "south", "east", "west")}
+        # --- arredo delle gallerie: attrezzi, ragnatele, bauli, gemme ---
+        self.barile = s.blocco("barrel", facing="up", open="false")
+        self.tavolo = s.blocco("crafting_table")
+        self.fabbro = s.blocco("smithing_table")
+        self.incudine = {v: s.blocco("anvil", facing=v) for v in ("north", "south", "east", "west")}
+        self.mola = {v: s.blocco("grindstone", face="floor", facing=v)
+                     for v in ("north", "south", "east", "west")}
+        self.ragnatela = s.blocco("cobweb")
+        self.ametista = s.blocco("amethyst_cluster", facing="up")
+        self.germoglio = s.blocco("small_amethyst_bud", facing="up")
+        self.grezzo = [s.blocco("raw_iron_block"), s.blocco("raw_copper_block"),
+                       s.blocco("raw_gold_block"), s.blocco("coal_block")]
+        self.forziere = {v: s.blocco("chest", facing=v, connection="none", material="wood")
+                         for v in ("north", "south", "east", "west")}
+        self.decora = True            # spento solo dai test che misurano la sezione nuda
+        # posizioni (coordinate di MAPPA) dei forzieri messi nel chunk appena
+        # scritto: chi scrive il chunk le legge e le svuota (`bauli.trova`)
+        self.bauli: list[tuple[int, int, int]] = []
         self.minerale = {}
         for m in MINERALI:
             p = m.proprieta or {}
@@ -712,6 +752,54 @@ def _asse(seg: Segmento) -> tuple[int, int]:
 
 _VERSO_SALITA = {(1, 0): "ascending_west", (-1, 0): "ascending_east",
                  (0, 1): "ascending_north", (0, -1): "ascending_south"}
+
+
+def _arreda_lato(out, tav, rng, lx: int, lz: int, y_piano: int, verso: str,
+                 ox: int, oz: int, y0: int) -> None:
+    """Un oggetto di mestiere sul bordo della galleria, a fianco del binario.
+
+    `y_piano` e' lo strato dell'aria sopra il pavimento della cella laterale
+    (lx, lz), `verso` la direzione verso il centro della galleria (dove guarda
+    un forziere o un'incudine). Si sceglie a caso: un barile, un banco da
+    lavoro, un'incudine, una mola, un mucchio di minerale grezzo, un
+    forziere col bottino, un cristallo di ametista; e ogni tanto una
+    ragnatela nell'angolo del soffitto. Mai sopra qualcosa che c'e' gia'.
+    """
+    H = out.shape[1]
+    if not tav.decora or not (0 <= lx < 16 and 0 <= lz < 16 and 1 <= y_piano + 2 < H):
+        return
+    r = rng.random()
+    if r < 0.12:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.barile
+    elif r < 0.17:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.tavolo
+    elif r < 0.21:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.incudine[verso]
+    elif r < 0.26:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.mola[verso]
+    elif r < 0.30:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.fabbro
+    elif r < 0.37:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.grezzo[int(rng.integers(0, len(tav.grezzo)))]
+            if rng.random() < 0.4 and out[lx, y_piano + 1, lz] == tav.aria:
+                out[lx, y_piano + 1, lz] = tav.grezzo[int(rng.integers(0, len(tav.grezzo)))]
+    elif r < 0.42:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.forziere[verso]
+            tav.bauli.append((ox + lx, y0 + y_piano, oz + lz))
+    elif r < 0.48:
+        if out[lx, y_piano, lz] == tav.aria:
+            out[lx, y_piano, lz] = tav.ametista if rng.random() < 0.5 else tav.germoglio
+    # la ragnatela sta in alto, dove non intralcia chi cammina: il soffitto e'
+    # a y_piano + 2 (3 celle di luce), la ragnatela nell'ultima
+    if rng.random() < 0.12 and out[lx, y_piano + 2, lz] == tav.aria:
+        out[lx, y_piano + 2, lz] = tav.ragnatela
 
 
 def _carica_rampa(out, tav, rng, h_c, r: Rampa, y_superficie: int, ox: int, oz: int,
@@ -763,6 +851,11 @@ def _carica_rampa(out, tav, rng, h_c, r: Rampa, y_superficie: int, ox: int, oz: 
                         ly = y - y0
                         if 1 <= ly < H:
                             out[lx, ly, lz] = tav.palo
+                elif i > 3 and not (i % PASSO_TRAVE_RAMPA in (1, PASSO_TRAVE_RAMPA - 1))                         and rng.random() < 0.15:
+                    vx, vz = -lat[0] * k, -lat[1] * k          # verso il centro
+                    verso = (("east" if vx > 0 else "west") if vx
+                             else ("south" if vz > 0 else "north"))
+                    _arreda_lato(out, tav, rng, lx, lz, ly_f + 1, verso, ox, oz, y0)
                 continue
             # il binario e le travi sul centro
             forma = "east_west" if r.dz == 0 else "north_south"
@@ -848,6 +941,74 @@ def _carica_portale(out, tav, h_c, mn: Miniera, ox: int, oz: int, y0: int,
         if abs(k) == 1:
             posa(wx, wz, fy + 3, tav.lanterna)               # sotto l'architrave
 
+    def superficie(wx: int, wz: int, k: int, i: int) -> tuple[int, int]:
+        """(blocco in cima, blocco sotto) del territorio: erba e terra nella
+        foresta e in pianura, sabbia e arenaria nel deserto, neve, pietra...
+
+        Si legge cio' che il chunk ha gia' scritto sulla superficie. Dentro la
+        trincea della rampa quel blocco e' stato scavato: si prende quello di
+        una colonna piu' laterale, alla stessa distanza dal portale.
+        """
+        candidati = ([k] if abs(k) > 1 else []) + [2, -2, 3, -3, 4, -4, 5, -5]
+        for kk in candidati:
+            ex, ez = r.x + r.dx * i + lat[0] * kk, r.z + r.dz * i + lat[1] * kk
+            lx, lz = ex - ox, ez - oz
+            if not (0 <= lx < 16 and 0 <= lz < 16):
+                continue
+            ly = int(h_c[lx, lz]) - 1 - y0
+            if not (2 <= ly < H):
+                continue
+            alto, basso_ = out[lx, ly, lz], out[lx, ly - 1, lz]
+            if alto != tav.aria and basso_ != tav.aria and alto != tav.ghiaia:
+                return int(alto), int(basso_)
+        return tav.erba, tav.terra
+
+    # l'imbocco: il portale non sta in mezzo alla pianura ma nella roccia
+    for i in range(0, LUNGHEZZA_IMBOCCO + 1):
+        cx, cz, fy_i = r.cella(i)
+        for k in range(-LARGHEZZA_IMBOCCO, LARGHEZZA_IMBOCCO + 1):
+            wx, wz = cx + lat[0] * k, cz + lat[1] * k
+            lx, lz = wx - ox, wz - oz
+            if not (0 <= lx < 16 and 0 <= lz < 16):
+                continue
+            a = abs(k)
+            if a == 2 and i == 0:
+                continue                                  # i pali del portale
+            cima = r.y + ALTEZZA_IMBOCCO - i // 2 - max(0, a - 1)
+            basso = fy_i + ALTEZZA_GALLERIA + 1 if a <= 1 else fy_i
+            if i == 0 and a <= 2:
+                basso = fy + 6                            # sopra architrave e tettuccio
+            hv = ((wx * 73856093) ^ (wz * 19349663)) & 0x7fffffff
+            sopra, sotto = superficie(wx, wz, k, i)
+            for y in range(basso, cima + 1):
+                # la facciata e i fianchi bassi sono roccia viva; sopra, la
+                # collina, fatta di quello che c'e' in quel territorio
+                facciata = a >= 2 and (i <= 2 or y <= r.y + 2) and y <= r.y + 3 + (3 - a)
+                if facciata:
+                    # nel deserto la roccia e' arenaria, in montagna pietra
+                    b = (sotto if sotto != tav.terra
+                         else tav.roccia[(hv + y * 31) % len(tav.roccia)])
+                else:
+                    b = sopra if y == cima else sotto
+                posa(wx, wz, y, b, solo_aria=True)
+
+    # il portico di legno: tettuccio a due falde sopra l'architrave, e una
+    # cassa a lato davanti all'ingresso
+    def verso(vx: int, vz: int) -> str:
+        return ("east" if vx > 0 else "west") if vx else ("south" if vz > 0 else "north")
+
+    # (le scale salgono verso il lato indicato: le falde salgono verso il colmo)
+    for k in range(-2, 3):
+        wx, wz = r.x + lat[0] * k, r.z + lat[1] * k
+        if abs(k) == 2:
+            sgn = 1 if k < 0 else -1
+            posa(wx, wz, fy + 5, tav.falda[verso(lat[0] * sgn, lat[1] * sgn)])
+        else:
+            posa(wx, wz, fy + 5, tav.assi)
+    # la cassa sta di lato, un paio di passi fuori, rivolta verso la strada
+    posa(r.x - lat[0] * 3 - r.dx * 2, r.z - lat[1] * 3 - r.dz * 2, fy + 1,
+         tav.cassa[verso(-r.dx, -r.dz)])
+
     # la piazzola e il binario all'aperto, davanti al portale
     for j in range(1, BINARIO_FUORI + 1):
         cx, cz = r.x - r.dx * j, r.z - r.dz * j
@@ -886,7 +1047,7 @@ def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,
     x0, x1 = sorted((seg.x0, seg.x1))
     z0, z1 = sorted((seg.z0, seg.z1))
     fy = seg.y - y0
-    a1, a2 = fy + 1, fy + 2
+    a1, a2, a3 = fy + 1, fy + 2, fy + 3      # tre di luce: si cammina senza chinarsi
 
     for lx in range(16):
         wx = ox + lx
@@ -910,10 +1071,19 @@ def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,
                 scarto = wx - seg.x0
             if abs(scarto) > LARGHEZZA:
                 continue
-            for ly in (a1, a2):
+            for ly in (a1, a2, a3):
                 if 1 <= ly < H:
                     out[lx, ly, lz] = tav.aria
             if scarto != 0:
+                # il bordo della galleria: ogni tanto un attrezzo, un barile,
+                # un forziere, una ragnatela - mai dove ci sono le travi
+                lungo = (wx - seg.x0) if lungo_x else (wz - seg.z0)
+                if lungo % PASSO_TRAVE not in (0, 1, PASSO_TRAVE - 1) and rng.random() < 0.18:
+                    if lungo_x:
+                        verso = "north" if scarto > 0 else "south"
+                    else:
+                        verso = "west" if scarto > 0 else "east"
+                    _arreda_lato(out, tav, rng, lx, lz, a1, verso, ox, oz, y0)
                 continue
 
             forma = "east_west" if lungo_x else "north_south"
@@ -932,7 +1102,7 @@ def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,
                     else:
                         plx, plz = lx + offset, lz
                     if 0 <= plx < 16 and 0 <= plz < 16:
-                        for ly in (a1, a2):
+                        for ly in (a1, a2, a3):
                             if 0 <= ly < H:
                                 out[plx, ly, plz] = tav.palo
                 if avanzamento % (PASSO_TRAVE * 2) == 0 and 0 <= a2 < H:

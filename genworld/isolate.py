@@ -46,6 +46,7 @@ def candidati(modelli: list, lato_mappa: int) -> list[int]:
     da 109 blocchi su una mappa da 256 la riempirebbe da solo)."""
     return [k for k, m in enumerate(modelli)
             if m.dy > ALTEZZA_MAX_VILLAGGIO and "_escluso" not in m.stili
+            and not m.acquatico
             and max(m.dx, m.dz) <= lato_mappa // 5]
 
 

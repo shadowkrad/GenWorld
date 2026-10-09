@@ -51,6 +51,24 @@ OGGETTI: tuple[tuple[str, int, int], ...] = (
 )
 
 
+# Il bottino di un accampamento: sempre almeno un diamante e un'arma, poi
+# provviste e un po' di refurtiva.
+ARMI: tuple[str, ...] = ("iron_sword", "iron_axe", "bow", "crossbow", "stone_sword",
+                         "stone_axe", "golden_sword", "iron_pickaxe")
+EXTRA_CAMPO: tuple[tuple[str, int, int], ...] = (
+    ("arrow", 8, 24), ("cooked_beef", 1, 4), ("bread", 1, 4), ("emerald", 1, 3),
+    ("gold_ingot", 1, 5), ("iron_ingot", 1, 5), ("golden_apple", 1, 1),
+    ("leather", 1, 4), ("string", 1, 6), ("flint", 1, 6),
+)
+# Il bottino di una miniera: minerale grezzo, gemme e qualche attrezzo.
+BOTTINO_MINIERA: tuple[tuple[str, int, int], ...] = (
+    ("raw_iron", 2, 10), ("raw_copper", 3, 12), ("coal", 4, 16), ("raw_gold", 1, 6),
+    ("lapis_lazuli", 2, 9), ("redstone", 3, 12), ("amethyst_shard", 1, 5),
+    ("emerald", 1, 3), ("diamond", 1, 3), ("iron_pickaxe", 1, 1),
+    ("stone_pickaxe", 1, 1), ("torch", 4, 12), ("bread", 1, 3), ("iron_ingot", 1, 5),
+)
+
+
 class Tavolozza:
     """Gli id nel palette del livello per i forzieri che sappiamo riempire:
     solo `chest` (mai `trapped_chest`, `ender_chest` o le varianti di rame -
@@ -74,6 +92,28 @@ def _oggetti(rng: np.random.Generator) -> list[tuple[int, str, int]]:
     return fuori
 
 
+def _oggetti_campo(rng: np.random.Generator) -> list[tuple[int, str, int]]:
+    """Un diamante (1-3), un'arma e 3-5 cose in piu', in slot diversi."""
+    n = int(rng.integers(5, 8))
+    slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
+    fuori = [(slot[0], "diamond", int(rng.integers(1, 4))),
+             (slot[1], ARMI[int(rng.integers(0, len(ARMI)))], 1)]
+    for s in slot[2:]:
+        nome, minimo, massimo = EXTRA_CAMPO[int(rng.integers(0, len(EXTRA_CAMPO)))]
+        fuori.append((s, nome, int(rng.integers(minimo, massimo + 1))))
+    return fuori
+
+
+def _oggetti_miniera(rng: np.random.Generator) -> list[tuple[int, str, int]]:
+    """4-7 pile di minerale, gemme e attrezzi, tutte di tipo diverso."""
+    n = int(rng.integers(4, 8))
+    slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
+    tipi = rng.choice(len(BOTTINO_MINIERA), size=n, replace=False)
+    return [(s, BOTTINO_MINIERA[int(t)][0],
+             int(rng.integers(BOTTINO_MINIERA[int(t)][1], BOTTINO_MINIERA[int(t)][2] + 1)))
+            for s, t in zip(slot, tipi)]
+
+
 def _seme(x: int, y: int, z: int, seed: int) -> int:
     """Deterministico sulla posizione: lo stesso forziere ha sempre lo
     stesso contenuto, anche rigenerando lo stesso lotto. Mascherato per le
@@ -84,7 +124,7 @@ def _seme(x: int, y: int, z: int, seed: int) -> int:
 
 
 def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
-         seed: int = 0) -> list:
+         seed: int = 0, campi: list | None = None, minerali: set | None = None) -> list:
     """Cerca i forzieri singoli gia' scritti in un chunk (16, H, 16) e
     ritorna la lista di `amulet.api.block_entity.BlockEntity` col bottino.
 
@@ -103,10 +143,18 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
     for lx, ly, lz in posizioni:
         gx, gy, gz = ox + int(lx), y0 + int(ly), oz + int(lz)
         rng = np.random.default_rng(_seme(gx, gy, gz, seed))
+        # il bottino dipende da DOVE sta il forziere: in una miniera minerale e
+        # gemme, in un accampamento un diamante e un'arma, in casa la dispensa
+        if minerali and (gx, gy, gz) in minerali:
+            contenuto = _oggetti_miniera(rng)
+        elif campi and any((gx - cx) ** 2 + (gz - cz) ** 2 <= r * r for cx, cz, r in campi):
+            contenuto = _oggetti_campo(rng)
+        else:
+            contenuto = _oggetti(rng)
         items = ListTag([
             CompoundTag({"Slot": ByteTag(s), "id": StringTag(f"minecraft:{nome}"),
                         "count": IntTag(quanti)})
-            for s, nome, quanti in _oggetti(rng)
+            for s, nome, quanti in contenuto
         ])
         # Namespace "minecraft" (raw) con NBT piatto si perde - verificato
         # con uno spike dedicato - non appena la sessione di scrittura tocca

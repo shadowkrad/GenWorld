@@ -44,7 +44,7 @@ class TestDisegni(unittest.TestCase):
 
     def test_gli_arredi_fissi_si_costruiscono_e_si_traducono(self):
         for fabbrica, dim in ((A.lampione, (1, 4, 1)), (A.campana, (3, 3, 1)),
-                              (A.fontana, (5, 3, 5)), (A.pozzo, (3, 4, 3)),
+                              (A.fontana, (9, 11, 9)), (A.fontana_piccola, (5, 3, 5)), (A.pozzo, (3, 4, 3)),
                               (A.panchina, (3, 1, 1))):
             m = self.modello(fabbrica())
             self.assertEqual(m.celle.shape, dim)
@@ -60,7 +60,7 @@ class TestDisegni(unittest.TestCase):
         self.assertIn("bell", self.nomi(self.modello(A.campana())))
 
     def test_la_fontana_ha_acqua_chiusa_da_un_anello(self):
-        d = A.fontana()
+        d = A.fontana_piccola()
         m = self.modello(d)
         self.assertIn("water", self.nomi(m))
         acqua = [i for i, (n, _) in enumerate(m.tavolozza) if n == "water"][0]
@@ -68,6 +68,21 @@ class TestDisegni(unittest.TestCase):
             for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 vicino = m.celle[x + dx, 0, z + dz]
                 self.assertNotEqual(vicino, -1, "l'acqua ha un lato scoperto e scorrerebbe via")
+
+    def test_la_fontana_grande_ha_l_acqua_sigillata_in_ogni_piatto(self):
+        """Bacino e piatti: ogni cella d'acqua ha un solido sotto e sui
+        quattro lati. Le tende sono vetro, non acqua che scorre."""
+        m = self.modello(A.fontana())
+        acqua = [i for i, (n, _) in enumerate(m.tavolozza) if n == "water"][0]
+        livelli = set()
+        for x, y, z in zip(*np.nonzero(m.celle == acqua)):
+            livelli.add(int(y))
+            if y > 0:                        # a y=0 sotto c'e' il terreno
+                self.assertNotEqual(m.celle[x, y - 1, z], -1)
+            for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                self.assertNotEqual(m.celle[x + dx, y, z + dz], -1)
+        self.assertEqual(livelli, {0, 4, 8})
+        self.assertIn("stained_glass", " ".join(n for n, _ in m.tavolozza))
 
     def test_un_blocco_non_traducibile_solleva_invece_di_sparire(self):
         d = A.Disegno("prova", 1, 1, 1)
@@ -201,14 +216,33 @@ class TestPianificazione(unittest.TestCase):
         ris, s = self.piano(con_strada=True)
         carreggiata = s["tipo_strada"] > 0
         for a in ris.arredi:
-            if a.tipo in ("giardino", "recinto", "piazzetta"):
+            if a.tipo in ("giardino", "recinto", "piazzetta", "lampione"):
                 m = ris.modelli[a.modello]
-                pieno = (m.celle >= 0).any(axis=1)                   # (x, z)
+                # per un lampione conta solo il palo (strato 0): il braccio e la
+                # lanterna stanno in alto, SOPRA la strada
+                celle = m.celle[:, :1, :] if a.tipo == "lampione" else m.celle
+                pieno = (celle >= 0).any(axis=1)                   # (x, z)
                 fp = carreggiata[a.z:a.z + a.profondita, a.x:a.x + a.larghezza].T
                 self.assertFalse((pieno & fp).any(), f"{a.tipo} sopra la strada")
             else:
                 self.assertFalse(carreggiata[a.z:a.z + a.profondita,
                                              a.x:a.x + a.larghezza].any(), a.tipo)
+
+    def test_il_lampione_ha_il_braccio_con_la_lanterna_appesa(self):
+        for verso in ("+x", "-x", "+z", "-z"):
+            d = A.lampione_a_braccio(verso)
+            nomi = {n for (n, _) in d.blocchi.values()}
+            self.assertIn("lantern", nomi)
+            self.assertIn("dark_oak_log", nomi)
+            lanterna = [k for k, (n, p) in d.blocchi.items() if n == "lantern"][0]
+            braccio = [k for k, (n, p) in d.blocchi.items()
+                       if n == "dark_oak_log" and k[1] == 4 and k != (lanterna[0], 4, lanterna[2])]
+            self.assertEqual(lanterna[1], 3, "la lanterna pende sotto il braccio")
+            self.assertTrue(any(k[1] == 4 for k in d.blocchi if k[0] == lanterna[0]
+                                and k[2] == lanterna[2]), "lanterna senza braccio sopra")
+            self.assertEqual(sum(1 for k in d.blocchi if k[1] == 0), 1, "un solo palo a terra")
+        self.assertEqual(A.lampione_a_braccio("+x").dim, (2, 5, 1))
+        self.assertEqual(A.lampione_a_braccio("-z").dim, (1, 5, 2))
 
     def test_i_lampioni_stanno_lungo_la_via_e_distanziati(self):
         ris, _ = self.piano(con_strada=True)
@@ -218,6 +252,17 @@ class TestPianificazione(unittest.TestCase):
             self.assertLessEqual(abs(z - 49), 5, "lontano dalla via")
             for (x2, z2) in pali[i + 1:]:
                 self.assertGreaterEqual((x - x2) ** 2 + (z - z2) ** 2, 81)
+
+    def test_la_strada_e_illuminata_per_tutta_la_lunghezza(self):
+        """Anche fuori dal paese: da un capo all'altro non ci sono tratti
+        scuri piu' lunghi del passo di campagna."""
+        ris, _ = self.piano(con_strada=True)
+        xs = sorted(a.x for a in ris.arredi if a.tipo == "lampione" and 46 <= a.z <= 52)
+        self.assertGreaterEqual(len(xs), 6)
+        self.assertLessEqual(xs[0], 10 + A.PASSO_LAMPIONI_CAMPAGNA + 2)
+        self.assertGreaterEqual(xs[-1], 109 - A.PASSO_LAMPIONI_CAMPAGNA - 2)
+        for a, b in zip(xs, xs[1:]):
+            self.assertLessEqual(b - a, 2 * A.PASSO_LAMPIONI_CAMPAGNA, "tratto al buio")
 
     def test_densita_zero_non_arreda_niente(self):
         ris, _ = self.piano(densita=0.0)

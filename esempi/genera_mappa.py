@@ -63,6 +63,20 @@ def main() -> None:
                          "';' ('' per nessun portale: non c'e' un ripiego "
                          "disegnato da codice per questa struttura). Di "
                          "default 'templates/portali' se esiste")
+    ap.add_argument("--templates-castello", default=";".join(
+                        c for c in (os.path.join(RADICE, "templates", "castelli"),)
+                        if os.path.isdir(c)),
+                    help="cartelle di schemi (.schem, .litematic, .nbt) per il "
+                         "castello, uno per mappa. Di default 'templates/castelli'")
+    ap.add_argument("--templates-nave", default=";".join(
+                        c for c in (os.path.join(RADICE, "templates", "navi"),)
+                        if os.path.isdir(c)),
+                    help="cartelle di schemi per le navi in mare. Di default "
+                         "'templates/navi'")
+    ap.add_argument("--castelli", type=float, default=1.0, metavar="SCALA",
+                    help="0 = nessun castello")
+    ap.add_argument("--navi", type=float, default=1.0, metavar="SCALA",
+                    help="densita' delle navi in mare (0 = nessuna)")
     ap.add_argument("--anteprima", action="store_true")
     ap.add_argument("--profilo", help="profilo JSON prodotto dal Calibratore Mappe: "
                     "rettangolo di interesse + campioni col contagocce")
@@ -135,6 +149,8 @@ def main() -> None:
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,
                  templates=a.templates, templates_cimitero=a.templates_cimitero,
                  templates_portale=a.templates_portale,
+                 templates_castello=a.templates_castello,
+                 templates_nave=a.templates_nave, castelli=a.castelli, navi=a.navi,
                  fauna=a.fauna, arredi=a.arredi, isolate=a.isolate, laghi=a.laghi,
                  miniere=a.miniere, accampamenti=a.accampamenti,
                  cimiteri=a.cimiteri, portali=a.portali, versione=versione)

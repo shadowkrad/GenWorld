@@ -52,3 +52,9 @@ desktop.ini
 # Copertura dei test
 .coverage
 htmlcov/
+
+# Schemi di terzi (castello, navi): sono acquisti o scaricati, non si ripubblicano.
+# Restano sul disco; il generatore li legge da qui.
+templates/castelli/
+templates/navi/
+templates/navi_inutilizzate/

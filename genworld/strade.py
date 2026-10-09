@@ -233,8 +233,10 @@ def pianifica(
         # piu' lastricati di pietra: vedi il commento li' per il perche'.
         tipo[(vie >= 2) & ~ponte] = LASTRICATO
     tipo[ponte] = PONTE
-    # parapetto: cella di ponte che confina con il vuoto
-    fuori_ponte = binary_dilation(ponte, iterations=1) & ~ponte
+    # parapetto: cella di ponte che confina con il vuoto. Non con la strada che
+    # prosegue: la ringhiera chiude i LATI del ponte, non le due teste, altrimenti
+    # il ponte e' una scatola e non ci si sale (visto in gioco sul fossato).
+    fuori_ponte = binary_dilation(ponte, iterations=1) & ~ponte & ~strada
     orlo = ponte & binary_dilation(fuori_ponte, iterations=1)
     tipo[orlo] = PARAPETTO
     quota = q.astype(np.int32)
