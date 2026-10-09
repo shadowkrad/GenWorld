@@ -283,6 +283,25 @@ class TestAffondo(unittest.TestCase):
         m = T.Modello(nome="p", celle=celle, tavolozza=[("planks", {}), ("dirt", {})])
         self.assertEqual(m.affondo, T.AFFONDO_MAX)
 
+    def test_una_cantina_sotto_il_prato_si_interra_fino_all_erba(self):
+        """Pietra in fondo, una lastra di erba, poi la casa: la lastra e' il
+        terreno, la cantina sta sotto."""
+        celle = np.full((3, 8, 3), -1, np.int32)
+        celle[:, 0:3, :] = 2                     # la cantina
+        celle[:, 3, :] = 1                       # la lastra di erba
+        celle[:, 4:, :] = 0                      # la casa
+        m = T.Modello(nome="p", celle=celle,
+                      tavolozza=[("planks", {}), ("grass_block", {}), ("stone", {})])
+        self.assertEqual(m.affondo, 4)
+
+    def test_l_erba_di_un_tetto_giardino_non_e_una_cantina(self):
+        celle = np.full((3, 8, 3), -1, np.int32)
+        celle[:, 0:6, :] = 0
+        celle[:, 6, :] = 1
+        m = T.Modello(nome="p", celle=celle,
+                      tavolozza=[("planks", {}), ("grass_block", {})])
+        self.assertEqual(m.affondo, 0)
+
     def test_uno_strato_vuoto_non_si_interra(self):
         m = self.modello([1] * 9)
         m.celle[:, 0, :] = -1
@@ -539,3 +558,45 @@ class TestPosa(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(TRADUTTORE, "PyMCTranslate non disponibile")
+class TestCaseSpeciali(unittest.TestCase):
+    """Due difetti visti in gioco sui template veri."""
+
+    def carica(self, nome):
+        return T._leggi(os.path.join(RADICE, "templates", "strutture", nome), (1, 21, 4))
+
+    def test_la_casa_con_la_cantina_profonda_si_interra_per_intero(self):
+        m = self.carica("abandoned-house-9379waqq.nbt")
+        self.assertGreaterEqual(m.affondo, 11)
+
+    def test_le_case_con_uno_specchio_d_acqua_sono_acquatiche(self):
+        self.assertTrue(self.carica("modified-plains-w00kqg3m.nbt").acquatico)
+        self.assertFalse(self.carica("casa-de-armero-otzb9onl.nbt").acquatico)
+
+    def test_una_casa_acquatica_non_va_su_un_lotto_asciutto(self):
+        modelli = [self.carica("modified-plains-w00kqg3m.nbt")]
+        asciutto = T.candidati_lotto(modelli, 40, 40, 0, 40, None,
+                                     escludi=frozenset({0}))
+        self.assertEqual(asciutto, [])
+        self.assertTrue(T.candidati_lotto(modelli, 40, 40, 0, 40, None))
+
+
+@unittest.skipUnless(TRADUTTORE, "PyMCTranslate non disponibile")
+class TestSegnaposto(unittest.TestCase):
+    def test_il_bedrock_dei_segnaposto_non_entra_nel_modello(self):
+        m = T._leggi(os.path.join(RADICE, "templates", "strutture",
+                                  "pumpkin-house-fgsfwmdk.nbt"), (1, 21, 4))
+        nomi = [n for n, _ in m.tavolozza]
+        for i, n in enumerate(nomi):
+            if n == "bedrock":
+                self.assertFalse((m.celle == i).any(), "bedrock appeso")
+
+    def test_nessun_template_porta_segnaposto(self):
+        for m in T.carica_cartella(os.path.join(RADICE, "templates", "strutture"),
+                                   (1, 21, 4)):
+            nomi = [n for n, _ in m.tavolozza]
+            for i, n in enumerate(nomi):
+                if n in T.SEGNAPOSTO and n != "structure_void":
+                    self.assertFalse((m.celle == i).any(), f"{m.nome}: {n}")

@@ -69,6 +69,30 @@ class TestTrova(unittest.TestCase):
             self.assertTrue(str(voce["id"]).startswith("minecraft:"))
             self.assertGreater(int(voce["count"]), 0)
 
+    def nomi(self, be):
+        return [str(v["id"]).split(":")[1] for v in be.nbt.compound["utags"]["Items"]]
+
+    def test_il_forziere_di_un_campo_ha_un_diamante_e_un_arma(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        for seed in range(15):
+            bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, campi=[(5, 6, 3)])
+            nomi = self.nomi(bauli[0])
+            self.assertIn("diamond", nomi)
+            self.assertTrue(set(nomi) & set(BA.ARMI), f"nessuna arma in {nomi}")
+
+    def test_il_forziere_di_una_miniera_ha_minerale(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        minerale = {"raw_iron", "raw_copper", "coal", "raw_gold", "lapis_lazuli",
+                    "redstone", "amethyst_shard", "emerald", "diamond"}
+        for seed in range(15):
+            bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, minerali={(5, 10, 6)})
+            self.assertTrue(set(self.nomi(bauli[0])) & minerale)
+
+    def test_un_forziere_fuori_dal_campo_resta_una_dispensa(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=2, campi=[(100, 100, 3)])
+        self.assertLessEqual(len(self.nomi(bauli[0])), 5)
+
     def test_le_quattro_orientazioni_si_trovano_tutte(self):
         s = FintoScrittore()
         tav = BA.Tavolozza(s)

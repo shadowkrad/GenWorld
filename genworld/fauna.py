@@ -35,7 +35,7 @@ from .mappa import DESERTO, FORESTA, MONTAGNA, NEVE, PIANURA, PRATERIA, SPIAGGIA
 SPECIE = {
     "mucca": "cow", "pecora": "sheep", "gallina": "chicken", "maiale": "pig",
     "lupo": "wolf", "coniglio": "rabbit", "volpe": "fox", "capra": "goat",
-    "cammello": "camel", "orso_polare": "polar_bear", "tartaruga": "turtle",
+    "cammello": "camel", "cavallo": "horse", "orso_polare": "polar_bear", "tartaruga": "turtle",
 }
 
 # vita massima vera di ciascuno: mettere 10 dappertutto per comodita' vorrebbe
@@ -43,7 +43,7 @@ SPECIE = {
 SALUTE = {
     "mucca": 10.0, "pecora": 8.0, "gallina": 4.0, "maiale": 10.0,
     "lupo": 8.0, "coniglio": 3.0, "volpe": 10.0, "capra": 10.0,
-    "cammello": 32.0, "orso_polare": 30.0, "tartaruga": 30.0,
+    "cammello": 32.0, "cavallo": 22.0, "orso_polare": 30.0, "tartaruga": 30.0,
 }
 
 CORTILE = ("mucca", "pecora", "gallina", "maiale")

@@ -77,6 +77,12 @@ class Citta:
     porte: list[tuple[int, int]] = field(default_factory=list)
     murata: bool = False
     edifici: int = 0
+    lato: int = 0
+
+    @property
+    def raggio_piazza(self) -> int:
+        """Raggio del lastricato tondo della piazza."""
+        return dati_piazza(self.lato, self.murata)[0]
 
     @property
     def e_citta(self) -> bool:
@@ -107,11 +113,20 @@ class Citta:
 # villaggio ha la stessa pianta, piu' piccola, senza cinta.
 
 SPESSORE_MURA = 3
+SEMILARGHEZZA_PORTA = 2       # il portale e' largo 5: due pilastri e tre di passaggio
 LARGHEZZA_FOSSO = 3
 PROFONDITA_FOSSO = 3          # di quanto il fondo sta sotto la piana
 MARGINE_RACCORDO = 10         # fascia in cui la piana sfuma nel terreno vero
+PENDENZA_RACCORDO = 0.5       # quote per cella di scarpata: 1 blocco ogni 2
+FASCIA_RACCORDO = 56          # fin dove puo' arrivare una scarpata (dislivello ~28)
 SALTO_MASSIMO = 20            # dislivello (5-95 percentile) oltre cui il sito e' troppo aspro
 MARINO_MASSIMO = 0.12         # quota di mare ammessa dentro la piana
+# Distanza libera fra le piane (cinta e fossato compresi) di due abitati. Due citta'
+# murate una attaccata all'altra - viste in gioco - non hanno senso: fra due
+# cinte ci sta una campagna intera.
+DISTANZA_FRA_CITTA_MURATE = 40
+DISTANZA_FRA_ABITATI = 12
+DISTANZA_DAL_VULCANO = 28        # dal bordo della piana: la scarpata arriva lontano e non deve tagliare un cono
 SPOSTAMENTO_MASSIMO = 60      # di quanto un sito puo' spostarsi per trovare posto
 PIAZZA = 5                    # mezzo lato della piazza
 MIN_LOTTI_VILLAGGIO = 4       # sulle mappe grandi i lotti sono 12 e 16: vedi `lotti`
@@ -150,7 +165,8 @@ def _raggio_piana(lato: int, murata: bool) -> int:
     return lato + 3
 
 
-def _valuta(cls, h, urbano, z, x, raggio_piana, livello_mare) -> tuple[int, float] | None:
+def _valuta(cls, h, urbano, z, x, raggio_piana, livello_mare,
+            fissa=None, fissa_mura=None, murata=False) -> tuple[int, float] | None:
     """(quota di spianamento, costo) di una piana centrata in (z, x), o None.
 
     Il terreno si piega alla citta', ma non senza limiti: dentro il quadrato
@@ -163,6 +179,18 @@ def _valuta(cls, h, urbano, z, x, raggio_piana, livello_mare) -> tuple[int, floa
     s = raggio_piana + MARGINE_RACCORDO + 2
     if z - s < 0 or x - s < 0 or z + s >= H or x + s >= W:
         return None
+    r_v = raggio_piana + DISTANZA_DAL_VULCANO
+    finestra = cls[max(0, z - r_v):z + r_v + 1, max(0, x - r_v):x + r_v + 1]
+    if np.isin(finestra, (VULCANO, CRATERE)).any():
+        return None
+    for maschera, gap in ((fissa, DISTANZA_FRA_ABITATI),
+                          (fissa_mura if murata else None, DISTANZA_FRA_CITTA_MURATE)):
+        if maschera is None:
+            continue
+        r2 = raggio_piana + gap
+        z0, z1, x0, x1 = max(0, z - r2), min(H, z + r2 + 1), max(0, x - r2), min(W, x + r2 + 1)
+        if maschera[z0:z1, x0:x1].any():
+            return None
     fetta = (slice(z - s, z + s + 1), slice(x - s, x + s + 1))
     c, q, u = cls[fetta], h[fetta], urbano[fetta]
     D = _distanza(c.shape, s, s)[0]
@@ -185,7 +213,8 @@ def _valuta(cls, h, urbano, z, x, raggio_piana, livello_mare) -> tuple[int, floa
     return base, mare * 200.0 + float(hi - lo)
 
 
-def _cerca_sito(cls, h, urbano, z, x, raggio_piana, livello_mare):
+def _cerca_sito(cls, h, urbano, z, x, raggio_piana, livello_mare,
+                fissa=None, fissa_mura=None, murata=False):
     """Il posto migliore per la piana vicino al sito scelto: (z, x, quota).
 
     I siti sono scelti vicino all'acqua, quindi spesso a ridosso di una costa
@@ -195,7 +224,8 @@ def _cerca_sito(cls, h, urbano, z, x, raggio_piana, livello_mare):
     meglio = None
     for oz in range(-SPOSTAMENTO_MASSIMO, SPOSTAMENTO_MASSIMO + 1, 4):
         for ox in range(-SPOSTAMENTO_MASSIMO, SPOSTAMENTO_MASSIMO + 1, 4):
-            v = _valuta(cls, h, urbano, z + oz, x + ox, raggio_piana, livello_mare)
+            v = _valuta(cls, h, urbano, z + oz, x + ox, raggio_piana, livello_mare,
+                        fissa, fissa_mura, murata)
             if v is None:
                 continue
             costo = v[1] + 0.15 * float(np.hypot(oz, ox))
@@ -204,11 +234,20 @@ def _cerca_sito(cls, h, urbano, z, x, raggio_piana, livello_mare):
     return None if meglio is None else meglio[1:]
 
 
-def _spiana(h, cls, livello, cls_originale, D, lato, murata, base, livello_mare):
-    """Spiana la piana a `base`, scava il fosso, sfuma il raccordo.
+def _spiana(h, cls, livello, cls_originale, D, lato, murata, base, livello_mare,
+            fissa=None):
+    """Spiana la piana a `base`, scava il fosso, raccorda con una scarpata.
 
     Opera sulle copie di lavoro `h`, `cls`, `livello`. L'acqua dentro la piana
     sparisce (diventa pianura): e' il terreno che si adatta alla citta'.
+
+    Il raccordo non e' una sfumatura a larghezza fissa: sul bordo della piana
+    il terreno viene tagliato (o riempito) con una scarpata a pendenza
+    costante, tanto larga quanto serve. Una sfumatura di 10 celle su un
+    dislivello di 15 blocchi lasciava uno strapiombo dritto sopra il fiume o
+    il mare. Nell'acqua il fondale si alza lungo la stessa scarpata, ma mai
+    oltre il pelo dell'acqua: e' una sponda che scende, non terra nuova.
+    `fissa` sono le celle che un'altra citta' ha gia' spianato: non si toccano.
     """
     r = _raggio_piana(lato, murata)
     dentro = D <= r
@@ -216,12 +255,38 @@ def _spiana(h, cls, livello, cls_originale, D, lato, murata, base, livello_mare)
     cls[dentro] = PIANURA
     livello[dentro] = livello_mare
 
-    # il raccordo: la piana sfuma nel terreno vero senza gradini. L'acqua che
-    # sta fuori resta com'e' (il suo letto non si alza).
-    fascia = (D > r) & (D <= r + MARGINE_RACCORDO) & ~np.isin(cls_originale, ACQUA)
-    t = np.clip(1.0 - (D[fascia] - r) / MARGINE_RACCORDO, 0.0, 1.0)
-    t = t * t * (3.0 - 2.0 * t)
-    h[fascia] = np.round(h[fascia] * (1.0 - t) + base * t).astype(h.dtype)
+    fascia = (D > r) & (D <= r + FASCIA_RACCORDO)
+    # un vulcano non si taglia: la scarpata lo lascerebbe con un fianco piatto e
+    # la lava del cratere in piedi come un pilastro (visto in gioco)
+    fascia &= ~np.isin(cls_originale, (VULCANO, CRATERE))
+    if fissa is not None:
+        fascia &= ~fissa
+    zz, xx = np.nonzero(fascia)
+    d = D[fascia] - r
+    # una scarpata dritta come un righello non e' naturale: la pendenza e la
+    # quota ondeggiano piano lungo il perimetro, con una fase diversa per ogni
+    # citta' (deterministica: stesso mondo, stesse rive)
+    rng = np.random.default_rng(int(base) * 131 + int(lato))
+    f = rng.uniform(0.05, 0.12, 4)
+    ph = rng.uniform(0, 2 * np.pi, 4)
+    n1 = 0.5 * (np.sin(zz * f[0] + ph[0]) + np.sin(xx * f[1] + ph[1]))
+    n2 = 0.5 * (np.sin((zz + xx) * f[2] + ph[2]) + np.sin((zz - xx) * f[3] + ph[3]))
+    limite = d * PENDENZA_RACCORDO * (1.0 + 0.45 * n1) + 1.6 * np.abs(n2) * np.minimum(d, 6) / 6
+    q = h[fascia].astype(np.float32)
+    acqua = np.isin(cls_originale[fascia], ACQUA)
+    nuova = np.clip(q, base - limite, base + limite)
+    # nell'acqua si puo' solo riempire: il fondale sale lungo la scarpata e,
+    # dove la scarpata supera il pelo dell'acqua, diventa riva di terra - il
+    # terreno si adatta alla citta', non lascia una parete di roccia a picco
+    # sull'acqua
+    pelo = livello[fascia]
+    terra_nuova = acqua & ((base - limite) > pelo - 1.0)
+    nuova = np.where(acqua, np.maximum(q, base - limite), nuova)
+    h[fascia] = np.round(nuova).astype(h.dtype)
+    if terra_nuova.any():
+        idx = (zz[terra_nuova], xx[terra_nuova])
+        cls[idx] = PIANURA
+        livello[idx] = livello_mare
 
     fosso = np.zeros_like(dentro)
     if murata:
@@ -254,14 +319,57 @@ def _mura(D, dz, dx, lato) -> np.ndarray:
     anello = (D >= lato + 1) & (D <= lato + SPESSORE_MURA)
     muro = np.zeros(D.shape, np.uint8)
     muro[anello] = 1
-    porta = anello & ((np.abs(dz) <= 1) | (np.abs(dx) <= 1))
+    porta = anello & ((np.abs(dz) <= SEMILARGHEZZA_PORTA) | (np.abs(dx) <= SEMILARGHEZZA_PORTA))
     lungo = np.minimum(np.abs(dz), np.abs(dx))        # posizione lungo il lato
     torre = (np.abs(dz) >= lato - 1) & (np.abs(dx) >= lato - 1)        # angoli
-    torre |= (lungo >= 2) & (lungo <= 4)                                # accanto alle porte
+    torre |= (lungo > SEMILARGHEZZA_PORTA) & (lungo <= SEMILARGHEZZA_PORTA + 3)   # accanto alle porte
     torre |= np.abs(lungo - lato // 2) <= 1                             # a meta' lato
     muro[anello & torre] = 3
     muro[porta] = 2
     return muro
+
+
+SCALA_BASE = 16        # in `muro` i valori da qui in su sono gradini di una scalinata
+LUNGHEZZA_SCALA = 7    # un gradino per ogni blocco di altezza della cinta
+_NORMALI = ((-1, 0), (0, 1), (1, 0), (0, -1))        # nord, est, sud, ovest (dz, dx)
+
+
+def _scale(centro: tuple[int, int], lato: int, forma: tuple[int, int],
+           muro: np.ndarray, edifici: list) -> list[tuple[int, int, int]]:
+    """Le scalinate che salgono dall'interno sul cammino di ronda: una per lato,
+    a meta' fra la torre accanto alla porta e quella di mezzo, addossata alla
+    faccia interna della cinta e in salita lungo di essa.
+
+    Ritorna [(z, x, valore)] con `valore = SCALA_BASE + (salita * 4 + lato) * 8 +
+    gradino`: la direzione in cui si sale, il lato della cinta cui e' addossata
+    e il numero del gradino (0..6). Si salta una scalinata se un edificio o la
+    cinta le stanno sopra.
+    """
+    cz, cx = centro
+    fuori: list[tuple[int, int, int]] = []
+    primo = SEMILARGHEZZA_PORTA + 4                      # oltre la torre accanto alla porta
+    ultimo = lato // 2 - 2                               # prima della torre di mezzo
+    if ultimo - primo + 1 < LUNGHEZZA_SCALA:
+        return fuori
+    inizio = primo + (ultimo - primo + 1 - LUNGHEZZA_SCALA) // 2
+    for lato_i, (nz, nx) in enumerate(_NORMALI):
+        salita = (lato_i + 1) % 4                       # si sale girando in senso orario
+        tz, tx = _NORMALI[salita]
+        celle = [(cz + nz * lato + tz * (inizio + k), cx + nx * lato + tx * (inizio + k), k)
+                 for k in range(LUNGHEZZA_SCALA)]
+        if any(not (0 <= z < forma[0] and 0 <= x < forma[1]) or muro[z, x] for z, x, _ in celle):
+            continue
+        sopra = False
+        for e in edifici:
+            x0, z0, x1, z1 = e.ingombro_tetto()
+            if any(x0 - 1 <= x <= x1 + 1 and z0 - 1 <= z <= z1 + 1 for z, x, _ in celle):
+                sopra = True
+                break
+        if sopra:
+            continue
+        for z, x, k in celle:
+            fuori.append((z, x, SCALA_BASE + (salita * 4 + lato_i) * 8 + k))
+    return fuori
 
 
 def _porte_esterne(z: int, x: int, lato: int, murata: bool,
@@ -285,8 +393,22 @@ def _porte_esterne(z: int, x: int, lato: int, murata: bool,
 # 20 modelli diversi su 40, con 13x13 solo 10), quindi qui e' la pianta a
 # partire dalla misura del lotto, non il contrario.
 MARCIAPIEDE = 4        # dal centro dell'asse al primo lotto
+LATO_PIAZZA_GRANDE = 38  # da qui in su la piazza e' larga: fontana al centro, banchi attorno
+
+
+def dati_piazza(lato: int, murata: bool = False) -> tuple[int, int, int]:
+    """(raggio del lastricato, sgombro dei lotti d'angolo, distanza dei banchi).
+
+    Nelle citta' e nei villaggi grandi la piazza e' un disco di nove celle di
+    raggio: la fontana (nove per nove) sta al centro, la campana accanto e i
+    banchi dei mercanti in cerchio attorno, in diagonale, fuori dagli assi
+    che restano liberi. Nei borghi piccoli un pozzo e poco altro.
+    """
+    if lato >= LATO_PIAZZA_GRANDE:
+        return 9, 10, 7
+    return (5 if lato >= 30 else 4), 7, 3
+
 STACCO = 2             # fra due lotti
-SGOMBRO_PIAZZA = 7     # il lotto d'angolo parte oltre la piazza
 LOTTO_MINIMO = 11      # sotto questa misura l'isolato non si divide
 
 
@@ -313,7 +435,8 @@ def lotti(cls: np.ndarray, h: np.ndarray, livello: np.ndarray,
                     v0 = MARCIAPIEDE + b * (w + STACCO)
                     ul = vl = w
                     if a == 0 and b == 0:
-                        u0, ul = SGOMBRO_PIAZZA, w - (SGOMBRO_PIAZZA - MARCIAPIEDE)
+                        sgombro = dati_piazza(lato, murata)[1]
+                        u0, ul = sgombro, w - (sgombro - MARCIAPIEDE)
                     if a == 1 and b == 1:
                         verso = E.EST if su > 0 else E.OVEST
                     elif b == 0:
@@ -393,7 +516,8 @@ def mercato(centro: tuple[int, int], lato: int, murata: bool, h: np.ndarray,
     quanti = 4 if murata else 2
     fuori: list[E.Banco] = []
     for k, (sv, su) in enumerate(angoli[:quanti]):
-        bz, bx = cz + sv * 3 - 1, cx + su * 3 - 1            # 3x3 centrato a (+-3, +-3)
+        d = dati_piazza(lato, murata)[2]
+        bz, bx = cz + sv * d - 1, cx + su * d - 1            # 3x3 centrato a (+-d, +-d)
         verso = E.OVEST if su > 0 else E.EST
         fuori.append(E.Banco(x=bx, z=bz, base=int(h[bz:bz + 3, bx:bx + 3].min()),
                              verso=verso, merce=MERCI[k % len(MERCI)],
@@ -443,6 +567,8 @@ def pianifica(
     vie = np.zeros((H, W), np.uint8)
     muro = np.zeros((H, W), np.uint8)
     urbano = np.zeros((H, W), bool)
+    fissa = np.zeros((H, W), bool)
+    fissa_mura = np.zeros((H, W), bool)
     fuori: list[E.Edificio] = []
     citta: list[Citta] = []
     banchi: list[E.Banco] = []
@@ -451,7 +577,7 @@ def pianifica(
         rng = np.random.default_rng(seed * 977 + n)
         for lato, murata in piante_possibili(raggio):
             posto = _cerca_sito(cls, h, urbano, sz, sx, _raggio_piana(lato, murata),
-                                livello_mare)
+                                livello_mare, fissa, fissa_mura, murata)
             if posto is not None:
                 break
         else:
@@ -462,7 +588,7 @@ def pianifica(
         # tutto si prova su copie: se il sito non da' abbastanza lotti non
         # deve lasciare traccia (una piana spianata e un fosso senza citta')
         h_t, cls_t, liv_t = h.copy(), cls.copy(), livello.copy()
-        _spiana(h_t, cls_t, liv_t, cls, D, lato, murata, base, livello_mare)
+        _spiana(h_t, cls_t, liv_t, cls, D, lato, murata, base, livello_mare, fissa)
         rango, esterno = _strade(D, dz, dx, lato, murata)
         ed = lotti(cls_t, h_t, liv_t, (sz, sx), lato, murata, livello_mare, rng)
         if len(ed) < (MIN_LOTTI_CITTA if murata else MIN_LOTTI_VILLAGGIO):
@@ -476,15 +602,20 @@ def pianifica(
         vie = np.maximum(vie, rango)
         vie[esterno] = ASSE
         urbano |= D <= lato
+        fissa |= D <= _raggio_piana(lato, murata)
+        if murata:
+            fissa_mura |= D <= _raggio_piana(lato, murata)
         fuori.extend(ed)
         banchi.extend(b)
         if murata:
             m = _mura(D, dz, dx, lato)
             muro[m > 0] = m[m > 0]
+            for z, x, v in _scale((sz, sx), lato, (H, W), muro, ed):
+                muro[z, x] = v
         citta.append(Citta(
             z=sz, x=sx, raggio=_raggio_piana(lato, murata), piazza=(sz, sx),
             porte=_porte_esterne(sz, sx, lato, murata, (H, W)),
-            murata=murata, edifici=len(ed)))
+            murata=murata, edifici=len(ed), lato=lato))
 
     return fuori, h, vie, muro, citta, banchi, urbano, cls, livello
 

@@ -38,6 +38,7 @@ import json
 import dataclasses
 import functools
 import os
+import re
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -95,6 +96,16 @@ class Modello:
     # nomi di gioco dei blocchi che PyMCTranslate non conosce e che nessuna
     # regola di `_ripara` sa sostituire: in gioco non compaiono (buchi).
     non_tradotti: frozenset[str] = field(default_factory=frozenset)
+    # strato (dal basso) dell'ultimo blocco d'acqua di una nave: li' sta il mare
+    linea_acqua: int = -1
+
+    @property
+    def acquatico(self) -> bool:
+        """Il modello contiene uno specchio d'acqua (un molo, una peschiera, un
+        laghetto in giardino): su un lotto asciutto l'acqua scritta a mano non
+        ha dove stare e si versa sulla strada. Si usa solo accanto all'acqua."""
+        nomi = [n in ACQUE_MODELLO for n, _ in self.tavolozza] + [False]
+        return int(np.asarray(nomi)[self.celle].sum()) >= ACQUA_MINIMA
 
     @property
     def dx(self) -> int: return int(self.celle.shape[0])
@@ -127,7 +138,39 @@ class Modello:
             if not pieno.any() or terreno[strato[pieno]].mean() <= 0.6:
                 break
             strati += 1
-        return strati
+        return max(strati, self._affondo_cantina())
+
+    def _affondo_cantina(self) -> int:
+        """Strati da interrare quando il modello ha una cantina sotto il prato.
+
+        Alcune case sono salvate con la stanza sotterranea INCLUSA: in fondo
+        pietra e pareti, sopra una lastra di terra e erba, e solo sopra la
+        casa. Contando gli strati di terra dal basso non se ne trova nessuno
+        (il primo e' pietra), la casa restava a quota terreno e la cantina
+        sporgeva sotto come uno zoccolo con la casa sospesa sopra. Si cerca
+        la lastra piu' alta che copra buona parte dell'impronta, con del
+        costruito sotto, e il modello si interra fino al suo bordo superiore.
+        """
+        terreno = np.array([n in _TERRENO for n, _ in self.tavolozza] + [False])
+        impronta = self.dx * self.dz
+        migliore = 0
+        costruito_sotto = False
+        for y in range(min(self.dy - 3, CANTINA_MAX)):
+            strato = self.celle[:, y, :]
+            pieno = strato >= 0
+            if not pieno.any():
+                continue
+            e_terra = terreno[strato[pieno]].mean() > 0.6
+            # sopra la lastra ci deve essere ancora la casa (due strati di
+            # costruito), altrimenti e' l'erba di un tetto giardino
+            sopra = all((self.celle[:, y + j, :] >= 0).any()
+                        and not terreno[self.celle[:, y + j, :][self.celle[:, y + j, :] >= 0]].mean() > 0.6
+                        for j in (1, 2))
+            if e_terra and pieno.sum() >= 0.4 * impronta and costruito_sotto and sopra:
+                migliore = y + 1
+            if not e_terra:
+                costruito_sotto = True
+        return migliore
 
 
 # --------------------------------------------------------------------------
@@ -138,6 +181,15 @@ NORD, EST, SUD, OVEST = range(4)
 _VERSO = {"north": NORD, "east": EST, "south": SUD, "west": OVEST}
 
 # blocchi che fanno da terreno negli strati piu' bassi di un template
+# Blocchi che gli autori dei template mettono come SEGNAPOSTO (gli angoli della
+# scatola, un comando, un confine): non sono parte della costruzione e in gioco
+# restavano appesi, come il bedrock sopra `pumpkin-house`.
+SEGNAPOSTO = frozenset({"bedrock", "barrier", "structure_block", "jigsaw",
+                        "command_block", "chain_command_block",
+                        "repeating_command_block", "structure_void"})
+ACQUE_MODELLO = frozenset({"water", "flowing_water", "bubble_column"})
+ACQUA_MINIMA = 8           # sotto questa soglia e' un calderone, non uno specchio d'acqua
+CANTINA_MAX = 16           # profondita' massima di una cantina inclusa nel modello
 AFFONDO_MAX = 8            # quanto sotto il primo blocco libero puo' scendere
 _TERRENO = frozenset({"grass_block", "dirt", "coarse_dirt", "podzol", "rooted_dirt",
                       "sand", "red_sand", "gravel", "mycelium", "grass_path",
@@ -233,6 +285,147 @@ _CACHE_MODELLI: dict[tuple, Modello] = {}
 
 
 def _leggi(percorso: str, versione) -> Modello:
+    est = os.path.splitext(percorso)[1].lower()
+    if est == ".schem":
+        return _da_voci(percorso, *_leggi_schem(percorso), versione)
+    if est == ".litematic":
+        return _da_voci(percorso, *_leggi_litematic(percorso), versione)
+    return _leggi_nbt(percorso, versione)
+
+
+_RE_STATO = re.compile(r"^([^\[]+)(?:\[(.*)\])?$")
+
+
+def _stato_testo(testo: str) -> tuple[str, dict]:
+    """`minecraft:oak_stairs[facing=north,half=top]` -> (nome, proprieta')."""
+    nome, prop = _RE_STATO.match(testo).groups()
+    return nome, ({k: v for k, v in (kv.split("=", 1) for kv in prop.split(",") if kv)}
+                  if prop else {})
+
+
+def _sposta_aria(voci: list[tuple[str, dict]], celle: np.ndarray) -> np.ndarray:
+    """L'aria esplicita diventa 'non specificato': un modello grande come un
+    castello o una nave non deve scavare la scatola che lo contiene."""
+    aria = [i for i, (n, _) in enumerate(voci) if n.endswith("air")]
+    if aria:
+        celle = np.where(np.isin(celle, aria), -1, celle)
+    return celle
+
+
+def _ritaglia(celle: np.ndarray) -> np.ndarray:
+    """Toglie il vuoto attorno al modello (gli schemi salvati con WorldEdit
+    hanno la scatola della selezione, spesso molto piu' grande della nave)."""
+    pieno = celle >= 0
+    if not pieno.any():
+        raise ValueError("modello vuoto")
+    ass = [np.nonzero(pieno.any(axis=tuple(j for j in range(3) if j != i)))[0]
+           for i in range(3)]
+    return np.ascontiguousarray(celle[ass[0][0]:ass[0][-1] + 1,
+                                      ass[1][0]:ass[1][-1] + 1,
+                                      ass[2][0]:ass[2][-1] + 1])
+
+
+def _leggi_schem(percorso: str, tieni_aria: bool = False):
+    """Sponge Schematic (WorldEdit), versioni 2 e 3. -> (voci, celle)."""
+    from amulet_nbt import load as nbt_load
+    r = nbt_load(percorso).compound
+    if "Schematic" in r:                                  # versione 3
+        r = r["Schematic"]
+        blocchi = r["Blocks"]
+        tavola, dati = blocchi["Palette"], blocchi["Data"]
+    else:
+        tavola, dati = r["Palette"], r["BlockData"]
+    dx, dy, dz = int(r["Width"]), int(r["Height"]), int(r["Length"])
+    voci: list[tuple[str, dict]] = [("air", {})] * len(tavola)
+    for testo, idx in tavola.items():
+        voci[int(idx)] = _stato_testo(str(testo))
+    # i dati sono interi a lunghezza variabile (varint), ordine y, z, x
+    grezzo = np.asarray(dati, dtype=np.int8).astype(np.uint8)
+    fine = (grezzo & 0x80) == 0
+    gruppo = np.cumsum(fine) - fine
+    inizio = np.flatnonzero(np.concatenate(([True], fine[:-1])))
+    pos = np.arange(len(grezzo)) - inizio[gruppo]
+    valori = np.zeros(int(gruppo[-1]) + 1, np.int64)
+    np.add.at(valori, gruppo, (grezzo & 0x7F).astype(np.int64) << (7 * pos))
+    if len(valori) != dx * dy * dz:
+        raise ValueError(f"{percorso}: {len(valori)} blocchi, ne servono {dx * dy * dz}")
+    celle = valori.reshape(dy, dz, dx).transpose(2, 0, 1).astype(np.int32)
+    if tieni_aria:
+        return voci, celle
+    return voci, _ritaglia(_sposta_aria(voci, celle))
+
+
+def _leggi_litematic(percorso: str):
+    """Litematica, la prima regione. -> (voci, celle)."""
+    from amulet_nbt import load as nbt_load
+    r = nbt_load(percorso).compound
+    regione = next(iter(r["Regions"].values()))
+    sx, sy, sz = (abs(int(regione["Size"][k])) for k in ("x", "y", "z"))
+    voci = []
+    for v in regione["BlockStatePalette"]:
+        prop = {k: str(x) for k, x in dict(v.get("Properties", {})).items()}
+        voci.append((str(v["Name"]), prop))
+    lunghi = np.asarray(regione["BlockStates"], dtype=np.int64).astype(np.uint64)
+    bit = max(2, (len(voci) - 1).bit_length())
+    totale = sx * sy * sz
+    inizio = np.arange(totale, dtype=np.uint64) * np.uint64(bit)
+    parola, scarto = (inizio >> np.uint64(6)).astype(np.int64), inizio & np.uint64(63)
+    v = lunghi[parola] >> scarto
+    sborda = (scarto + np.uint64(bit)) > np.uint64(64)
+    succ = lunghi[np.minimum(parola + 1, len(lunghi) - 1)]
+    v = np.where(sborda, v | (succ << (np.uint64(64) - scarto)), v)
+    valori = (v & np.uint64((1 << bit) - 1)).astype(np.int32)
+    celle = valori.reshape(sy, sz, sx).transpose(2, 0, 1)          # -> (x, y, z)
+    celle = _sposta_aria(voci, celle)
+    return voci, _ritaglia(celle)
+
+
+def _traduci_o_ripara(ver, nome: str, prop: dict):
+    """(blocco, proprieta', tradotto?): la traduzione, o il parente piu' vicino
+    che la versione di riferimento conosce invece di un buco.
+
+    La catena ha cambiato nome fra le versioni (`chain` fino alla 1.21.x,
+    `iron_chain` dopo): si provano tutti e due, nell'ordine in cui il file la
+    dice per primo. Una catena persa sulle navi lasciava le vele staccate.
+    """
+    base, proprieta, tradotto = traduci_blocco(ver, nome, prop)
+    if tradotto:
+        return base, proprieta, True
+    n = nome.split(":", 1)[-1]
+    if n in ("chain", "iron_chain"):
+        for alt in ("iron_chain", "chain"):
+            b2, p2, ok2 = traduci_blocco(ver, "minecraft:" + alt, prop)
+            if ok2:
+                return b2, p2, True
+    rip = _ripara(nome, prop)
+    if rip is not None:
+        b2, p2, ok2 = traduci_blocco(ver, rip[0], rip[1])
+        if ok2:
+            return b2, p2, True
+    return base, proprieta, False
+
+
+def _da_voci(percorso: str, voci, celle, versione) -> Modello:
+    """Traduce una lista di (nome, proprieta') e costruisce il Modello."""
+    ver = traduttore(versione)
+    tavolozza: list[tuple[str, dict]] = []
+    non_tradotti: set[str] = set()
+    for nome, prop in voci:
+        base, proprieta, tradotto = _traduci_o_ripara(ver, nome, prop)
+        if not tradotto:
+            non_tradotti.add(nome.split(":", 1)[-1])
+        tavolozza.append((base, proprieta))
+    segnaposto = [i for i, (n, _) in enumerate(voci) if n.split(":", 1)[-1] in SEGNAPOSTO]
+    if segnaposto:
+        celle = np.where(np.isin(celle, segnaposto), -1, celle)
+    m = Modello(nome=os.path.splitext(os.path.basename(percorso))[0],
+                celle=celle, tavolozza=tavolozza,
+                non_tradotti=frozenset(non_tradotti))
+    m.porta = _trova_porta(m)
+    return m
+
+
+def _leggi_nbt(percorso: str, versione) -> Modello:
     from amulet_nbt import load as nbt_load
 
     radice = nbt_load(percorso).compound
@@ -256,19 +449,11 @@ def _leggi(percorso: str, versione) -> Modello:
     for i, voce in enumerate(tavola):
         nome = str(voce["Name"])
         prop = {k: str(v) for k, v in dict(voce.get("Properties", {})).items()}
-        if nome.endswith("structure_void"):
+        if nome.split(":", 1)[-1] in SEGNAPOSTO:
             vuoto.add(i)
             tavolozza.append(("air", {}))
             continue
-        base, proprieta, tradotto = traduci_blocco(ver, nome, prop)
-        if not tradotto:
-            # un blocco piu' recente della versione di riferimento: si cerca
-            # il suo parente piu' vicino invece di lasciare un buco
-            rip = _ripara(nome, prop)
-            if rip is not None:
-                b2, p2, ok2 = traduci_blocco(ver, rip[0], rip[1])
-                if ok2:
-                    base, proprieta, tradotto = b2, p2, True
+        base, proprieta, tradotto = _traduci_o_ripara(ver, nome, prop)
         if not tradotto:
             non_tradotti.add(nome.split(":", 1)[-1])
         tavolozza.append((base, proprieta))
@@ -372,14 +557,16 @@ def carica_stili(percorso: str) -> dict[str, frozenset[str]]:
         return {}
 
 
-def carica_cartella(percorso: str, versione=(1, 21, 4)) -> list[Modello]:
-    """Tutti i `.nbt` di una cartella. Un file rotto non ferma gli altri."""
+def carica_cartella(percorso: str, versione=(1, 21, 4),
+                    estensioni: tuple[str, ...] = (".nbt",)) -> list[Modello]:
+    """Tutti i `.nbt` di una cartella (o le `estensioni` date: `.schem` e
+    `.litematic` per le navi e i castelli). Un file rotto non ferma gli altri."""
     if not os.path.isdir(percorso):
         return []
     stili = carica_stili(percorso)
     fuori: list[Modello] = []
     for nome in sorted(os.listdir(percorso)):
-        if not nome.lower().endswith(".nbt"):
+        if not nome.lower().endswith(estensioni):
             continue
         try:
             m = carica(os.path.join(percorso, nome), versione)
@@ -484,7 +671,8 @@ def candidati_lotto(modelli: list[Modello], larghezza: int, profondita: int,
 
 
 def assegna(modelli: list[Modello], edifici: list, rng: np.random.Generator,
-            altezza_massima: int = 24) -> dict[int, tuple[int, int]]:
+            altezza_massima: int = 24,
+            vicino_acqua: set[int] | None = None) -> dict[int, tuple[int, int]]:
     """Il modello di ogni lotto, senza ripetizioni dentro lo stesso villaggio.
 
     Ritorna {indice edificio: (modello, rotazione)}. Un lotto in cui non
@@ -503,10 +691,14 @@ def assegna(modelli: list[Modello], edifici: list, rng: np.random.Generator,
         if not e.palafitta:                # e' un modificatore, non una casa
             gruppi.setdefault(e.villaggio, []).append(i)
     fuori: dict[int, tuple[int, int]] = {}
+    acquatici = frozenset(k for k, m in enumerate(modelli) if m.acquatico)
     for _, indici in sorted(gruppi.items()):
+        # le case con l'acqua solo dove l'acqua c'e' gia' (`vicino_acqua`)
         cand = {i: candidati_lotto(modelli, edifici[i].larghezza + 2 * edifici[i].gronda,
                                    edifici[i].profondita + 2 * edifici[i].gronda,
-                                   edifici[i].porta, altezza_massima, edifici[i].stile)
+                                   edifici[i].porta, altezza_massima, edifici[i].stile,
+                                   frozenset() if (vicino_acqua and i in vicino_acqua)
+                                   else acquatici)
                 for i in indici}
         usati: set[int] = set()
         for i in sorted(indici, key=lambda i: (len({k for k, _ in cand[i]}), i)):

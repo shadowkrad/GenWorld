@@ -35,6 +35,7 @@ from . import fauna as FA
 from . import fiumi as R
 from . import insediamenti as I
 from . import isolate as IS
+from . import monumenti as MN
 from . import laghi as LG
 from . import mappa as M
 from . import miniere as MI
@@ -51,6 +52,9 @@ from .profilo import Profilo, maschera_decoro
 from .rumore import dettaglio, quantizza
 
 LIVELLO_MARE = 62
+# Fin dove si scrivono i blocchi: l'albero di una nave da 170 blocchi arriva
+# oltre quota 220, e una cima tagliata si vede.
+ALTEZZA_MONDO = 256
 
 # che mestiere fa chi serve a un banco, dalla merce
 MERCE_MESTIERE = {"frutta": "fruttivendolo", "carne": "macellaio",
@@ -152,6 +156,12 @@ class Opzioni:
     # senza cartelle valide: nessun portale, non un errore - non c'e' un
     # ripiego disegnato da codice per questa struttura (vedi `avamposti.py`).
     templates_portale: str = ""
+    # Il castello (uno per mappa) e le navi in mare (vedi `monumenti.py`):
+    # cartelle di schemi `.schem` / `.litematic` / `.nbt`. Vuote = niente.
+    templates_castello: str = ""
+    templates_nave: str = ""
+    castelli: float = 1.0
+    navi: float = 1.0
     seed: int = 11
     # Versione Java di riferimento per il mondo scritto: decide sia il
     # DataVersion in level.dat sia la traduzione dei blocchi dei template (li
@@ -516,12 +526,12 @@ def _costruito(forma: tuple[int, int], edifici: list, muro, tipo_strada,
 
 
 def _pianifica_miniere(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
-                       muro, tipo_strada, note: list[str]) -> list:
+                       muro, tipo_strada, note: list[str], campi=None) -> list:
     """Ingressi di miniera sparsi, mai dentro un lotto, sotto una strada, dentro
     le mura o vicino al vulcano."""
     if op.miniere <= 0:
         return []
-    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada)
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi)
     # il portale, la piazzola e la trincea d'ingresso stanno fuori dal vulcano
     evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.BINARIO_FUORI + 4)
     mare_m = np.isin(a.cls, M.MARINO)
@@ -571,6 +581,9 @@ def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
                              modelli_cimitero=modelli_cim or None,
                              modelli_portale=modelli_portale or None)
     if avamposti:
+        # i campi si piantano su un pianoro e il terreno sotto si spiana del
+        # tutto: a gradoni, l'accampamento restava a pezzi a quote diverse
+        AP.spiana_campi(avamposti, h, seme=op.seed)
         protetto |= AP.maschera(avamposti, a.cls.shape)
         st = AP.statistiche(avamposti)
         note.append(f"avamposti: {st['campi']} accampamenti, "
@@ -633,6 +646,59 @@ def _pianifica_isolate(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
         note.append(f"case isolate: {len(isolate)} "
                     f"({', '.join(modelli_case[c.modello].nome for c in isolate)})")
     return isolate
+
+
+def _modelli_monumenti(op: Opzioni) -> tuple[list, list]:
+    return MN.carica(op.templates_castello if op.castelli > 0 else "",
+                     op.templates_nave if op.navi > 0 else "", op.versione)
+
+
+def _pianifica_monumenti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                         banchi: list, muro, tipo_strada, campi, urbano,
+                         avamposti: list, miniere: list, arredi_r,
+                         isolate: list, n_case: int, castelli: list, navi: list,
+                         protetto: np.ndarray, note: list[str]) -> list:
+    """Il castello (uno per mappa) e le navi in mare. Si pianificano dopo tutto
+    il resto, come le case isolate, e prendono lo stesso posto nel catalogo:
+    gli indici dei modelli seguono le case (poi i castelli, poi le navi)."""
+    if not (castelli or navi):
+        return []
+    from scipy.ndimage import binary_dilation as _dil
+    fuori: list = []
+    if castelli:
+        evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi)
+        if urbano.any():
+            evita |= _dil(urbano, iterations=10)
+        evita |= _dil(np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME), iterations=4)
+        if avamposti:
+            evita |= AP.maschera(avamposti, a.cls.shape, margine=6)
+        if miniere:
+            evita |= MI.maschera_ingresso(miniere, a.cls.shape, margine=10)
+        if arredi_r.arredi:
+            evita |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=1)
+        if isolate:
+            evita |= IS.maschera(isolate, a.cls.shape, margine=8)
+        evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 20)
+        c = MN.pianifica_castello(castelli, n_case, h, a.cls, evita, IS._TERRENI,
+                                  LIVELLO_MARE, seed=op.seed + 91)
+        if c is not None:
+            fuori.append(c)
+            protetto |= IS.maschera([c], a.cls.shape)
+            note.append(f"castello: {castelli[c.modello - n_case].nome} in "
+                        f"({c.x}, {c.z}), quota {c.base}")
+        else:
+            note.append("castello: nessun posto abbastanza piano "
+                        f"(scartati: {MN.pianifica_castello.scarti})")
+    if navi:
+        ns = MN.pianifica_navi(navi, n_case + len(castelli), h, a.cls, M.MARINO,
+                               LIVELLO_MARE, densita=op.navi, seed=op.seed + 93)
+        fuori.extend(ns)
+        if ns:
+            note.append(f"navi: {len(ns)} in mare "
+                        f"({', '.join(navi[c.modello - n_case - len(castelli)].nome for c in ns)})")
+        else:
+            note.append("navi: nessuno specchio di mare abbastanza profondo")
+    return fuori
 
 
 def _semina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
@@ -840,8 +906,15 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
     modelli_case = (TM.carica_cartelle(cartelle_t, versione=op.versione)
                     if cartelle_t and edifici else [])
+    # le case con uno specchio d'acqua solo accanto a un'acqua vera (quella
+    # della mappa originale, non il fosso: e' lei che spiana e allaga)
+    vicino_acqua = {
+        i for i, e in enumerate(edifici)
+        if np.isin(a.cls[max(0, e.z - 4):e.z + e.profondita + 4,
+                         max(0, e.x - 4):e.x + e.larghezza + 4], M.ACQUA).any()}
     scelte = (TM.assegna(modelli_case, edifici,
-                         np.random.default_rng(op.seed * 7717 + 3))
+                         np.random.default_rng(op.seed * 7717 + 3),
+                         vicino_acqua=vicino_acqua)
               if modelli_case else {})
     if modelli_case:
         note.append(f"case: {len(scelte)} su {len(edifici)} lotti hanno una "
@@ -965,7 +1038,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     # MINIERE. Sparse a caso su tutta la mappa, non vicino ai paesi: l'unico
     # legame con gli insediamenti e' negativo (vedi `_pianifica_miniere`).
     avanza(0.68, "miniere")
-    miniere = _pianifica_miniere(op, a, h, edifici, muro, tipo_strada, note)
+    miniere = _pianifica_miniere(op, a, h, edifici, muro, tipo_strada, note, campi=campi)
 
     # ACCAMPAMENTI E CIMITERI. Stessa idea, ma con un ingombro vero in
     # superficie: entrano anche in `protetto` (vedi `_pianifica_avamposti`).
@@ -996,6 +1069,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     isolate = _pianifica_isolate(op, a, h, edifici, banchi, muro, tipo_strada,
                                  campi, urbano, avamposti, miniere, arredi_r,
                                  modelli_case, protetto, note)
+    castelli, navi = _modelli_monumenti(op) if (op.templates_castello or op.templates_nave) else ([], [])
+    monumenti = _pianifica_monumenti(op, a, h, edifici, banchi, muro, tipo_strada,
+                                     campi, urbano, avamposti, miniere, arredi_r,
+                                     isolate, len(modelli_case), castelli, navi,
+                                     protetto, note)
+    isolate = isolate + monumenti
 
     avanza(0.75, "vegetazione")
     alberi, indice = _semina(op, a, h, edifici, muro, tipo_strada, scarpata, campi,
@@ -1045,6 +1124,25 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 # Scrittura
 # --------------------------------------------------------------------------
 
+def _dal_chunk(indice: dict, sx: int, sz: int) -> list:
+    """Quello che l'indice (per celle di 16 sulla MAPPA) dice del chunk che
+    parte da (sx, sz) in coordinate di mappa.
+
+    Il centro del mondo sta in `lato // 2`, che non e' un multiplo di 16 (500
+    su una mappa da 1000): un chunk del mondo copre quindi DUE celle
+    dell'indice per asse, non una. Cercare solo `(sx // 16, sz // 16)` perdeva
+    ogni edificio che stava nella seconda cella: la casa risultava tagliata a
+    meta' lungo il confine del chunk.
+    """
+    fuori: list = []
+    for cz in sorted({sz // 16, (sz + 15) // 16}):
+        for cx in sorted({sx // 16, (sx + 15) // 16}):
+            for k in indice.get((cx, cz), ()):
+                if k not in fuori:
+                    fuori.append(k)
+    return fuori
+
+
 def fetta(a: np.ndarray, sx: int, sz: int) -> np.ndarray:
     """Ritaglia un chunk da una mappa e la gira nell'ordine dei blocchi.
 
@@ -1093,10 +1191,11 @@ def fetta_orlo(a: np.ndarray, sx: int, sz: int, margine: int = 1) -> np.ndarray:
 
 def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   quota_c=None, lava_c=None, colata_c=None, muro_c=None,
-                  campi_c=None, ox=0, oz=0, y0=-64, y1=220,
+                  campi_c=None, ox=0, oz=0, y0=-64, y1=ALTEZZA_MONDO,
                   roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
                   manto_c=None, scarpata_c=None, sponda_c=None,
-                  campi_orlo_c=None, tipo_orlo_c=None):
+                  campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
+                  piazze=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -1142,20 +1241,17 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                     out[lx, ly, lz] = (muschio if (lx + lz + k) % 5 == 0
                                        else sasso)
 
-    # --- sponde dei fiumi ---------------------------------------------------
+    # --- sponde dei fiumi e dei fossati ------------------------------------
     # La fascia che il fiume scava per restare in un solco (vedi
     # `fiumi.livella`, `scavo_rive`) e' esclusa a monte dalla parete nuda
-    # apposta - vedi il commento su `sponda_m` in `scrivi()`. Un fiume e'
-    # terra scavata, non una cava: qui la superficie e' terra, per lo piu'
-    # battuta (`dirt`), ogni tanto piu' brulla (`coarse_dirt`), e ogni tanto
-    # una roccia che sporge - un bordo tutto uguale si legge finto quanto un
-    # bordo tutto in pietra. Solo lo strato esposto: sotto resta quello che
-    # la classe del terreno gia' prevede.
+    # apposta - vedi il commento su `sponda_m` in `scrivi()`. Qui NON si
+    # copre piu' di terra battuta: una sponda di `dirt` e `coarse_dirt` sembrava
+    # terra brulla in mezzo a un prato (o a un deserto). Il blocco di superficie
+    # e' quello che la classe del terreno prevede - erba, sabbia, neve - cioe'
+    # la vegetazione che circonda il fossato. Resta solo, ogni tanto, un
+    # sasso muschioso che spunta: un bordo tutto uguale si legge finto.
     if sponda_c is not None and np.any(sponda_c):
         sp = np.asarray(sponda_c).astype(bool)
-        terra = scrittore.blocco("dirt")
-        brulla = scrittore.blocco("coarse_dirt")
-        roccia_sp = scrittore.blocco("stone")
         muschio_sp = scrittore.blocco("mossy_cobblestone")
         for lx, lz in zip(*np.nonzero(sp)):
             cima_y = int(h_c[lx, lz]) - 1 - y0
@@ -1164,13 +1260,13 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
             # hash sulle coordinate DI MONDO, non locali al chunk: con quelle
             # locali il motivo si ripete identico a ogni confine di chunk.
             hv = ((ox + lx) * 73856093) ^ ((oz + lz) * 19349663)
-            r = hv % 100
-            if r < 8:
-                out[lx, cima_y, lz] = muschio_sp if r < 3 else roccia_sp
-            elif r < 20:
-                out[lx, cima_y, lz] = brulla
+            if hv % 100 < 3:
+                out[lx, cima_y, lz] = muschio_sp
             else:
-                out[lx, cima_y, lz] = terra
+                # la superficie del TERRITORIO, anche dove una parete ripida
+                # l'avrebbe fatta di roccia nuda
+                nome = SUPERFICIE.get(int(cls_c[lx, lz]), ("grass_block", "dirt"))[0]
+                out[lx, cima_y, lz] = scrittore.blocco(nome)
 
     # --- neve -------------------------------------------------------------
     # Non una quota netta ma una fascia: prima il manto sottile a chiazze,
@@ -1251,14 +1347,19 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         _posa_strada(out, scrittore, np.asarray(tipo_c), tipo_orlo,
                      np.asarray(quota_c).astype(np.int32),
                      np.asarray(h_c).astype(np.int32), ox, oz, y0)
+    if piazze:
+        _posa_piazze(out, scrittore, piazze, np.asarray(h_c).astype(np.int32),
+                     ox, oz, y0)
     if campi_c is not None and np.any(campi_c):
         campi_orlo = (np.asarray(campi_orlo_c) if campi_orlo_c is not None
                      else np.pad(np.asarray(campi_c), 1))
         _posa_campi(out, scrittore, np.asarray(campi_c), campi_orlo,
                     np.asarray(h_c).astype(np.int32), y0)
     if muro_c is not None and np.any(muro_c):
+        orlo_m = (np.asarray(muro_orlo_c) if muro_orlo_c is not None
+                  else np.pad(np.asarray(muro_c), ORLO_VARCO, mode="edge"))
         _posa_mura(out, scrittore, np.asarray(muro_c),
-                   np.asarray(h_c).astype(np.int32), ox, oz, y0)
+                   np.asarray(h_c).astype(np.int32), ox, oz, y0, orlo_m)
     return out
 
 
@@ -1350,7 +1451,7 @@ ALTEZZA_TORRE = 11
 PROFONDITA_FONDAMENTA = 24
 
 
-def _posa_mura(out, s, muro, h_c, ox, oz, y0):
+def _posa_mura(out, s, muro, h_c, ox, oz, y0, orlo=None):
     """Cinta muraria, torri e varchi.
 
     Il muro non ha una quota propria: segue il terreno, come un muro vero.
@@ -1382,16 +1483,46 @@ def _posa_mura(out, s, muro, h_c, ox, oz, y0):
     aria = s.id_aria
 
     # Il filo esterno/interno del muro: qualunque cella piena con almeno un
-    # vicino non pieno nello stesso chunk. Fuori dal ritaglio locale si
-    # considera pieno (il muro prosegue nel chunk accanto), altrimenti si
-    # inventerebbe un bordo - e quindi merli - proprio sul confine del chunk.
-    pieno = np.isin(muro, (1, 3))
-    bordo = np.zeros_like(pieno)
-    bordo[1:, :] |= pieno[1:, :] & ~pieno[:-1, :]
-    bordo[:-1, :] |= pieno[:-1, :] & ~pieno[1:, :]
-    bordo[:, 1:] |= pieno[:, 1:] & ~pieno[:, :-1]
-    bordo[:, :-1] |= pieno[:, :-1] & ~pieno[:, 1:]
-    bordo &= pieno
+    # vicino non pieno. Si guarda sulla mappa con l'ORLO attorno al chunk
+    # (`orlo`, vedi `ORLO_VARCO`): trattando come piena ogni cella fuori dal
+    # ritaglio, una cinta che correva lungo il confine del chunk non aveva
+    # piu' nessun bordo, e quindi nessun merlo, per tutto il tratto - "in alcuni
+    # lati mancano i merli". Senza orlo si ricade sul vecchio comportamento.
+    c = ORLO_VARCO
+    if orlo is not None:
+        pp = np.isin(orlo, (1, 3))
+        bp = np.zeros_like(pp)
+        bp[1:, :] |= pp[1:, :] & ~pp[:-1, :]
+        bp[:-1, :] |= pp[:-1, :] & ~pp[1:, :]
+        bp[:, 1:] |= pp[:, 1:] & ~pp[:, :-1]
+        bp[:, :-1] |= pp[:, :-1] & ~pp[:, 1:]
+        bp &= pp
+        bordo = bp[c:-c, c:-c]
+        pieno = pp[c:-c, c:-c]
+        cinta = np.isin(orlo, (1, 2, 3))               # il varco fa parte del cammino
+    else:
+        pieno = np.isin(muro, (1, 3))
+        bordo = np.zeros_like(pieno)
+        bordo[1:, :] |= pieno[1:, :] & ~pieno[:-1, :]
+        bordo[:-1, :] |= pieno[:-1, :] & ~pieno[1:, :]
+        bordo[:, 1:] |= pieno[:, 1:] & ~pieno[:, :-1]
+        bordo[:, :-1] |= pieno[:, :-1] & ~pieno[:, 1:]
+        bordo &= pieno
+        cinta = None
+    scale_per_verso = {v: s.blocco("stairs", material="stone_brick", facing=v,
+                                   half="bottom", shape="straight", waterlogged="false")
+                       for v in ("north", "east", "south", "west")}
+
+    def sulla_scala_alta(lx: int, lz: int) -> bool:
+        """Accanto c'e' l'ultimo gradino di una scalinata: li' la merlatura
+        si interrompe, dove si sale sul cammino di ronda."""
+        if orlo is None:
+            return False
+        for dx_, dz_ in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            v = int(orlo[lx + c + dx_, lz + c + dz_])
+            if v >= SCALA_BASE and (v - SCALA_BASE) % 8 >= 5:
+                return True
+        return False
 
     for lx in range(16):
         for lz in range(16):
@@ -1414,15 +1545,182 @@ def _posa_mura(out, s, muro, h_c, ox, oz, y0):
                 for k in range(base, min(cima, H)):
                     out[lx, k, lz] = blocco
                 # merli: un dente si' e uno no, solo sul filo del muro
-                if bordo[lx, lz] and (ox + lx + oz + lz) % 2 == 0 and 0 <= cima < H:
+                if (bordo[lx, lz] and (ox + lx + oz + lz) % 2 == 0 and 0 <= cima < H
+                        and not sulla_scala_alta(lx, lz)):
                     out[lx, cima, lz] = pietra
+                # Il cammino di ronda passa DENTRO le torri: la riga di mezzo
+                # (le cui due celle vicine, su entrambi gli assi, sono cinta o
+                # varco) si sgombera per due blocchi sopra la sommita' del muro,
+                # cosi' si gira tutta la cinta senza scendere.
+                if m == 3 and cinta is not None:
+                    x_, z_ = lx + c, lz + c
+                    if (cinta[x_ - 1, z_] and cinta[x_ + 1, z_]
+                            and cinta[x_, z_ - 1] and cinta[x_, z_ + 1]):
+                        for k in range(base + ALTEZZA_MURA, base + ALTEZZA_MURA + 2):
+                            if 0 <= k < H:
+                                out[lx, k, lz] = aria
+            elif m >= SCALA_BASE:
+                # un gradino della scalinata che sale dall'interno sul cammino
+                # di ronda: sotto, pietra piena fino a terra; sopra, la scala
+                v = m - SCALA_BASE
+                passo, verso = v % 8, (v // 8) // 4
+                for k in range(max(0, base), base + passo):
+                    if 0 <= k < H and out[lx, k, lz] == aria:
+                        out[lx, k, lz] = pietra
+                if 0 <= base + passo < H:
+                    out[lx, base + passo, lz] = scale_per_verso[
+                        ("north", "east", "south", "west")[verso]]
             else:
-                # varco: si sgombera il passaggio e si mette l'architrave
+                # varco: un portale vero (vedi `_posa_varco`)
+                if orlo is not None and _posa_varco(out, s, orlo, lx, lz, base,
+                                                    pietra):
+                    continue
                 for k in range(base, min(base + 5, H)):
                     out[lx, k, lz] = aria
                 for k in range(base + 5, min(base + ALTEZZA_MURA + 1, H)):
                     if 0 <= k < H:
                         out[lx, k, lz] = pietra
+
+
+# Di quante celle si deve vedere oltre il chunk per capire come e' orientato un
+# varco (largo cinque, profondo tre: puo' stare a cavallo di due chunk).
+ORLO_VARCO = 5
+SCALA_BASE = 16        # in `muro` i valori da qui in su sono gradini (vedi `citta._scale`)
+LARGHEZZA_VARCO = 5
+
+
+def _orientamento_varco(M, lx: int, lz: int):
+    """(asse della larghezza, posto in larghezza 0..4, posto in profondita'
+    0..2) di una cella di varco, o None.
+
+    Il varco e' un rettangolo di celle `2`, largo `LARGHEZZA_VARCO` e profondo
+    quanto la cinta, infilato nel muro. La larghezza e' l'asse lungo cui, oltre
+    il varco, c'e' di nuovo muro; sull'altro asse, oltre, c'e' campagna o citta'.
+    """
+    c = ORLO_VARCO
+    x, z = lx + c, lz + c
+
+    def corsa(asse):
+        d = (1, 0) if asse == 0 else (0, 1)
+        a = 0
+        while a < LARGHEZZA_VARCO and M[x - d[0] * (a + 1), z - d[1] * (a + 1)] == 2:
+            a += 1
+        b = 0
+        while b < LARGHEZZA_VARCO and M[x + d[0] * (b + 1), z + d[1] * (b + 1)] == 2:
+            b += 1
+        fine1 = M[x - d[0] * (a + 1), z - d[1] * (a + 1)]
+        fine2 = M[x + d[0] * (b + 1), z + d[1] * (b + 1)]
+        return a, b, fine1, fine2
+
+    a0, b0, f1, f2 = corsa(0)
+    a1, b1, g1, g2 = corsa(1)
+    n = LARGHEZZA_VARCO - 1
+    if a0 + b0 == n and f1 in (1, 3) and f2 in (1, 3) and a1 + b1 == 2:
+        return 0, a0, a1
+    if a1 + b1 == n and g1 in (1, 3) and g2 in (1, 3) and a0 + b0 == 2:
+        return 1, a1, a0
+    return None
+
+
+def _posa_varco(out, s, M, lx, lz, base, pietra) -> bool:
+    """Il portale: pilastri di pietra, arco a gradini, doppio battente scuro.
+
+    Dal riferimento dato in gioco (uno screenshot): due spalle massicce con
+    un riquadro scolpito in alto, l'arco che si stringe a gradini con scale
+    rovesciate, porte di rovere scuro e una lanterna appesa sopra, merli in
+    cima. Il varco e' largo cinque e profondo tre: ai lati (w = 0 e 4) due
+    pilastri pieni, in mezzo tre di passaggio con i battenti a meta'
+    profondita', cosi' dentro l'arco resta un'ombra. Ritorna False se la cella
+    non e' riconoscibile (si ricade sul vecchio varco).
+    """
+    o = _orientamento_varco(M, lx, lz)
+    if o is None:
+        return False
+    asse, w, t = o
+    H = out.shape[1]
+    aria = s.id_aria
+    # il muro corre lungo `asse`; si passa lungo l'altro
+    passaggio = "north" if asse == 0 else "west"
+    lato_basso = "west" if asse == 0 else "north"
+    lato_alto = "east" if asse == 0 else "south"
+    ultimo = LARGHEZZA_VARCO - 1
+    pilastro = w in (0, ultimo)
+    centro = w == ultimo // 2
+
+    def metti(dy, blocco):
+        k = base + dy
+        if 0 <= k < H:
+            out[lx, k, lz] = blocco
+
+    if pilastro:
+        for dy in range(0, ALTEZZA_MURA):
+            metti(dy, pietra)
+        if t != 1:
+            metti(4, s.blocco("stone_bricks", variant="chiseled"))     # riquadro scolpito
+            metti(ALTEZZA_MURA, pietra)                                  # merlo
+        return True
+
+    # sgombero: tre alti ai lati del passaggio, quattro al centro
+    for dy in range(0, 5):
+        metti(dy, aria)
+    if not centro:
+        # primo gradino dell'arco: scala rovesciata col dorso verso il pilastro
+        # forma universale: `stone_brick_stairs` resterebbe un nome non tradotto
+        metti(3, s.blocco("stairs", material="stone_brick",
+                          facing=lato_basso if w == 1 else lato_alto,
+                          half="top", shape="straight", waterlogged="false"))
+    for dy in (4, 5, 6):
+        metti(dy, pietra)
+    if centro:
+        metti(3, aria if t != 1 else s.blocco("lantern", hanging="true",
+                                              waterlogged="false"))
+        if t != 1:
+            metti(ALTEZZA_MURA, pietra)
+    # i battenti a meta' profondita'
+    if t == 1:
+        for dy, meta in ((0, "lower"), (1, "upper")):
+            metti(dy, s.blocco("door", facing=passaggio, half=meta,
+                               hinge="left" if w <= ultimo // 2 else "right",
+                               material="dark_oak", open="false", powered="false"))
+        metti(2, s.blocco("planks", material="dark_oak"))
+    return True
+
+
+def _posa_piazze(out, s, piazze, h_c, ox, oz, y0):
+    """Il lastricato tondo delle piazze: un disco di pietra a anelli.
+
+    `piazze` e' [(z, x, raggio)] in coordinate di mappa. Il selciato sta al
+    posto del blocco di superficie (la piazza e' piana: l'ha spianata la
+    citta'); la fontana, il pozzo, i banchi e la campana stanno sopra e si
+    posano dopo. Anelli: cornice di ciottoli sul bordo, una fascia di
+    andesite a meta' raggio, mattoni (con qualche muschio) il resto.
+    """
+    H = out.shape[1]
+    mattone = s.blocco("stone_bricks", variant="normal")
+    muschio = s.blocco("stone_bricks", variant="mossy")
+    crepa = s.blocco("stone_bricks", variant="cracked")
+    ciottolo = s.blocco("cobblestone")
+    andesite = s.blocco("andesite")
+    for pz, px, R in piazze:
+        if not (ox - R <= px < ox + 16 + R and oz - R <= pz < oz + 16 + R):
+            continue
+        for lx in range(16):
+            for lz in range(16):
+                d = float(np.hypot(oz + lz - pz, ox + lx - px))
+                if d > R + 0.4:
+                    continue
+                y = int(h_c[lx, lz]) - 1 - y0
+                if not (1 <= y < H):
+                    continue
+                hv = ((ox + lx) * 73856093) ^ ((oz + lz) * 19349663)
+                if d > R - 0.8:
+                    b = ciottolo
+                elif abs(d - R / 2.0) < 0.6:
+                    b = andesite
+                else:
+                    r = hv % 100
+                    b = muschio if r < 12 else (crepa if r < 20 else mattone)
+                out[lx, y, lz] = b
 
 
 def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
@@ -1503,7 +1801,7 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
         # gli edifici dopo gli alberi: una casa vince su un ramo
         propr_c = (fetta(piano.proprietario, sx, sz)
                   if piano.proprietario is not None else None)
-        for k in piano.indice_edifici.get((sx // 16, sz // 16), ()):
+        for k in _dal_chunk(piano.indice_edifici, sx, sz):
             ed = piano.edifici[k]
             if k in scelte:
                 mi, quarti = scelte[k]
@@ -1533,12 +1831,12 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
             # se il lotto non e' in `scelte` resta senza casa: se ne
             # occupano gli arredi (`arredi.py`), non un generatore
             # parametrico di riserva, che non esiste piu'.
-        for k in piano.indice_banchi.get((sx // 16, sz // 16), ()):
+        for k in _dal_chunk(piano.indice_banchi, sx, sz):
             E.costruisci_banco(blocchi, -64, sx, sz, piano.banchi[k],
                                tav_ed)
     if cat is not None and tav_ed is not None:
         # le case isolate: stessa posa di quelle dei villaggi
-        for k in piano.indice_isolate.get((sx // 16, sz // 16), ()):
+        for k in _dal_chunk(piano.indice_isolate, sx, sz):
             ci = piano.isolate[k]
             base_c = ci.base - modelli[ci.modello].affondo
             TM.fondazione(blocchi, -64, sx, sz, cat, ci.modello, ci.quarti,
@@ -1550,7 +1848,7 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
     if cat_ar is not None:
         # gli arredi dopo le case e i banchi: un lampione o un giardino
         # occupano solo cio' che e' rimasto libero
-        for k in piano.indice_arredi.get((sx // 16, sz // 16), ()):
+        for k in _dal_chunk(piano.indice_arredi, sx, sz):
             ar = piano.arredi[k]
             TM.costruisci(blocchi, -64, sx, sz, cat_ar, ar.modello, 0,
                           ar.x, ar.z, ar.base)
@@ -1637,7 +1935,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         manto_m = U.manto(a.cls, seed=op.seed)
         tav = V.Tavolozza(m) if piano.alberi is not None else None
         tav_ed = E.TavolozzaEdilizia(m) if (piano.edifici or piano.isolate) else None
-        tav_ba = BA.Tavolozza(m) if piano.edifici else None
+        tav_ba = (BA.Tavolozza(m)
+                  if (piano.edifici or piano.avamposti or piano.miniere) else None)
 
         # --- case da template ------------------------------------------
         # Il modello di ogni lotto lo ha deciso `pianifica()` (`piano.scelte`),
@@ -1646,6 +1945,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
         modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
                   if cartelle_t else [])
+        if piano.isolate and (op.templates_castello or op.templates_nave):
+            # dopo le case, nello stesso ordine di `pianifica()`: castelli, navi
+            castelli_m, navi_m = _modelli_monumenti(op)
+            modelli = modelli + castelli_m + navi_m
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
@@ -1663,6 +1966,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             return {"chunk": 0, "totale": len(tutti), "restano": 0,
                     "secondi": 0.0, "interrotto": False}
         meta = op.lato // 2
+        # i campi, in coordinate di GIOCO: i loro forzieri hanno il bottino di un
+        # accampamento (vedi `bauli.trova`)
+        campi_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CAMPO + 1)
+                   for av in piano.avamposti if av.tipo == "campo"]
         n = max(1, fino - da)
         for i, (cx, cz) in enumerate(tutti[da:fino]):
             if ferma is not None and ferma():
@@ -1688,7 +1995,11 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 campi_orlo_c=(fetta_orlo(piano.campi, sx, sz)
                              if piano.campi is not None else None),
                 tipo_orlo_c=(fetta_orlo(piano.tipo_strada, sx, sz)
-                            if piano.tipo_strada is not None else None))
+                            if piano.tipo_strada is not None else None),
+                muro_orlo_c=(fetta_orlo(piano.muro, sx, sz, ORLO_VARCO)
+                             if piano.muro is not None else None),
+                piazze=[(c.piazza[0], c.piazza[1], c.raggio_piazza)
+                        for c in piano.citta])
             # Il sottosuolo si scava DOPO che `blocchi` ha gia' le strutture
             # in superficie (mura, strade, campi, case): le caverne devono
             # scavare nella roccia, non dentro una casa o sotto una strada
@@ -1700,7 +2011,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                          if piano.protetto is not None else None)
             SS.posa(blocchi, tav_ss, fetta(piano.h, sx, sz), sx, sz, -64,
                     piano.caverne,
-                    piano.indice_caverne.get((sx // 16, sz // 16), ()),
+                    _dal_chunk(piano.indice_caverne, sx, sz),
                     seed=19, protetto_c=protetto_c)
             # Le miniere DOPO le caverne, per lo stesso motivo: scavano
             # anche loro, e i filoni lungo il percorso devono sostituire
@@ -1708,11 +2019,15 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # nello stesso punto. Stessa protezione delle caverne: le
             # gallerie evitano di NASCERE in un insediamento (`evita` in
             # `miniere.pianifica`) ma possono comunque attraversarne uno.
+            minerali_g: set = set()
             if tav_mi is not None:
+                tav_mi.bauli.clear()
                 MI.posa(blocchi, tav_mi, fetta(piano.h, sx, sz), sx, sz, -64,
                         piano.miniere,
-                        piano.indice_miniere.get((sx // 16, sz // 16), ()),
+                        _dal_chunk(piano.indice_miniere, sx, sz),
                         tav_ss.scavabile, seed=53, protetto_c=protetto_c)
+                # i forzieri delle gallerie, in coordinate di GIOCO per `bauli.trova`
+                minerali_g = {(x - meta, y, z - meta) for x, y, z in tav_mi.bauli}
             # Accampamenti e cimiteri: SENZA `protetto_c` - a differenza
             # dello scavo delle caverne e delle miniere, qui non c'e' niente
             # da proteggere da questo disegno, ed e' proprio il loro stesso
@@ -1721,11 +2036,12 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # neanche `TM.costruisci()` (le case) lo controlla piu' sotto.
             if tav_av is not None:
                 AP.posa(blocchi, tav_av, sx, sz, -64, piano.avamposti,
-                       piano.indice_avamposti.get((sx // 16, sz // 16), ()),
+                       _dal_chunk(piano.indice_avamposti, sx, sz),
                        cat_cimitero=cat_cim, aria_cimitero=aria_cim,
                        basamento_cimitero=basamento_cim,
                        cat_portale=cat_portale, aria_portale=aria_portale,
-                       basamento_portale=basamento_portale)
+                       basamento_portale=basamento_portale,
+                       h_c=fetta(piano.h, sx, sz))
             if tav is not None:
                 # Si disegnano anche gli alberi dei chunk vicini: uno piantato
                 # a un blocco dal bordo sporge qui, e filtrando per centro
@@ -1753,7 +2069,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # qualunque senza nessun blocco `chest`: in gioco restava sempre
             # vuoto, e il controllo con un mondo di un solo chunk non lo vedeva
             # perche' a lato=16 l'offset `meta` e' zero.
-            bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71)
+            bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
+                                campi=campi_g, minerali=minerali_g)
                       if tav_ba is not None else None)
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
             scritti += 1

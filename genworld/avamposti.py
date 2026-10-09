@@ -47,7 +47,7 @@ import numpy as np
 
 from . import template as TM
 
-RAGGIO_CAMPO = 3        # meta' lato del campo (7x7)
+RAGGIO_CAMPO = 7        # meta' lato del campo (15x15): terreno calpestato in cerchio
 RAGGIO_CIMITERO = 5     # meta' lato del cimitero PROCEDURALE (11x11) - solo
                         # per il ripiego, vedi il commento sopra. Un cimitero
                         # da template usa le dimensioni vere del modello,
@@ -138,6 +138,7 @@ class Nemico:
 
 # distanza minima, in celle, fra due avamposti dello STESSO tipo: nessun
 # luogo si ripete a portata d'occhio
+RILIEVO_MASSIMO_CAMPO = 5     # dislivello (10-90 percentile) ammesso sotto un accampamento
 DISTANZA_FRA_SIMILI = {"campo": 130, "cimitero": 220, "portale": 400}
 
 
@@ -226,6 +227,14 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, evita: np.ndarray | None = 
             if any(a.tipo == tipo and (a.x - x) ** 2 + (a.z - z) ** 2 < lontano ** 2
                    for a in fuori):
                 continue
+            if tipo == "campo":
+                # un accampamento si pianta su un pianoro, non su un pendio a
+                # gradoni: dove il rilievo e' troppo si passa oltre (poi il
+                # terreno si spiana, vedi `spiana_campi`)
+                zona = altezze[z - raggio:z + raggio + 1, x - raggio:x + raggio + 1]
+                lo, hi = np.percentile(zona, (10, 90))
+                if hi - lo > RILIEVO_MASSIMO_CAMPO:
+                    continue
             y = int(altezze[z, x])
             modelli = modelli_per_tipo.get(tipo)
             modello = int(rng.integers(0, len(modelli))) if modelli else -1
@@ -234,6 +243,28 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, evita: np.ndarray | None = 
             occupati.append((x, z, raggio))
             piazzati += 1
     return fuori
+
+
+def spiana_campi(avamposti: list[Avamposto], h: np.ndarray, seme: int = 0) -> int:
+    """Spiana il terreno sotto ogni campo alla quota mediana del sito, con la
+    scarpata irregolare dei castelli. Ritorna quanti ne ha spianati. Lo fa
+    `pianifica`'s chiamante prima che qualcuno legga `h`: strade, alberi e
+    arredi vengono dopo e vedono il terreno gia' piano."""
+    from .monumenti import appiana
+    n = 0
+    for av in avamposti:
+        if av.tipo != "campo":
+            continue
+        r = RAGGIO_CAMPO
+        z0, x0 = av.z - r, av.x - r
+        if z0 < 0 or x0 < 0 or z0 + 2 * r + 1 > h.shape[0] or x0 + 2 * r + 1 > h.shape[1]:
+            continue
+        base = int(np.median(h[z0:z0 + 2 * r + 1, x0:x0 + 2 * r + 1]))
+        appiana(h, x0, z0, 2 * r + 1, 2 * r + 1, base, seme=seme * 31 + av.x + av.z,
+                fascia=8)
+        av.y = base
+        n += 1
+    return n
 
 
 def indice_per_chunk(avamposti: list[Avamposto], passo: int = 16) -> dict:
@@ -313,6 +344,12 @@ def nemici(avamposti: list[Avamposto], seed: int = 0,
             # centro, ne' panca, ne' barile, ne' staccionata)
             for specie, dx, dz in (("zombie", 1, 1), ("zombie", -1, -1)):
                 posti.append((specie, av.x + dx + 0.5, float(av.y + 1), av.z + dz + 0.5))
+            # i cavalli del campo, in due punti diversi del cerchio
+            from .fauna import Animale
+            for k, (dx, dz) in enumerate(CAVALLI_CAMPO):
+                fuori.append(Animale(x=av.x + dx, y=float(av.y + 1), z=av.z + dz,
+                                     specie="cavallo",
+                                     seme=int(rng.integers(0, 2 ** 31 - 1)) + i * 211 + k))
         elif av.tipo == "cimitero":
             if av.modello >= 0 and modelli_cimitero:
                 m = modelli_cimitero[av.modello]
@@ -423,6 +460,7 @@ class Tavolozza:
 
     def __init__(self, scrittore):
         s = scrittore
+        self.aria = s.id_aria
         self.falo = s.blocco("campfire", facing="north", lit="true",
                              signal_fire="false", waterlogged="false")
         self.panca_x = s.blocco("log", axis="x", material="oak", stripped="false")
@@ -439,23 +477,46 @@ class Tavolozza:
                                west="none", waterlogged="false")
         self.cripta_a = s.blocco("stone_bricks", variant="cracked")
         self.cripta_b = s.blocco("stone_bricks", variant="mossy")
+        # terreno calpestato del campo: un mosaico di terra battuta, brulla e
+        # sentiero, non un pavimento
+        self.calpestato = [s.blocco("grass_path"), s.blocco("coarse_dirt"),
+                           s.blocco("grass_path"), s.blocco("dirt"),
+                           s.blocco("coarse_dirt"), s.blocco("podzol", snowy="false")]
+        self.fieno = s.blocco("hay_block", axis="y")
+        self.forziere = {v: s.blocco("chest", facing=v, connection="none", material="wood")
+                         for v in ("north", "south", "east", "west")}
         self.ragnatela = s.blocco("cobweb")
         self.rovo = s.blocco("plant", plant_type="dead_bush")
 
 
+# Il campo, in coordinate (dx, dz) dal fuoco. Tutto dentro il cerchio di terreno
+# calpestato (raggio `TERRENO_CAMPO`); la staccionata rada sta fuori, a r=7.
+TERRENO_CAMPO = 6.4
+BARILI_CAMPO = ((4, 2), (-3, 4), (-4, -2), (2, -4))
+FORZIERE_CAMPO = (-4, 2)           # rivolto verso il fuoco (est)
+FIENO_CAMPO = ((5, -2, 0), (5, -3, 0), (5, -3, 1), (4, -4, 0))     # (dx, dz, strato)
+CAVALLI_CAMPO = ((-3.5, -4.5), (3.5, 4.5))
+
+
 def _carica_campo(out: np.ndarray, tav: Tavolozza, av: Avamposto, ox: int,
-                  oz: int, y0: int, protetto_c=None) -> None:
-    """Il campo: fuoco al centro, panche ai quattro lati, barili sui due
-    angoli opposti, staccionata rada intorno con un varco a sud.
+                  oz: int, y0: int, protetto_c=None, h_c=None) -> None:
+    """Il campo: un cerchio di terreno calpestato con il fuoco al centro e
+    quattro panche, qualche barile in giro, un forziere, balle di fieno e, fuori
+    dal cerchio, una staccionata rada con un varco a sud. I cavalli li mettono
+    `nemici()`, il bottino del forziere `bauli.trova()`.
+
+    Segue il terreno: ogni colonna usa la SUA quota (`h_c`), non quella del
+    centro - un cerchio di tredici blocchi su un pendio non sta tutto a una
+    quota. Senza `h_c` si ricade sulla quota del fuoco.
 
     Gira su TUTTO il chunk come `miniere._carica_ingresso`, non solo sulla
-    colonna del centro: il campo e' 7x7, quindi puo' stare a cavallo di piu'
-    di un chunk. Funziona solo se `indice_per_chunk` registra l'avamposto in
+    colonna del centro: il campo e' 15x15, quindi puo' stare a cavallo di piu'
+    chunk. Funziona solo se `indice_per_chunk` registra l'avamposto in
     ogni chunk toccato - vedi il commento li'.
     """
     H = out.shape[1]
     r = RAGGIO_CAMPO
-    base = av.y - y0
+    centro = av.y - y0
     for lx in range(16):
         wx = ox + lx
         dx = wx - av.x
@@ -468,17 +529,33 @@ def _carica_campo(out: np.ndarray, tav: Tavolozza, av: Avamposto, ox: int,
                 continue
             if protetto_c is not None and protetto_c[lx, lz]:
                 continue
-            if not (0 <= base < H):
+            base = (int(h_c[lx, lz]) - y0) if h_c is not None else centro
+            if not (1 <= base < H):
                 continue
+            d = (dx * dx + dz * dz) ** 0.5
+            hv = (wx * 73856093) ^ (wz * 19349663)
+            if d <= TERRENO_CAMPO:
+                out[lx, base - 1, lz] = tav.calpestato[hv % len(tav.calpestato)]
+                # via erba alta e fiori: su terra battuta non crescono, e
+                # una pianta lasciata li' resterebbe sospesa a mezz'aria
+                out[lx, base, lz] = tav.aria
+                if base + 1 < H:
+                    out[lx, base + 1, lz] = tav.aria
             if dx == 0 and dz == 0:
                 out[lx, base, lz] = tav.falo
                 continue
             if (dx, dz) in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 out[lx, base, lz] = tav.panca_x if dx == 0 else tav.panca_z
                 continue
-            if (abs(dx), abs(dz)) == (r - 1, r - 1):
+            if (dx, dz) in BARILI_CAMPO:
                 out[lx, base, lz] = tav.barile
                 continue
+            if (dx, dz) == FORZIERE_CAMPO:
+                out[lx, base, lz] = tav.forziere["east"]
+                continue
+            for fx, fz, strato in FIENO_CAMPO:
+                if (dx, dz) == (fx, fz) and 0 <= base + strato < H:
+                    out[lx, base + strato, lz] = tav.fieno
             if max(abs(dx), abs(dz)) == r:
                 if dz == r and abs(dx) <= 1:
                     continue          # il varco d'ingresso, niente staccionata
@@ -577,7 +654,7 @@ def posa(out: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
         avamposti: list[Avamposto], quali, cat_cimitero: "TM.Catalogo | None" = None,
         aria_cimitero: int = 0, basamento_cimitero: int = 0,
         cat_portale: "TM.Catalogo | None" = None, aria_portale: int = 0,
-        basamento_portale: int = 0, protetto_c=None) -> None:
+        basamento_portale: int = 0, protetto_c=None, h_c=None) -> None:
     """Campi, cimiteri e portali dentro il chunk (16, H, 16).
 
     `cat_cimitero`/`cat_portale` (opzionali): i cataloghi dei modelli da
@@ -592,7 +669,7 @@ def posa(out: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
     for i in quali:
         av = avamposti[i]
         if av.tipo == "campo":
-            _carica_campo(out, tav, av, ox, oz, y0, protetto_c)
+            _carica_campo(out, tav, av, ox, oz, y0, protetto_c, h_c)
         elif av.tipo == "cimitero":
             if cat_cimitero is not None and av.modello >= 0:
                 _carica_struttura_template(out, cat_cimitero, av, ox, oz, y0,
