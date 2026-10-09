@@ -20,6 +20,7 @@ import numpy as np
 
 from .arredi import Disegno
 from .isolate import CasaIsolata
+from .monumenti import appiana
 
 DISTANZA_MARE = 40          # dal bordo della piana al mare, perche' sia un porto
 MARE_MINIMO = 1500          # celle di una distesa: sotto e' un laghetto, non un mare
@@ -324,10 +325,10 @@ def _faro_da_modello(m, indice: int, citta: list, h, mare, occ, livello_mare: in
                 fp = h[z0:z0 + iz, x0:x0 + ix]
                 lo, hi = np.percentile(fp, (5, 95))
                 base = int(np.median(fp))
-                if hi - lo > 5 or base <= livello_mare:
+                if hi - lo > 9 or base <= livello_mare:
                     continue
                 vicino = float(dist_mare[z0:z0 + iz, x0:x0 + ix].min())
-                if vicino > 20:
+                if vicino > 26:
                     continue
                 punteggio = -float(hi - lo) - 0.05 * vicino
                 if meglio is None or punteggio > meglio[0]:
@@ -383,6 +384,9 @@ def pianifica(citta: list, cls: np.ndarray, h: np.ndarray, marino, livello_mare:
             k = int(r.integers(0, len(fari)))
             faro_t = _faro_da_modello(fari[k], primo_faro + k, citta, h, mare, occ, livello_mare)
             if faro_t is not None:
+                # il terreno si adatta al faro con una scarpata irregolare
+                appiana(h, faro_t.x, faro_t.z, faro_t.larghezza, faro_t.profondita,
+                        faro_t.base, seme=faro_t.x + faro_t.z, fascia=20, escludi=mare)
                 pezzi.append(faro_t)
                 occ[faro_t.z - 1:faro_t.z + faro_t.profondita + 1,
                     faro_t.x - 1:faro_t.x + faro_t.larghezza + 1] = True

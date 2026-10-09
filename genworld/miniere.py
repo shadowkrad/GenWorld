@@ -688,6 +688,10 @@ class Tavolozza:
             "north_south", "east_west", "north_east", "north_west",
             "south_east", "south_west",
             "ascending_north", "ascending_south", "ascending_east", "ascending_west")}
+        # il binario esterno finisce con una fermata: una rotaia frenante (non
+        # alimentata) e un paraurti di pietra in testa
+        self.freno = {forma: s.blocco("powered_rail", shape=forma, powered="false")
+                      for forma in ("east_west", "north_south")}
         self.palo = s.blocco("log", axis="y", material="oak", stripped="true")
         # le travi orizzontali sono tronchi interi, non scortecciati: si
         # distinguono dai pali verticali e danno il colore del legno grezzo
@@ -1024,22 +1028,31 @@ def _carica_portale(out, tav, h_c, mn: Miniera, ox: int, oz: int, y0: int,
             if protetto_c is not None and protetto_c[lx, lz]:
                 continue
             sup = int(h_c[lx, lz])
+            # La piazzola e' del TERRITORIO, non di ghiaia: sabbia nel deserto,
+            # erba nella foresta, neve sulla neve. Il blocco di superficie e quello
+            # sotto si leggono prima di toccare la colonna.
+            sopra, sotto = superficie(wx, wz, k, -j)
             # si porta il suolo alla quota del pavimento: riempiendo se sta
             # piu' in basso, scavando se piu' in alto
             for y in range(max(1 + y0, fy - 6), fy + 1):
                 ly = y - y0
                 if 1 <= ly < H and out[lx, ly, lz] == tav.aria:
-                    out[lx, ly, lz] = tav.ghiaia
+                    out[lx, ly, lz] = sotto
             ly_f = fy - y0
             if 1 <= ly_f < H:
-                out[lx, ly_f, lz] = tav.ghiaia
+                out[lx, ly_f, lz] = sopra
             for y in range(fy + 1, max(fy + 5, sup)):
                 ly = y - y0
                 if 1 <= ly < H:
                     out[lx, ly, lz] = tav.aria
             if k == 0 and 1 <= ly_f + 1 < H:
                 forma = "east_west" if r.dz == 0 else "north_south"
-                out[lx, ly_f + 1, lz] = tav.rotaia[forma]
+                if j == BINARIO_FUORI:
+                    out[lx, ly_f + 1, lz] = tav.muretto           # il paraurti, in testa
+                elif j == BINARIO_FUORI - 1:
+                    out[lx, ly_f + 1, lz] = tav.freno[forma]      # la fermata
+                else:
+                    out[lx, ly_f + 1, lz] = tav.rotaia[forma]
 
 
 def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,

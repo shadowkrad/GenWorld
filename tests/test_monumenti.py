@@ -131,3 +131,47 @@ class TestPiazza(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestErosioneAttornoAlleStrutture(unittest.TestCase):
+    """Niente zolle rettangolari a picco: il terreno si raccorda."""
+
+    def test_appiana_non_tocca_le_celle_escluse(self):
+        h = np.full((80, 80), 60, np.int32)
+        h[:, 50:] = 40                                   # un fosso (il mare)
+        mare = h < 50
+        copia = h.copy()
+        MN.appiana(h, 20, 30, 20, 20, 62, seme=1, fascia=20, escludi=mare)
+        self.assertTrue((h[mare] == copia[mare]).all(), "toccato il mare")
+        self.assertTrue((h[30:50, 20:40] == 62).all(), "il sedime non e' piano")
+
+    def test_a_ridosso_di_un_dislivello_non_resta_un_muro(self):
+        h = np.full((120, 120), 60, np.int32)
+        h[:, 82:] = 50                                   # il terreno scende di 10 subito dopo il sedime
+        MN.appiana(h, 62, 50, 20, 20, 60, seme=3, fascia=24)
+        salti = np.abs(np.diff(h[60, 78:118].astype(int)))
+        self.assertLessEqual(int(salti.max()), 2, f"parete a picco: {salti.max()}")
+        self.assertGreater(len(np.unique(h[60, 82:106])), 5, "scarpata troppo corta")
+
+    def test_il_piede_del_faro_si_restringe_salendo(self):
+        celle = np.full((12, 14, 12), -1, np.int32)
+        gy = 1
+        celle[:, 0:2, :] = 1                              # terra (dirt) sotto
+        celle[2:10, 2:9, 2:10] = 0                        # l'altura: 7 strati di pietra
+        tav = [("stone", {}), ("dirt", {}), ("grass_block", {})]
+        out = MN._piede_a_gradoni(celle, gy, tav, piede=5, altura=7)
+        self.assertEqual(out.shape, (12 + 10, 14, 12 + 10))
+        conteggi = [int((out[:, gy + 1 + k, :] >= 0).sum()) for k in range(7)]
+        self.assertGreater(conteggi[0], conteggi[-1], conteggi)
+        self.assertEqual(conteggi, sorted(conteggi, reverse=True), "non scende a gradoni")
+        # la sagoma originale e' al suo posto (spostata del margine)
+        self.assertTrue((out[5 + 2:5 + 10, gy + 1, 5 + 2:5 + 10] >= 0).all())
+
+    def test_il_piede_non_cambia_la_costruzione_in_cima(self):
+        celle = np.full((12, 14, 12), -1, np.int32)
+        celle[:, 0:2, :] = 1
+        celle[2:10, 2:9, 2:10] = 0
+        celle[4:8, 9:13, 4:8] = 2                         # la torre, sopra l'altura
+        tav = [("stone", {}), ("dirt", {}), ("grass_block", {})]
+        out = MN._piede_a_gradoni(celle, 1, tav, piede=4, altura=7)
+        self.assertTrue((out[4 + 4:8 + 4, 9:13, 4 + 4:8 + 4] == 2).all())

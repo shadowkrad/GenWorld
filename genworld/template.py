@@ -485,11 +485,38 @@ def _leggi_nbt(percorso: str, versione) -> Modello:
 
     lana = [i for i, voce in enumerate(tavola) if str(voce["Name"]).endswith("_wool")]
     togli_stendardi(celle, lana)
+    aria = [i for i, voce in enumerate(tavola) if str(voce["Name"]).endswith(":air")]
+    togli_segnaposto_d_angolo(celle, aria)
     m = Modello(nome=os.path.splitext(os.path.basename(percorso))[0],
                 celle=celle, tavolozza=tavolozza,
                 non_tradotti=frozenset(non_tradotti))
     m.porta = _trova_porta(m)
     return m
+
+
+def togli_segnaposto_d_angolo(celle: np.ndarray, aria: list[int] = ()) -> int:
+    """Toglie i blocchi isolati sugli ANGOLI della scatola del modello.
+
+    Chi disegna un template spesso mette un blocco qualunque (erba, lana, un
+    tronco, una lanterna) su un angolo della selezione, per fissarne i confini.
+    Fuori da una costruzione, quel blocco resta appeso a mezz'aria o piantato
+    da solo sul terreno: il "quadratino di terra sospeso" accanto a un cimitero.
+    Si toglie un blocco d'angolo solo se non ha nessun vicino (nelle 26
+    direzioni) e quindi non fa parte di niente. Ritorna quanti ne ha tolti.
+    """
+    dx, dy, dz = celle.shape
+    piena = (celle >= 0) & ~np.isin(celle, list(aria))
+    tolti = 0
+    for x in {0, dx - 1}:
+        for y in {0, dy - 1}:
+            for z in {0, dz - 1}:
+                if not piena[x, y, z]:
+                    continue
+                vicini = piena[max(0, x - 1):x + 2, max(0, y - 1):y + 2, max(0, z - 1):z + 2]
+                if int(vicini.sum()) == 1:
+                    celle[x, y, z] = -1
+                    tolti += 1
+    return tolti
 
 
 STENDARDO_MINIMO = 6        # altezza minima di una colonna di lana per essere uno stendardo

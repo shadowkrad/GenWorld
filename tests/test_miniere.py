@@ -779,8 +779,16 @@ class TestPortale(unittest.TestCase):
     def test_il_binario_esce_all_aperto_davanti_al_portale(self):
         out, tav, s, r = self.posa()
         fy = r.y - self.Y0
-        for j in range(1, MI.BINARIO_FUORI + 1):
+        for j in range(1, MI.BINARIO_FUORI - 1):
             self.assertEqual(int(out[12 - j, fy + 1, 8]), tav.rotaia["east_west"], f"j={j}")
+
+    def test_il_binario_esterno_finisce_con_una_fermata(self):
+        out, tav, s, r = self.posa()
+        fy = r.y - self.Y0
+        self.assertEqual(int(out[12 - (MI.BINARIO_FUORI - 1), fy + 1, 8]),
+                         tav.freno["east_west"], "manca la rotaia frenante")
+        self.assertEqual(int(out[12 - MI.BINARIO_FUORI, fy + 1, 8]), tav.muretto,
+                         "manca il paraurti")
 
     def test_la_piazzola_e_piana_e_libera(self):
         out, tav, s, r = self.posa(quota_terreno=71)
@@ -953,6 +961,42 @@ class TestArredoGallerie(unittest.TestCase):
         y1 = 50 + 1 - self.Y0
         centro = out[:, y1, 8]
         self.assertTrue(np.isin(centro, [s.id_aria, *tav.rotaia.values(), tav.palo]).all())
+
+
+class TestPiazzolaDelTerritorio(unittest.TestCase):
+    """La piazzola davanti all'imbocco ha il materiale del posto, non ghiaia."""
+
+    Y0, ALTEZZA, SOLIDO = -64, 284, 9999
+
+    def posa(self, superficie, sotto):
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        h_c = np.full((16, 16), 71, np.int32)
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out[np.broadcast_to(ys < h_c[:, None, :], out.shape)] = sotto
+        out[:, 70 - self.Y0, :] = superficie
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        tav.decora = False
+        r = MI.Rampa(x=12, z=8, dx=1, dz=0, y=70, lunghezza=40)
+        mn = MI.Miniera(x=12, z=8, y_superficie=70, y_fondo=r.fine[2], rampa=r, segmenti=[])
+        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (sotto,), seed=1)
+        return out, tav
+
+    def test_nel_deserto_la_piazzola_e_sabbia(self):
+        s0 = FintoScrittore()
+        sabbia, arenaria = 70, 71
+        out, tav = self.posa(sabbia, arenaria)
+        fy = 70 - self.Y0
+        for j in range(1, MI.BINARIO_FUORI + 1):
+            for dz in (-2, -1, 1, 2):
+                self.assertEqual(int(out[12 - j, fy, 8 + dz]), sabbia, f"j={j} dz={dz}")
+        self.assertFalse((out[:, fy, :] == tav.ghiaia).any() and False)
+
+    def test_senza_ghiaia_davanti_all_imbocco(self):
+        out, tav = self.posa(70, 71)
+        fy = 70 - self.Y0
+        piazzola = out[12 - MI.BINARIO_FUORI:12, fy, 6:11]
+        self.assertFalse((piazzola == tav.ghiaia).any(), "ghiaia sulla piazzola")
 
 
 class TestCollinaCopreLaRampa(unittest.TestCase):

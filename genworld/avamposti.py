@@ -138,7 +138,10 @@ class Nemico:
 
 # distanza minima, in celle, fra due avamposti dello STESSO tipo: nessun
 # luogo si ripete a portata d'occhio
-RILIEVO_MASSIMO_CAMPO = 5     # dislivello (10-90 percentile) ammesso sotto un accampamento
+RILIEVO_MASSIMO = {"campo": 5, "cimitero": 6, "portale": 6}   # dislivello (10-90 percentile) sotto l'ingombro
+RILIEVO_MASSIMO_CAMPO = RILIEVO_MASSIMO["campo"]
+# un cimitero o un portale su un pendio restava appoggiato a un gradone di ciottoli
+# alto otto blocchi (visto in gioco): si pianta su un pianoro e si spiana
 DISTANZA_FRA_SIMILI = {"campo": 130, "cimitero": 220, "portale": 400}
 
 
@@ -227,14 +230,13 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, evita: np.ndarray | None = 
             if any(a.tipo == tipo and (a.x - x) ** 2 + (a.z - z) ** 2 < lontano ** 2
                    for a in fuori):
                 continue
-            if tipo == "campo":
-                # un accampamento si pianta su un pianoro, non su un pendio a
-                # gradoni: dove il rilievo e' troppo si passa oltre (poi il
-                # terreno si spiana, vedi `spiana_campi`)
-                zona = altezze[z - raggio:z + raggio + 1, x - raggio:x + raggio + 1]
-                lo, hi = np.percentile(zona, (10, 90))
-                if hi - lo > RILIEVO_MASSIMO_CAMPO:
-                    continue
+            # si pianta su un pianoro, non su un pendio a gradoni: dove il rilievo
+            # sull'INGOMBRO e' troppo si passa oltre (poi il terreno si spiana,
+            # vedi `spiana_avamposti`)
+            zona = altezze[max(0, z - mezzo_z):z + mezzo_z + 1, max(0, x - mezzo_x):x + mezzo_x + 1]
+            lo, hi = np.percentile(zona, (10, 90))
+            if hi - lo > RILIEVO_MASSIMO.get(tipo, 6):
+                continue
             y = int(altezze[z, x])
             modelli = modelli_per_tipo.get(tipo)
             modello = int(rng.integers(0, len(modelli))) if modelli else -1
@@ -245,26 +247,28 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, evita: np.ndarray | None = 
     return fuori
 
 
-def spiana_campi(avamposti: list[Avamposto], h: np.ndarray, seme: int = 0) -> int:
-    """Spiana il terreno sotto ogni campo alla quota mediana del sito, con la
-    scarpata irregolare dei castelli. Ritorna quanti ne ha spianati. Lo fa
-    `pianifica`'s chiamante prima che qualcuno legga `h`: strade, alberi e
-    arredi vengono dopo e vedono il terreno gia' piano."""
+def spiana_avamposti(avamposti: list[Avamposto], h: np.ndarray, seme: int = 0) -> int:
+    """Spiana il terreno sotto l'ingombro di ogni avamposto (campo, cimitero,
+    portale) alla quota mediana del sito, con la scarpata irregolare dei castelli.
+    Ritorna quanti ne ha spianati. Lo fa il chiamante di `pianifica` prima che
+    qualcuno legga `h`: strade, alberi e arredi vengono dopo e vedono il terreno
+    gia' piano."""
     from .monumenti import appiana
     n = 0
     for av in avamposti:
-        if av.tipo != "campo":
+        mx, mz = av.mezzo_x, av.mezzo_z
+        z0, x0 = av.z - mz, av.x - mx
+        if z0 < 0 or x0 < 0 or z0 + 2 * mz + 1 > h.shape[0] or x0 + 2 * mx + 1 > h.shape[1]:
             continue
-        r = RAGGIO_CAMPO
-        z0, x0 = av.z - r, av.x - r
-        if z0 < 0 or x0 < 0 or z0 + 2 * r + 1 > h.shape[0] or x0 + 2 * r + 1 > h.shape[1]:
-            continue
-        base = int(np.median(h[z0:z0 + 2 * r + 1, x0:x0 + 2 * r + 1]))
-        appiana(h, x0, z0, 2 * r + 1, 2 * r + 1, base, seme=seme * 31 + av.x + av.z,
+        base = int(np.median(h[z0:z0 + 2 * mz + 1, x0:x0 + 2 * mx + 1]))
+        appiana(h, x0, z0, 2 * mx + 1, 2 * mz + 1, base, seme=seme * 31 + av.x + av.z,
                 fascia=8)
         av.y = base
         n += 1
     return n
+
+
+spiana_campi = spiana_avamposti          # il nome di prima
 
 
 def indice_per_chunk(avamposti: list[Avamposto], passo: int = 16) -> dict:

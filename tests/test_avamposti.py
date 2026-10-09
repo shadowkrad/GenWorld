@@ -677,3 +677,23 @@ class TestSpianaCampi(unittest.TestCase):
         campi = [a for a in AV.pianifica(h, mare, campi=3.0, cimiteri=0, portali=0, seed=3)
                  if a.tipo == "campo"]
         self.assertEqual(campi, [])
+
+
+class TestCimiteriEPortaliSuPianoro(unittest.TestCase):
+    def test_un_pendio_ripido_non_ospita_un_cimitero_ne_un_portale(self):
+        h = np.tile((60 + np.arange(400)).astype(np.int32), (400, 1))      # un blocco per cella
+        mare = np.zeros(h.shape, bool)
+        trovati = AV.pianifica(h, mare, campi=0, cimiteri=4.0, portali=4.0, seed=3)
+        self.assertEqual([a for a in trovati if a.tipo in ("cimitero", "portale")], [])
+
+    def test_il_terreno_sotto_un_cimitero_si_spiana(self):
+        h = (80 + (np.arange(120)[None, :] // 3) % 3 + np.zeros((120, 1))).astype(np.int32)
+        av = AV.Avamposto(x=60, z=60, y=int(h[60, 60]), tipo="cimitero")
+        self.assertEqual(AV.spiana_avamposti([av], h, seme=1), 1)
+        mx, mz = av.mezzo_x, av.mezzo_z
+        zona = h[60 - mz:60 + mz + 1, 60 - mx:60 + mx + 1]
+        self.assertEqual(len(np.unique(zona)), 1)
+        self.assertEqual(av.y, int(zona[0, 0]))
+
+    def test_il_nome_di_prima_funziona_ancora(self):
+        self.assertIs(AV.spiana_campi, AV.spiana_avamposti)

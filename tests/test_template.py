@@ -702,3 +702,29 @@ class TestTerrenoNonDiventaAcqua(unittest.TestCase):
         out[:, :10, :] = acqua                                  # un mare
         T.costruisci(out, 0, 0, 0, cat, 0, 0, 5, 5, 8)
         self.assertFalse((out[5:8, 8:10, 5:8] == acqua).any(), "la riva e' diventata acqua")
+
+
+class TestSegnapostoDAngolo(unittest.TestCase):
+    def test_un_blocco_isolato_sull_angolo_si_toglie(self):
+        celle = np.full((6, 5, 7), -1, np.int32)
+        celle[2:4, 0:3, 2:5] = 0                        # la costruzione, in mezzo
+        celle[5, 0, 0] = 1                              # il segnaposto d'angolo
+        celle[0, 4, 6] = 1                              # un altro, in alto
+        self.assertEqual(T.togli_segnaposto_d_angolo(celle), 2)
+        self.assertFalse((celle == 1).any())
+        self.assertTrue((celle[2:4, 0:3, 2:5] == 0).all())
+
+    def test_un_angolo_che_fa_parte_della_costruzione_resta(self):
+        celle = np.full((4, 4, 4), 0, np.int32)         # un cubo pieno: gli angoli hanno vicini
+        self.assertEqual(T.togli_segnaposto_d_angolo(celle), 0)
+
+    def test_un_blocco_isolato_non_d_angolo_resta(self):
+        celle = np.full((6, 6, 6), -1, np.int32)
+        celle[3, 0, 3] = 1                              # un'erbetta sul terreno, non sull'angolo
+        self.assertEqual(T.togli_segnaposto_d_angolo(celle), 0)
+
+    def test_l_aria_vicina_non_conta_come_vicino(self):
+        celle = np.full((5, 5, 5), -1, np.int32)
+        celle[0, 0, 0] = 1
+        celle[1, 0, 0] = 2                              # aria esplicita accanto
+        self.assertEqual(T.togli_segnaposto_d_angolo(celle, aria=[2]), 1)
