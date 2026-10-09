@@ -130,9 +130,10 @@ def lampione() -> Disegno:
 
 
 def lampione_a_braccio(verso: str = "+x") -> Disegno:
-    """Il lampione di strada: un palo di tronco scuro alto cinque e un braccio
-    orizzontale da cui pende la lanterna, come i lampioni dei paesi di una
-    volta (riferimento dato in gioco: uno screenshot).
+    """Il lampione di strada: un palo di staccionata scura alto cinque e un
+    braccio orizzontale, sempre di staccionata, da cui pende la lanterna.
+    Staccionata e non tronco: i lampioni sono sottili, come quelli del
+    riferimento dato in gioco, e un tronco pieno li faceva sembrare pilastri.
 
     `verso` e' dove sta il braccio rispetto al palo: "+x", "-x", "+z", "-z". Si
     sceglie quello che porta la lanterna sopra la strada. L'ingombro e' 2x1 o
@@ -144,14 +145,13 @@ def lampione_a_braccio(verso: str = "+x") -> Disegno:
     positivo = verso[0] == "+"
     pal = (0 if positivo else 1)
     arm = 1 - pal
-    asse = "x" if lungo_x else "z"
 
     def cella(i: int, y: int) -> tuple[int, int, int]:
         return (i, y, 0) if lungo_x else (0, y, i)
 
     for y in range(5):
-        d.metti(*cella(pal, y), "dark_oak_log", axis="y")
-    d.metti(*cella(arm, 4), "dark_oak_log", axis=asse)
+        d.metti(*cella(pal, y), "dark_oak_fence")
+    d.metti(*cella(arm, 4), "dark_oak_fence")
     d.metti(*cella(arm, 3), "lantern", hanging="true", waterlogged="false")
     return d
 

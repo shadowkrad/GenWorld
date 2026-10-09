@@ -233,10 +233,11 @@ class TestPianificazione(unittest.TestCase):
             d = A.lampione_a_braccio(verso)
             nomi = {n for (n, _) in d.blocchi.values()}
             self.assertIn("lantern", nomi)
-            self.assertIn("dark_oak_log", nomi)
+            self.assertIn("dark_oak_fence", nomi)
+            self.assertNotIn("dark_oak_log", nomi, "il lampione e' di staccionata, non di tronco")
             lanterna = [k for k, (n, p) in d.blocchi.items() if n == "lantern"][0]
             braccio = [k for k, (n, p) in d.blocchi.items()
-                       if n == "dark_oak_log" and k[1] == 4 and k != (lanterna[0], 4, lanterna[2])]
+                       if n == "dark_oak_fence" and k[1] == 4 and k != (lanterna[0], 4, lanterna[2])]
             self.assertEqual(lanterna[1], 3, "la lanterna pende sotto il braccio")
             self.assertTrue(any(k[1] == 4 for k in d.blocchi if k[0] == lanterna[0]
                                 and k[2] == lanterna[2]), "lanterna senza braccio sopra")
