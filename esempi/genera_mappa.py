@@ -77,6 +77,9 @@ def main() -> None:
                     help="0 = nessun castello")
     ap.add_argument("--navi", type=float, default=1.0, metavar="SCALA",
                     help="densita' delle navi in mare (0 = nessuna)")
+    ap.add_argument("--porti", type=float, default=1.0, metavar="SCALA",
+                    help="molo, barche ormeggiate e faro per gli abitati sulla costa "
+                         "(0 = nessuno). Le barche vengono dal pacchetto delle navi")
     ap.add_argument("--anteprima", action="store_true")
     ap.add_argument("--profilo", help="profilo JSON prodotto dal Calibratore Mappe: "
                     "rettangolo di interesse + campioni col contagocce")
@@ -150,7 +153,7 @@ def main() -> None:
                  templates=a.templates, templates_cimitero=a.templates_cimitero,
                  templates_portale=a.templates_portale,
                  templates_castello=a.templates_castello,
-                 templates_nave=a.templates_nave, castelli=a.castelli, navi=a.navi,
+                 templates_nave=a.templates_nave, castelli=a.castelli, navi=a.navi, porti=a.porti,
                  fauna=a.fauna, arredi=a.arredi, isolate=a.isolate, laghi=a.laghi,
                  miniere=a.miniere, accampamenti=a.accampamenti,
                  cimiteri=a.cimiteri, portali=a.portali, versione=versione)
