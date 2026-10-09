@@ -36,6 +36,7 @@ from . import fiumi as R
 from . import insediamenti as I
 from . import isolate as IS
 from . import monumenti as MN
+from . import porti as PO
 from . import laghi as LG
 from . import mappa as M
 from . import miniere as MI
@@ -162,6 +163,7 @@ class Opzioni:
     templates_nave: str = ""
     castelli: float = 1.0
     navi: float = 1.0
+    porti: float = 1.0       # molo, barche e faro per gli abitati sulla costa
     seed: int = 11
     # Versione Java di riferimento per il mondo scritto: decide sia il
     # DataVersion in level.dat sia la traduzione dei blocchi dei template (li
@@ -482,6 +484,9 @@ class Piano:
     scelte: dict = field(default_factory=dict)
     isolate: list = field(default_factory=list)
     indice_isolate: dict = field(default_factory=dict)
+    # modelli costruiti dal pianificatore (molo, faro): in coda al catalogo, dopo
+    # case, castelli e navi - `scrivi()` li appende nello stesso ordine
+    modelli_extra: list = field(default_factory=list)
     arredi: list = field(default_factory=list)
     arredi_modelli: list = field(default_factory=list)
     indice_arredi: dict = field(default_factory=dict)
@@ -699,6 +704,39 @@ def _pianifica_monumenti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
         else:
             note.append("navi: nessuno specchio di mare abbastanza profondo")
     return fuori
+
+
+def _pianifica_porti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                     banchi: list, muro, tipo_strada, campi, avamposti: list,
+                     arredi_r, isolate: list, citta: list, n_case: int,
+                     castelli: list, navi: list, protetto: np.ndarray,
+                     note: list[str]) -> tuple[list, list]:
+    """Molo, barche ormeggiate e faro per gli abitati sulla costa (vedi
+    `porti.py`). Ritorna (pezzi da posare, modelli nuovi): i modelli nuovi vanno
+    in coda al catalogo, dopo case, castelli e navi."""
+    if op.porti <= 0 or not citta:
+        return [], []
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi)
+    if avamposti:
+        evita |= AP.maschera(avamposti, a.cls.shape, margine=3)
+    if arredi_r.arredi:
+        evita |= AR.maschera(arredi_r.arredi, a.cls.shape, margine=1)
+    if isolate:
+        evita |= IS.maschera(isolate, a.cls.shape, margine=3)
+    ver = TM.traduttore(op.versione)
+    pezzi, extra = PO.pianifica(
+        citta, a.cls, h, M.MARINO, LIVELLO_MARE, evita, navi,
+        primo_barche=n_case + len(castelli), primo_extra=n_case + len(castelli) + len(navi),
+        ver=ver, seed=op.seed + 97)
+    if pezzi:
+        protetto |= IS.maschera(pezzi, a.cls.shape)
+        moli = sum(1 for p in pezzi if p.modello >= n_case + len(castelli) + len(navi)
+                   and p.larghezza != PO.LATO_FARO)
+        note.append(f"porti: {moli} moli, {len(pezzi) - len(extra)} barche ormeggiate, "
+                    f"{sum(1 for p in pezzi if p.larghezza == PO.LATO_FARO and p.profondita == PO.LATO_FARO)} fari")
+    else:
+        note.append("porti: nessun abitato abbastanza vicino a un mare con fondale basso")
+    return pezzi, extra
 
 
 def _semina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
@@ -1075,6 +1113,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                                      isolate, len(modelli_case), castelli, navi,
                                      protetto, note)
     isolate = isolate + monumenti
+    pezzi_porto, modelli_extra = _pianifica_porti(
+        op, a, h, edifici, banchi, muro, tipo_strada, campi, avamposti, arredi_r,
+        isolate, citta, len(modelli_case), castelli, navi, protetto, note)
+    isolate = isolate + pezzi_porto
 
     avanza(0.75, "vegetazione")
     alberi, indice = _semina(op, a, h, edifici, muro, tipo_strada, scarpata, campi,
@@ -1112,6 +1154,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  scelte=scelte,
                  isolate=isolate,
                  indice_isolate=IS.indice_per_chunk(isolate) if isolate else {},
+                 modelli_extra=modelli_extra,
                  arredi=arredi_r.arredi, arredi_modelli=arredi_r.modelli,
                  indice_arredi=(AR.indice_per_chunk(arredi_r.arredi)
                                 if arredi_r.arredi else {}),
@@ -1945,10 +1988,13 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
         modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
                   if cartelle_t else [])
-        if piano.isolate and (op.templates_castello or op.templates_nave):
-            # dopo le case, nello stesso ordine di `pianifica()`: castelli, navi
-            castelli_m, navi_m = _modelli_monumenti(op)
-            modelli = modelli + castelli_m + navi_m
+        if piano.isolate:
+            # dopo le case, nello stesso ordine di `pianifica()`: castelli, navi,
+            # poi i modelli che il pianificatore ha costruito (molo, faro)
+            if op.templates_castello or op.templates_nave:
+                castelli_m, navi_m = _modelli_monumenti(op)
+                modelli = modelli + castelli_m + navi_m
+            modelli = modelli + list(piano.modelli_extra)
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
