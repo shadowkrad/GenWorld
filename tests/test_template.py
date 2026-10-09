@@ -600,3 +600,105 @@ class TestSegnaposto(unittest.TestCase):
             for i, n in enumerate(nomi):
                 if n in T.SEGNAPOSTO and n != "structure_void":
                     self.assertFalse((m.celle == i).any(), f"{m.nome}: {n}")
+
+
+class TestStendardi(unittest.TestCase):
+    """Un palo di lana appeso a mezz'aria non e' architettura."""
+
+    def test_una_colonna_di_lana_isolata_si_toglie(self):
+        celle = np.full((5, 12, 5), -1, np.int32)
+        celle[2, 2:12, 2] = 1                              # lana, dieci in alto
+        celle[0, 0, 0] = 0                                 # un pavimento qualunque
+        n = T.togli_stendardi(celle, [1])
+        self.assertEqual(n, 10)
+        self.assertFalse((celle == 1).any())
+        self.assertEqual(int(celle[0, 0, 0]), 0)
+
+    def test_una_parete_di_lana_non_si_tocca(self):
+        celle = np.full((5, 12, 5), -1, np.int32)
+        celle[2, 0:8, 2] = 1
+        celle[3, 0:8, 2] = 0                               # accanto c'e' un muro
+        celle[1, 0:8, 2] = 0
+        self.assertEqual(T.togli_stendardi(celle, [1]), 0)
+        self.assertTrue((celle[2, 0:8, 2] == 1).all())
+
+    def test_una_corsa_corta_non_e_uno_stendardo(self):
+        celle = np.full((5, 12, 5), -1, np.int32)
+        celle[2, 0:4, 2] = 1                               # un tappeto, un banco: bassi
+        self.assertEqual(T.togli_stendardi(celle, [1]), 0)
+
+    def test_senza_lana_non_fa_niente(self):
+        celle = np.full((3, 3, 3), 0, np.int32)
+        self.assertEqual(T.togli_stendardi(celle, []), 0)
+
+
+class TestTerrenoDelPosto(unittest.TestCase):
+    """Il terreno di un template prende quello del posto in cui lo si posa."""
+
+    def modello(self):
+        # strato 0: terra; strato 1: erba, con una pianta sopra; strato 2: pietra
+        celle = np.full((3, 4, 3), -1, np.int32)
+        celle[:, 0, :] = 1                  # dirt
+        celle[:, 1, :] = 0                  # grass_block
+        celle[1, 2, 1] = 2                  # una pianta
+        celle[1, 3, 1] = 3                  # un blocco di pietra (la casa)
+        return T.Modello(nome="m", celle=celle,
+                         tavolozza=[("grass_block", {}), ("dirt", {}), ("plant", {}),
+                                    ("stone", {})])
+
+    def posa(self, top, sub, affondo=2):
+        s = FintoScrittore()
+        m = self.modello()
+        cat = T.Catalogo([m], s)
+        out = np.zeros((16, 40, 16), np.uint32)
+        g = 10                                          # quota di superficie nel chunk
+        out[:, :g, :] = sub
+        out[:, g - 1, :] = top
+        # il modello ha 2 strati di terreno: base = quota - affondo
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 5, 5, g - affondo)
+        return out, s, g
+
+    def test_in_un_deserto_l_erba_diventa_sabbia_e_la_terra_arenaria(self):
+        s0 = FintoScrittore()
+        sabbia, arenaria = 70, 71
+        out, s, g = self.posa(top=sabbia, sub=arenaria)
+        self.assertEqual(int(out[6, g - 1, 6]), sabbia)         # lo strato d'erba
+        self.assertEqual(int(out[6, g - 2, 6]), arenaria)       # lo strato di terra
+
+    def test_nel_prato_nulla_cambia(self):
+        s = FintoScrittore()
+        erba, terra = s.blocco("grass_block"), s.blocco("dirt")
+        out, s2, g = self.posa(top=erba, sub=terra)
+        self.assertEqual(int(out[6, g - 1, 6]), s2.blocco("grass_block"))
+
+    def test_una_pianta_sulla_sabbia_non_si_posa(self):
+        out, s, g = self.posa(top=70, sub=71)
+        pianta = s.blocco("plant")
+        self.assertFalse((out == pianta).any(), "pianta su sabbia")
+        pietra = s.blocco("stone")
+        self.assertTrue((out == pietra).any(), "il resto della casa c'e'")
+
+    def test_una_pianta_nel_prato_resta(self):
+        s = FintoScrittore()
+        erba = s.blocco("grass_block")
+        out = np.zeros((16, 40, 16), np.uint32)
+        out[:, :10, :] = 5
+        out[:, 9, :] = erba
+        cat = T.Catalogo([self.modello()], s)
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 5, 5, 8)
+        self.assertTrue((out == s.blocco("plant")).any())
+
+
+class TestTerrenoNonDiventaAcqua(unittest.TestCase):
+    def test_la_riva_di_un_molo_non_si_riempie_d_acqua(self):
+        s = FintoScrittore()
+        celle = np.full((3, 3, 3), -1, np.int32)
+        celle[:, 0, :] = 1
+        celle[:, 1, :] = 0
+        m = T.Modello(nome="m", celle=celle, tavolozza=[("grass_block", {}), ("dirt", {})])
+        cat = T.Catalogo([m], s)
+        acqua = s.blocco("water")
+        out = np.zeros((16, 40, 16), np.uint32)
+        out[:, :10, :] = acqua                                  # un mare
+        T.costruisci(out, 0, 0, 0, cat, 0, 0, 5, 5, 8)
+        self.assertFalse((out[5:8, 8:10, 5:8] == acqua).any(), "la riva e' diventata acqua")

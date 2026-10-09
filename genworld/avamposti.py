@@ -500,13 +500,16 @@ BARILI_CAMPO = ((4, 2), (-3, 4), (-4, -2), (2, -4))
 FORZIERE_CAMPO = (-4, 2)           # rivolto verso il fuoco (est)
 FIENO_CAMPO = ((5, -2, 0), (5, -3, 0), (5, -3, 1), (4, -4, 0))     # (dx, dz, strato)
 CAVALLI_CAMPO = ((-3.5, -4.5), (3.5, 4.5))
+# Qualche paletto, non un recinto: segna il posto senza chiuderlo. Niente panche di
+# tronco attorno al fuoco: dicevano poco.
+PALETTI_CAMPO = ((7, -3), (7, 4), (-7, 1), (-7, -5), (3, -7), (-4, 7))
 
 
 def _carica_campo(out: np.ndarray, tav: Tavolozza, av: Avamposto, ox: int,
                   oz: int, y0: int, protetto_c=None, h_c=None) -> None:
-    """Il campo: un cerchio di terreno calpestato con il fuoco al centro e
-    quattro panche, qualche barile in giro, un forziere, balle di fieno e, fuori
-    dal cerchio, una staccionata rada con un varco a sud. I cavalli li mettono
+    """Il campo: un cerchio di terreno calpestato con il fuoco al centro,
+    qualche barile in giro, un forziere, balle di fieno e, fuori dal cerchio,
+    pochi paletti. I cavalli li mettono
     `nemici()`, il bottino del forziere `bauli.trova()`.
 
     Segue il terreno: ogni colonna usa la SUA quota (`h_c`), non quella del
@@ -548,9 +551,6 @@ def _carica_campo(out: np.ndarray, tav: Tavolozza, av: Avamposto, ox: int,
             if dx == 0 and dz == 0:
                 out[lx, base, lz] = tav.falo
                 continue
-            if (dx, dz) in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                out[lx, base, lz] = tav.panca_x if dx == 0 else tav.panca_z
-                continue
             if (dx, dz) in BARILI_CAMPO:
                 out[lx, base, lz] = tav.barile
                 continue
@@ -560,11 +560,8 @@ def _carica_campo(out: np.ndarray, tav: Tavolozza, av: Avamposto, ox: int,
             for fx, fz, strato in FIENO_CAMPO:
                 if (dx, dz) == (fx, fz) and 0 <= base + strato < H:
                     out[lx, base + strato, lz] = tav.fieno
-            if max(abs(dx), abs(dz)) == r:
-                if dz == r and abs(dx) <= 1:
-                    continue          # il varco d'ingresso, niente staccionata
-                if (dx + dz) % 2 == 0:
-                    out[lx, base, lz] = tav.staccionata
+            if (dx, dz) in PALETTI_CAMPO:
+                out[lx, base, lz] = tav.staccionata
 
 
 def _carica_cimitero_procedurale(out: np.ndarray, tav: Tavolozza, av: Avamposto,

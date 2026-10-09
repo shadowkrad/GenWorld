@@ -171,18 +171,6 @@ class TestPosaCampo(unittest.TestCase):
         base = 90 - self.Y0
         self.assertEqual(int(out[8, base, 8]), tav.falo)
 
-    def test_le_panche_sono_ai_quattro_lati(self):
-        out = self.colonna_piena(90)
-        s = FintoScrittore()
-        tav = AV.Tavolozza(s)
-        av = AV.Avamposto(x=8, z=8, y=90, tipo="campo")
-        AV.posa(out, tav, 0, 0, self.Y0, [av], [0])
-        base = 90 - self.Y0
-        self.assertEqual(int(out[8, base, 7]), tav.panca_x)
-        self.assertEqual(int(out[8, base, 9]), tav.panca_x)
-        self.assertEqual(int(out[7, base, 8]), tav.panca_z)
-        self.assertEqual(int(out[9, base, 8]), tav.panca_z)
-
     def campo(self):
         out = self.colonna_piena(90)
         s = FintoScrittore()
@@ -203,6 +191,18 @@ class TestPosaCampo(unittest.TestCase):
         self.assertIn(int(out[8, base - 1, 8 - 5]), calpestato)
         # l'angolo del quadrato e' fuori dal cerchio (raggio 6,4): terreno vergine
         self.assertNotIn(int(out[8 + 6, base - 1, 8 + 6]), calpestato)
+
+    def test_niente_panche_attorno_al_fuoco(self):
+        out, tav, base = self.campo()
+        for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            self.assertNotIn(int(out[8 + dx, base, 8 + dz]), (tav.panca_x, tav.panca_z))
+            self.assertEqual(int(out[8 + dx, base, 8 + dz]), tav.aria)
+
+    def test_solo_pochi_paletti_fuori_dal_cerchio(self):
+        out, tav, base = self.campo()
+        paletti = int((out[:, base, :] == tav.staccionata).sum())
+        self.assertEqual(paletti, len(AV.PALETTI_CAMPO))
+        self.assertLessEqual(paletti, 8)
 
     def test_il_forziere_e_il_fieno_ci_sono(self):
         out, tav, base = self.campo()
@@ -226,16 +226,6 @@ class TestPosaCampo(unittest.TestCase):
         calpestato = set(tav.calpestato)
         self.assertIn(int(out[8, 90 - 1 - self.Y0, 8 + 3]), calpestato)      # lato basso (z=11)
         self.assertIn(int(out[8, 92 - 1 - self.Y0, 8 + 5]), calpestato)      # lato alto (z=13)
-
-    def test_la_staccionata_ha_un_varco_a_sud(self):
-        out = self.colonna_piena(90)
-        s = FintoScrittore()
-        tav = AV.Tavolozza(s)
-        av = AV.Avamposto(x=8, z=8, y=90, tipo="campo")
-        AV.posa(out, tav, 0, 0, self.Y0, [av], [0])
-        base = 90 - self.Y0
-        r = AV.RAGGIO_CAMPO
-        self.assertNotEqual(int(out[8, base, 8 + r]), tav.staccionata)
 
     def test_protetto_c_blocca_il_campo(self):
         out = self.colonna_piena(90)

@@ -849,12 +849,12 @@ class TestPilastriPonte(unittest.TestCase):
 
     def test_un_dislivello_di_un_blocco_non_ha_pilastri(self):
         out, s = self.ponte(1)
-        pilastro = s.blocco("log", axis="y", material="oak", stripped="true")
+        pilastro = s.blocco("log", axis="y", material="dark_oak", stripped="true")
         self.assertEqual(int((out == pilastro).sum()), 0)
 
     def test_un_dislivello_vero_ha_pilastri(self):
         out, s = self.ponte(5)
-        pilastro = s.blocco("log", axis="y", material="oak", stripped="true")
+        pilastro = s.blocco("log", axis="y", material="dark_oak", stripped="true")
         self.assertGreater(int((out == pilastro).sum()), 0)
 
 
@@ -928,3 +928,37 @@ class TestCintaMerliTorriScale(unittest.TestCase):
         self.assertEqual(int(out[8, base + 3, 8]), scala)
         for k in range(3):
             self.assertNotEqual(int(out[8, base + k, 8]), s.id_aria)
+
+
+class TestPortaleDettagli(unittest.TestCase):
+    """Chiave di volta e lanterne del portale delle mura."""
+
+    def portale(self):
+        s = FintoScrittore()
+        h_c = np.full((16, 16), 70, np.int32)
+        cls_c = np.full((16, 16), M.PIANURA, np.uint8)
+        muro = np.zeros((16, 16), np.uint8)
+        muro[:, 5:8] = 1
+        muro[4:9, 5:8] = 2                     # varco largo 5, spesso 3
+        out = blocchi_chunk(s, h_c, cls_c, muro_c=muro, ox=0, oz=0)
+        return out, s, 70 + 64
+
+    def test_la_chiave_di_volta_e_scolpita(self):
+        out, s, base = self.portale()
+        chiave = s.blocco("stone_bricks", variant="chiseled")
+        self.assertEqual(int(out[6, base + 4, 5]), chiave)
+        self.assertEqual(int(out[6, base + 4, 7]), chiave)
+
+    def test_una_lanterna_sotto_ogni_primo_gradino(self):
+        out, s, base = self.portale()
+        lanterna = s.blocco("lantern", hanging="true", waterlogged="false")
+        for lx in (5, 7):
+            for lz in (5, 7):
+                self.assertEqual(int(out[lx, base + 2, lz]), lanterna, (lx, lz))
+
+    def test_le_porte_sono_di_rovere_scuro(self):
+        out, s, base = self.portale()
+        porta = s.blocco("door", facing="north", half="lower", hinge="left",
+                         material="dark_oak", open="false", powered="false")
+        trovate = {int(v) for v in out[4:9, base, 6]}
+        self.assertTrue(any(v != s.id_aria for v in trovate))

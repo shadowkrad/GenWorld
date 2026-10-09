@@ -291,7 +291,21 @@ def _spiana(h, cls, livello, cls_originale, D, lato, murata, base, livello_mare,
     fosso = np.zeros_like(dentro)
     if murata:
         primo = lato + SPESSORE_MURA + 2
-        fosso = (D >= primo) & (D < primo + LARGHEZZA_FOSSO)
+        # Un fossato scavato col righello e' un canale: largo sempre tre, sempre
+        # alla stessa distanza dal muro. Qui la sponda interna (0 o 1 cella piu'
+        # fuori) e la larghezza (2 o 3) ondeggiano piano lungo il perimetro; il
+        # bordo esterno resta dentro la piana (D <= primo + LARGHEZZA_FOSSO).
+        H, W = D.shape
+        zz, xx = np.mgrid[:H, :W]
+        rng_f = np.random.default_rng(int(base) * 977 + int(lato))
+        f = rng_f.uniform(0.05, 0.13, 4)
+        ph = rng_f.uniform(0, 2 * np.pi, 4)
+        u1 = 0.5 + 0.25 * (np.sin(zz * f[0] + ph[0]) + np.sin(xx * f[1] + ph[1]))
+        u2 = 0.5 + 0.25 * (np.sin(zz * f[2] + ph[2]) + np.sin(xx * f[3] + ph[3]))
+        sponda = (u1 > 0.5).astype(np.int32)                  # 0 o 1
+        larghezza = np.where(u2 > 0.62, LARGHEZZA_FOSSO - 1, LARGHEZZA_FOSSO)
+        larghezza = np.minimum(larghezza, LARGHEZZA_FOSSO + 1 - sponda)
+        fosso = (D >= primo + sponda) & (D < primo + sponda + larghezza)
         h[fosso] = base - PROFONDITA_FOSSO
         cls[fosso] = FIUME
         livello[fosso] = base - 2

@@ -190,9 +190,159 @@ def _lunghezza_molo(h: np.ndarray, mare: np.ndarray, inizio: tuple[int, int],
     return lung if in_mare >= 4 else 0
 
 
+def _ruota_punto(x: int, z: int, dx: int, dz: int, quarti: int) -> tuple[int, int]:
+    """Dove va a finire la cella (x, z) di un modello dx x dz dopo `quarti` rotazioni
+    (la stessa di `Catalogo.celle`: (x, z) -> (dz - 1 - z, x))."""
+    for _ in range(quarti % 4):
+        x, z = dz - 1 - z, x
+        dx, dz = dz, dx
+    return x, z
+
+
+def _punti_di_costa(mare: np.ndarray, centro: tuple[int, int], raggio: int, passo: int = 3):
+    """[(z, x, (dz, dx))]: celle di TERRA con il mare subito oltre, nelle quattro
+    direzioni, entro `raggio` da `centro`, una ogni `passo`."""
+    H, W = mare.shape
+    cz, cx = centro
+    za, zb = max(2, cz - raggio), min(H - 2, cz + raggio)
+    xa, xb = max(2, cx - raggio), min(W - 2, cx + raggio)
+    fuori = []
+    for d in ((0, 1), (0, -1), (1, 0), (-1, 0)):
+        dz, dx = d
+        sotto = ~mare[za:zb, xa:xb]
+        oltre = mare[za + dz:zb + dz, xa + dx:xb + dx]
+        zz, xx = np.nonzero(sotto & oltre)
+        for z, x in zip(zz.tolist(), xx.tolist()):
+            if (z + x) % passo == 0:
+                fuori.append((za + z, xa + x, d))
+    return fuori
+
+
+def _molo_da_modello(m, indice: int, c, h, mare, occ, livello_mare: int):
+    """Il posto migliore per un molo da schema vicino all'abitato `c`: la riva con
+    il mare davanti, il lato di terra del modello girato verso terra. Ritorna
+    None se nessuna riva ci sta."""
+    H, W = h.shape
+    costa_x, centro_z = int(m.meta["costa_x"]), int(m.meta["centro_z"])
+    base_c = livello_mare - m.linea_acqua
+    piena = (m.celle >= 0).any(axis=1)                            # (x, z)
+    colonna = np.broadcast_to(np.arange(m.dx)[:, None], (m.dx, m.dz))
+    meglio = None
+    for (pz, px, (dz, dx)) in _punti_di_costa(mare, (c.z, c.x), c.raggio + DISTANZA_MARE):
+        q = _QUARTI[(-dz, -dx)]
+        ix, iz = m.ingombro(q)
+        ax, az = _ruota_punto(costa_x, centro_z, m.dx, m.dz, q)
+        x0, z0 = px - ax, pz - az
+        if x0 < 1 or z0 < 1 or x0 + ix >= W or z0 + iz >= H:
+            continue
+        if occ[z0:z0 + iz, x0:x0 + ix].any():
+            continue
+        mm, pp = piena & (colonna < costa_x), piena & (colonna >= costa_x)
+        for _ in range(q % 4):
+            mm, pp = np.rot90(mm, k=-1), np.rot90(pp, k=-1)    # come `Catalogo.celle`
+        mm, pp = mm.T, pp.T                                    # (x, z) -> (z, x), come le mappe
+        if not mm.any() or not pp.any():
+            continue
+        reg_mare = mare[z0:z0 + iz, x0:x0 + ix]
+        reg_h = h[z0:z0 + iz, x0:x0 + ix]
+        sul_mare = mm & reg_mare
+        frazione_mare = float(reg_mare[mm].mean())
+        frazione_terra = float((~reg_mare)[pp].mean())
+        fondo_ok = float((reg_h[sul_mare] >= base_c - 4).mean()) if sul_mare.any() else 0.0
+        if frazione_mare < 0.8 or frazione_terra < 0.5 or fondo_ok < 0.85:
+            continue
+        punteggio = (frazione_mare + frazione_terra + fondo_ok
+                     - 0.002 * float(np.hypot(pz - c.z, px - c.x)))
+        if meglio is None or punteggio > meglio[0]:
+            meglio = (punteggio, x0, z0, ix, iz, q, px, pz, dz, dx)
+    if meglio is None:
+        return None
+    _, x0, z0, ix, iz, q, px, pz, dz, dx = meglio
+    return (CasaIsolata(x=x0, z=z0, larghezza=ix, profondita=iz, base=base_c + m.affondo,
+                        modello=indice, quarti=q, stile="prato"), (pz, px, (dz, dx)))
+
+
+def _barche_al_largo(costa, m, barche: list, primo_barche: int, piccole: list,
+                     mare: np.ndarray, h: np.ndarray, occ: np.ndarray, livello_mare: int,
+                     rng, quante: int = BARCHE_PER_MOLO) -> list[CasaIsolata]:
+    """Barche ormeggiate sul lato del largo di un molo da schema, col lato lungo
+    parallelo alla riva."""
+    H, W = h.shape
+    if not piccole:
+        return []
+    pz, px, (dz, dx) = costa
+    lungo_riva = (1, 0) if dz == 0 else (0, 1)                # (dz, dx) lungo la riva
+    fuori: list[CasaIsolata] = []
+    s = int(m.meta["costa_x"]) + 3                            # dal punto di costa al largo
+    for lato in (0, 1, -1):
+        if len(fuori) >= quante:
+            break
+        k = piccole[int(rng.integers(0, len(piccole)))]
+        b = barche[k]
+        cand = [q for q in range(4) if (b.ingombro(q)[0] >= b.ingombro(q)[1]) == (dz != 0)]
+        q = cand[int(rng.integers(0, len(cand)))]
+        bx, bz = b.ingombro(q)
+        verso_mare = bx if dz == 0 else bz                    # estensione lungo il mare
+        for extra in (0, 3, 6):
+            centro_z = pz + dz * (s + verso_mare // 2 + extra) + lungo_riva[0] * lato * 12
+            centro_x = px + dx * (s + verso_mare // 2 + extra) + lungo_riva[1] * lato * 12
+            bx0, bz0 = centro_x - bx // 2, centro_z - bz // 2
+            if bx0 < 1 or bz0 < 1 or bx0 + bx >= W or bz0 + bz >= H:
+                continue
+            base_b = livello_mare - b.linea_acqua
+            sub = mare[bz0 - 1:bz0 + bz + 1, bx0 - 1:bx0 + bx + 1]
+            prof = h[bz0 - 1:bz0 + bz + 1, bx0 - 1:bx0 + bx + 1]
+            if not sub.all() or (prof > base_b).any():
+                continue
+            if occ[bz0 - 1:bz0 + bz + 1, bx0 - 1:bx0 + bx + 1].any():
+                continue
+            fuori.append(CasaIsolata(x=bx0, z=bz0, larghezza=bx, profondita=bz, base=base_b,
+                                     modello=primo_barche + k, quarti=q, stile="prato"))
+            occ[bz0 - 1:bz0 + bz + 1, bx0 - 1:bx0 + bx + 1] = True
+            break
+    return fuori
+
+
+def _faro_da_modello(m, indice: int, citta: list, h, mare, occ, livello_mare: int):
+    """Un faro da schema sulla riva piu' piana vicino a un abitato: tutta
+    l'impronta su terra, poco rilievo (l'altura e' del modello), il mare entro
+    una ventina di celle."""
+    from scipy.ndimage import distance_transform_edt
+    H, W = h.shape
+    dist_mare = distance_transform_edt(~mare)
+    meglio = None
+    for c in citta:
+        for (pz, px, (dz, dx)) in _punti_di_costa(mare, (c.z, c.x), c.raggio + DISTANZA_MARE, passo=7):
+            for q in range(4):
+                ix, iz = m.ingombro(q)
+                cz_, cx_ = pz - dz * (iz // 2 + 4), px - dx * (ix // 2 + 4)
+                x0, z0 = cx_ - ix // 2, cz_ - iz // 2
+                if x0 < 1 or z0 < 1 or x0 + ix >= W or z0 + iz >= H:
+                    continue
+                if mare[z0:z0 + iz, x0:x0 + ix].any() or occ[z0 - 1:z0 + iz + 1, x0 - 1:x0 + ix + 1].any():
+                    continue
+                fp = h[z0:z0 + iz, x0:x0 + ix]
+                lo, hi = np.percentile(fp, (5, 95))
+                base = int(np.median(fp))
+                if hi - lo > 5 or base <= livello_mare:
+                    continue
+                vicino = float(dist_mare[z0:z0 + iz, x0:x0 + ix].min())
+                if vicino > 20:
+                    continue
+                punteggio = -float(hi - lo) - 0.05 * vicino
+                if meglio is None or punteggio > meglio[0]:
+                    meglio = (punteggio, x0, z0, ix, iz, q, base)
+    if meglio is None:
+        return None
+    _, x0, z0, ix, iz, q, base = meglio
+    return CasaIsolata(x=x0, z=z0, larghezza=ix, profondita=iz, base=base,
+                       modello=indice, quarti=q, stile="prato")
+
+
 def pianifica(citta: list, cls: np.ndarray, h: np.ndarray, marino, livello_mare: int,
               evita: np.ndarray, barche: list, primo_barche: int, primo_extra: int,
-              ver, seed: int = 0, con_faro: bool = True
+              ver, seed: int = 0, con_faro: bool = True, *, moli: list = (),
+              primo_molo: int = 0, fari: list = (), primo_faro: int = 0
               ) -> tuple[list[CasaIsolata], list]:
     """Molo, barche e faro per gli abitati sulla costa.
 
@@ -212,7 +362,36 @@ def pianifica(citta: list, cls: np.ndarray, h: np.ndarray, marino, livello_mare:
     piccole = [k for k, m in enumerate(barche)
                if max(m.dx, m.dz) <= LATO_BARCA_MAX[0] and min(m.dx, m.dz) <= LATO_BARCA_MAX[1]
                and m.linea_acqua >= 1]
+    if moli or fari:
+        # molo e faro da schema (vedi `monumenti.carica_porti`): il posto lo
+        # sceglie la forma della costa, il disegno e' quello dell'autore
+        r = rng
+        for c in citta:
+            if not moli:
+                break
+            k = int(r.integers(0, len(moli)))
+            trovato = _molo_da_modello(moli[k], primo_molo + k, c, h, mare, occ, livello_mare)
+            if trovato is None:
+                continue
+            pezzo_molo, costa = trovato
+            pezzi.append(pezzo_molo)
+            occ[pezzo_molo.z - 1:pezzo_molo.z + pezzo_molo.profondita + 1,
+                pezzo_molo.x - 1:pezzo_molo.x + pezzo_molo.larghezza + 1] = True
+            pezzi.extend(_barche_al_largo(costa, moli[k], barche, primo_barche, piccole, mare,
+                                          h, occ, livello_mare, r))
+        if fari:
+            k = int(r.integers(0, len(fari)))
+            faro_t = _faro_da_modello(fari[k], primo_faro + k, citta, h, mare, occ, livello_mare)
+            if faro_t is not None:
+                pezzi.append(faro_t)
+                occ[faro_t.z - 1:faro_t.z + faro_t.profondita + 1,
+                    faro_t.x - 1:faro_t.x + faro_t.larghezza + 1] = True
+        if moli and fari:
+            return pezzi, extra
+        con_faro = con_faro and not fari
     for c in citta:
+        if moli:
+            break                                  # i moli sono gia' fatti sopra
         costa = _punto_di_costa(mare, c.z, c.x, c.raggio)
         if costa is None:
             continue

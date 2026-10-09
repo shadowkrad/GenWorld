@@ -73,6 +73,17 @@ def main() -> None:
                         if os.path.isdir(c)),
                     help="cartelle di schemi per le navi in mare. Di default "
                          "'templates/navi'")
+    ap.add_argument("--templates-molo", default=";".join(
+                        c for c in (os.path.join(RADICE, "templates", "moli"),)
+                        if os.path.isdir(c)),
+                    help="cartelle con lo schema del molo (banchina con casetta) e "
+                         "`meta.json`. Di default 'templates/moli'; senza, il molo e' "
+                         "disegnato da codice")
+    ap.add_argument("--templates-faro", default=";".join(
+                        c for c in (os.path.join(RADICE, "templates", "fari"),)
+                        if os.path.isdir(c)),
+                    help="cartelle con il faro: schemi o mondi (cartelle con level.dat) "
+                         "e `meta.json` con la regione. Di default 'templates/fari'")
     ap.add_argument("--castelli", type=float, default=1.0, metavar="SCALA",
                     help="0 = nessun castello")
     ap.add_argument("--navi", type=float, default=1.0, metavar="SCALA",
@@ -153,7 +164,8 @@ def main() -> None:
                  templates=a.templates, templates_cimitero=a.templates_cimitero,
                  templates_portale=a.templates_portale,
                  templates_castello=a.templates_castello,
-                 templates_nave=a.templates_nave, castelli=a.castelli, navi=a.navi, porti=a.porti,
+                 templates_nave=a.templates_nave, templates_molo=a.templates_molo,
+                 templates_faro=a.templates_faro, castelli=a.castelli, navi=a.navi, porti=a.porti,
                  fauna=a.fauna, arredi=a.arredi, isolate=a.isolate, laghi=a.laghi,
                  miniere=a.miniere, accampamenti=a.accampamenti,
                  cimiteri=a.cimiteri, portali=a.portali, versione=versione)

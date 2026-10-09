@@ -65,7 +65,8 @@ COPERTURA_RAMPA = 2                 # terra sopra il soffitto perche' sia una ga
 LUNGHEZZA_RAMPA_MIN = 30            # una rampa piu' corta non e' una discesa graduale
 PASSO_TRAVE_RAMPA = 4               # un telaio di travi ogni 4 celle di rampa
 QUOTA_MINIMA_RAMPA = -50            # sotto, il fondo e' troppo vicino alla bedrock
-LUNGHEZZA_IMBOCCO = 7                # quanto la roccia dell'imbocco si addentra
+LUNGHEZZA_IMBOCCO = 22               # quanto la collina dell'imbocco si addentra: finche' il terreno
+                                     # da solo copre la galleria (la rampa scende un blocco ogni 3 celle)
 LARGHEZZA_IMBOCCO = 5                # e quanto si allarga ai lati del portale
 ALTEZZA_IMBOCCO = 7                  # altezza della roccia sopra il pavimento, sulla facciata
 BINARIO_FUORI = 6                   # celle di binario all'aperto, davanti al portale
@@ -978,7 +979,10 @@ def _carica_portale(out, tav, h_c, mn: Miniera, ox: int, oz: int, y0: int,
             a = abs(k)
             if a == 2 and i == 0:
                 continue                                  # i pali del portale
-            cima = r.y + ALTEZZA_IMBOCCO - i // 2 - max(0, a - 1)
+            # la collina segue la discesa della rampa: sopra il soffitto restano
+            # sempre tre blocchi, finche' non e' il terreno a coprirla. Prima calava
+            # troppo in fretta e la galleria sbucava all'aperto dietro l'imbocco.
+            cima = r.y + ALTEZZA_IMBOCCO - i // PASSO_RAMPA - max(0, a - 1)
             basso = fy_i + ALTEZZA_GALLERIA + 1 if a <= 1 else fy_i
             if i == 0 and a <= 2:
                 basso = fy + 6                            # sopra architrave e tettuccio
