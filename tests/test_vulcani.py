@@ -8,6 +8,7 @@ occhio sul confronto in mondi/vulcani.png.
 from __future__ import annotations
 
 import sys
+import unittest
 from pathlib import Path
 
 import numpy as np
@@ -163,3 +164,50 @@ def test_statistiche():
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
+
+
+class TestPiede(unittest.TestCase):
+    """Striature scure attorno al cono."""
+
+    def mappa(self):
+        from genworld import mappa as M
+        cls = np.full((200, 200), M.PIANURA, np.uint8)
+        cls[90:110, 90:110] = M.VULCANO
+        cls[:, :20] = M.MARE
+        return cls, M
+
+    def test_il_piede_sta_attorno_al_cono_e_non_oltre(self):
+        cls, M = self.mappa()
+        p = V.piede(cls, seed=1)
+        d = np.maximum(np.abs(np.arange(200)[:, None] - 100), np.abs(np.arange(200)[None, :] - 100))
+        self.assertGreater(int((p > 0).sum()), 200)
+        self.assertFalse((p[d > 10 + V.RAGGIO_PIEDE + 2] > 0).any(), "striature troppo lontane")
+
+    def test_non_tocca_il_cono_ne_l_acqua(self):
+        cls, M = self.mappa()
+        p = V.piede(cls, seed=1)
+        self.assertFalse((p[cls == M.VULCANO] > 0).any())
+        self.assertFalse((p[cls == M.MARE] > 0).any())
+
+    def test_e_piu_fitto_vicino_che_lontano(self):
+        cls, M = self.mappa()
+        p = V.piede(cls, seed=2)
+        d = np.hypot(np.arange(200)[:, None] - 100, np.arange(200)[None, :] - 100) - 14
+        vicino = (p > 0)[(d > 0) & (d <= 5)].mean()
+        lontano = (p > 0)[(d > 11) & (d <= V.RAGGIO_PIEDE)].mean()
+        self.assertGreater(float(vicino), float(lontano))
+
+    def test_non_e_un_anello(self):
+        """Lingue radiali: lungo la stessa distanza si alternano chiazze e vuoti."""
+        cls, M = self.mappa()
+        p = V.piede(cls, seed=3)
+        d = np.hypot(np.arange(200)[:, None] - 100, np.arange(200)[None, :] - 100)
+        anello = (d > 18) & (d < 22) & (cls != M.MARE)
+        frazione = float((p > 0)[anello].mean())
+        self.assertTrue(0.05 < frazione < 0.95, frazione)
+
+    def test_deterministico_e_senza_vulcani_vuoto(self):
+        cls, M = self.mappa()
+        self.assertTrue((V.piede(cls, seed=4) == V.piede(cls, seed=4)).all())
+        vuota = np.full((50, 50), M.PIANURA, np.uint8)
+        self.assertFalse(V.piede(vuota).any())

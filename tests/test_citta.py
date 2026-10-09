@@ -451,6 +451,33 @@ class TestSitiInadatti(unittest.TestCase):
                 self.assertGreaterEqual(c.edifici, min(C.MIN_LOTTI_CITTA, C.MIN_LOTTI_VILLAGGIO))
 
 
+class TestFossoIrregolare(unittest.TestCase):
+    def test_il_fossato_non_e_un_canale_di_larghezza_costante(self):
+        cls, h, liv = pianura()
+        _, _, _, _, citta, _, _, cls2, _ = piano([(180, 180, 55)], cls, h, liv)
+        self.assertEqual(len(citta), 1)
+        c = citta[0]
+        acqua = cls2 == FIUME
+        # lato ovest: per ogni riga, dove comincia e quanto e' largo il fossato
+        inizi, larghezze = set(), set()
+        for z in range(c.z - 25, c.z + 26):
+            xs = np.nonzero(acqua[z, c.x - c.raggio - 4:c.x - 10])[0]
+            if len(xs):
+                inizi.add(int(xs.min()))
+                larghezze.add(int(len(xs)))
+        self.assertGreaterEqual(len(larghezze), 2, f"larghezza sempre uguale: {larghezze}")
+        self.assertGreaterEqual(len(inizi), 2, f"stessa distanza dal muro: {inizi}")
+        self.assertLessEqual(max(larghezze), C.LARGHEZZA_FOSSO)
+
+    def test_il_fossato_resta_dentro_la_piana_e_non_tocca_il_muro(self):
+        cls, h, liv = pianura()
+        _, h2, _, muro, citta, _, _, cls2, _ = piano([(180, 180, 55)], cls, h, liv)
+        acqua = cls2 == FIUME
+        self.assertFalse((acqua & (muro > 0)).any(), "acqua sul muro")
+        D, _, _ = C._distanza(h.shape, 180, 180)
+        self.assertFalse((acqua & (D > citta[0].raggio)).any(), "fossato fuori dalla piana")
+
+
 class TestDistanzaFraCitta(unittest.TestCase):
 
     def test_due_citta_murate_non_stanno_una_accanto_all_altra(self):

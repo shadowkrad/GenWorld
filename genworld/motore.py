@@ -1238,7 +1238,7 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
                   manto_c=None, scarpata_c=None, sponda_c=None,
                   campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
-                  piazze=None):
+                  piazze=None, piede_c=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -1356,6 +1356,12 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
             out[cima & mm] = scrittore.blocco(sup, axis="y") if "basalt" in sup \
                 else scrittore.blocco(sup)
             out[sotto & mm] = scrittore.blocco(sub)
+
+    # --- piede del vulcano: striature scure che sfumano nel terreno -----------
+    if piede_c is not None and np.any(piede_c):
+        pc = np.asarray(piede_c)
+        for k, blocco in enumerate(_blocchi_piede(scrittore), start=1):
+            out[cima & (pc == k)[:, None, :]] = blocco
 
     if colata_c is not None and np.any(colata_c):
         cima_i = (hh - 1 - y0)
@@ -1719,6 +1725,12 @@ def _posa_varco(out, s, M, lx, lz, base, pietra) -> bool:
                                               waterlogged="false"))
         if t != 1:
             metti(ALTEZZA_MURA, pietra)
+            # la chiave di volta, scolpita, sul centro dell'arco
+            metti(4, s.blocco("stone_bricks", variant="chiseled"))
+    elif t != 1:
+        # una lanterna appesa sotto il primo gradino dell'arco, su ogni faccia:
+        # il varco si legge dalla strada e di notte e' illuminato
+        metti(2, s.blocco("lantern", hanging="true", waterlogged="false"))
     # i battenti a meta' profondita'
     if t == 1:
         for dy, meta in ((0, "lower"), (1, "upper")):
@@ -1727,6 +1739,12 @@ def _posa_varco(out, s, M, lx, lz, base, pietra) -> bool:
                                material="dark_oak", open="false", powered="false"))
         metti(2, s.blocco("planks", material="dark_oak"))
     return True
+
+
+def _blocchi_piede(s) -> list[int]:
+    """Dal piu' scuro (vicino al cono) al piu' chiaro (lontano), vedi `U.piede`."""
+    return [s.blocco("blackstone"), s.blocco("basalt", axis="y"), s.blocco("tuff"),
+            s.blocco("gravel"), s.blocco("coarse_dirt"), s.blocco("podzol", snowy="false")]
 
 
 def _posa_piazze(out, s, piazze, h_c, ox, oz, y0):
@@ -1782,8 +1800,10 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
     # distingue un corso dal vicolo, non una lastra di pietra continua.
     sentiero = s.blocco("grass_path")
     ghiaia = s.blocco("gravel")
-    assi = s.blocco("planks", material="oak")
-    pilastro = s.blocco("log", axis="y", material="oak", stripped="true")
+    # i ponti sono di rovere scuro: contro il verde e la pietra delle mura il
+    # legno chiaro faceva un tavolato che sembrava finto
+    assi = s.blocco("planks", material="dark_oak")
+    pilastro = s.blocco("log", axis="y", material="dark_oak", stripped="true")
     aria = s.id_aria
     H = out.shape[1]
 
@@ -1816,7 +1836,7 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
                 # _posa_campi): il vicino puo' stare nel chunk accanto, da
                 # qui `tipo_orlo` con la sua cella di margine.
                 staccionata = s.blocco(
-                    "fence", material="oak",
+                    "fence", material="dark_oak",
                     north="true" if orlo_parapetto(lx + 1, lz) else "false",
                     south="true" if orlo_parapetto(lx + 1, lz + 2) else "false",
                     east="true" if orlo_parapetto(lx + 2, lz + 1) else "false",
@@ -1976,6 +1996,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         scarto_m = SG.piega(max(piano.h.shape),
                             seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
         manto_m = U.manto(a.cls, seed=op.seed)
+        piede_m = U.piede(a.cls, seed=op.seed)
         tav = V.Tavolozza(m) if piano.alberi is not None else None
         tav_ed = E.TavolozzaEdilizia(m) if (piano.edifici or piano.isolate) else None
         tav_ba = (BA.Tavolozza(m)
@@ -2035,6 +2056,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 roccia=roccia, scarto_c=fetta(scarto_m, sx, sz),
                 nuda_c=fetta(nuda_m, sx, sz), neve_c=fetta(neve_m, sx, sz),
                 manto_c=fetta(manto_m, sx, sz),
+                piede_c=fetta(piede_m, sx, sz),
                 scarpata_c=(fetta(piano.scarpata, sx, sz)
                             if piano.scarpata is not None else None),
                 sponda_c=fetta(sponda_m, sx, sz),

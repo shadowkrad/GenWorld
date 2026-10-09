@@ -187,6 +187,13 @@ _VERSO = {"north": NORD, "east": EST, "south": SUD, "west": OVEST}
 SEGNAPOSTO = frozenset({"bedrock", "barrier", "structure_block", "jigsaw",
                         "command_block", "chain_command_block",
                         "repeating_command_block", "structure_void"})
+# Il terreno dei template e' quello dell'autore (erba e terra). Dove si posa il
+# modello il terreno e' un altro (sabbia, neve, pietra): erba e terra del modello
+# prendono il blocco del posto, e le piante che non ci crescono spariscono.
+TERRA_MODELLO = frozenset({"dirt", "coarse_dirt", "podzol", "rooted_dirt", "mycelium"})
+PIANTE_MODELLO = frozenset({"plant", "double_plant", "tallgrass", "tall_grass",
+                            "short_grass", "fern", "large_fern", "flower",
+                            "red_flower", "yellow_flower"})
 ACQUE_MODELLO = frozenset({"water", "flowing_water", "bubble_column"})
 ACQUA_MINIMA = 8           # sotto questa soglia e' un calderone, non uno specchio d'acqua
 CANTINA_MAX = 16           # profondita' massima di una cantina inclusa nel modello
@@ -467,11 +474,56 @@ def _leggi_nbt(percorso: str, versione) -> Modello:
         if 0 <= px < dx and 0 <= py < dy and 0 <= pz < dz:
             celle[px, py, pz] = stato
 
+    lana = [i for i, voce in enumerate(tavola) if str(voce["Name"]).endswith("_wool")]
+    togli_stendardi(celle, lana)
     m = Modello(nome=os.path.splitext(os.path.basename(percorso))[0],
                 celle=celle, tavolozza=tavolozza,
                 non_tradotti=frozenset(non_tradotti))
     m.porta = _trova_porta(m)
     return m
+
+
+STENDARDO_MINIMO = 6        # altezza minima di una colonna di lana per essere uno stendardo
+
+
+def togli_stendardi(celle: np.ndarray, lana: list[int]) -> int:
+    """Toglie dal modello le colonne di lana alte e sottili che non poggiano su
+    niente: gli stendardi di certi template. Appesi a mezz'aria, senza il resto
+    della scena, in gioco sono un palo rosso che spunta dal nulla (visto sopra
+    `simple-medieval` e `small-house-wit`).
+
+    Una colonna e' uno stendardo se ha una corsa verticale di almeno
+    `STENDARDO_MINIMO` celle di lana e la gran parte (il 70%) di quelle celle non ha
+    nessun vicino sui quattro lati. Ritorna quante celle ha tolto. Una parete di
+    lana vera, o un baldacchino, ha vicini e non si tocca.
+    """
+    if not lana:
+        return 0
+    dx, dy, dz = celle.shape
+    e_lana = np.isin(celle, lana)
+    tolte = 0
+    for x, z in zip(*np.nonzero(e_lana.any(axis=1))):
+        y = 0
+        while y < dy:
+            if not e_lana[x, y, z]:
+                y += 1
+                continue
+            y0 = y
+            while y < dy and e_lana[x, y, z]:
+                y += 1
+            corsa = range(y0, y)
+            if len(corsa) < STENDARDO_MINIMO:
+                continue
+            soli = 0
+            for k in corsa:
+                vicini = [(x + a, z + b) for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1))]
+                if all(not (0 <= vx < dx and 0 <= vz < dz) or celle[vx, k, vz] < 0
+                       for vx, vz in vicini):
+                    soli += 1
+            if soli >= 0.7 * len(corsa):
+                celle[x, y0:y, z] = -1
+                tolte += len(corsa)
+    return tolte
 
 
 def _prop_nbt(prop: dict):
@@ -632,6 +684,21 @@ class Catalogo:
                  for nome, prop in m.tavolozza], np.uint32)
         return self._id[chiave]
 
+    def terreno(self, k: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Per ogni voce della palette del modello: (e' erba, e' terra, e' una
+        pianta). Servono a `costruisci` per rivestire il terreno del modello con
+        quello del posto in cui lo si posa."""
+        if not hasattr(self, "_terreno"):
+            self._terreno = {}
+        if k not in self._terreno:
+            nomi = [n for n, _ in self.modelli[k].tavolozza]
+            self._terreno[k] = (
+                np.array([n == "grass_block" for n in nomi] + [False]),
+                np.array([n in TERRA_MODELLO for n in nomi] + [False]),
+                np.array([n in PIANTE_MODELLO for n in nomi] + [False]),
+            )
+        return self._terreno[k]
+
     def celle(self, k: int, quarti: int) -> np.ndarray:
         """Le celle girate di `quarti`, in ordine (x, y, z)."""
         c = self.modelli[k].celle
@@ -751,9 +818,32 @@ def costruisci(out: np.ndarray, y0: int, ox: int, oz: int, cat: Catalogo,
             dentro = dentro & ~sotto[:, None, :]
             if not dentro.any():
                 return
-    bersaglio = out[ax0:ax0 + (lx1 - lx0),
+    nx, nz = lx1 - lx0, lz1 - lz0
+    # Il terreno del modello prende quello del posto: la collina d'erba di un
+    # castello o lo zoccolo di terra di una casa, in un deserto, non sono una
+    # zolla verde su un mare di sabbia. Si legge il blocco di superficie e quello
+    # sotto della COLONNA, prima di scriverci sopra.
+    g = base + cat.modelli[k].affondo - 1 - y0
+    if 1 <= g < H:
+        ee, et, ep = cat.terreno(k)
+        stato = np.where(pezzo >= 0, pezzo, len(ee) - 1)
+        sopra = out[ax0:ax0 + nx, g, az0:az0 + nz]
+        sotto_g = out[ax0:ax0 + nx, g - 1, az0:az0 + nz]
+        top = sopra[:, None, :]
+        sub = sotto_g[:, None, :]
+        m_erba = dentro & ee[stato] & (top > 0)
+        m_terra = dentro & et[stato] & (sub > 0)
+        valori = np.where(m_erba, np.broadcast_to(top, valori.shape), valori)
+        valori = np.where(m_terra, np.broadcast_to(sub, valori.shape), valori)
+        # piante: solo dove il terreno del posto e' erba (o lo e' anche nel
+        # modello): altrove una pianta su sabbia o neve e' un errore
+        if ep[:-1].any() and getattr(cat, "_scrittore", None) is not None:
+            # l'erba del mondo e' `grass_block` senza proprieta' (vedi `motore.SUPERFICIE`)
+            erba_mondo = cat._scrittore.blocco("grass_block")
+            dentro = dentro & ~(ep[stato] & (top != erba_mondo) & (top > 0))
+    bersaglio = out[ax0:ax0 + nx,
                     ay0:ay0 + (ly1 - ly0),
-                    az0:az0 + (lz1 - lz0)]
+                    az0:az0 + nz]
     bersaglio[dentro] = valori[dentro]
 
 
