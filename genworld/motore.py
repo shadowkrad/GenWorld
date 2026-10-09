@@ -161,6 +161,9 @@ class Opzioni:
     # cartelle di schemi `.schem` / `.litematic` / `.nbt`. Vuote = niente.
     templates_castello: str = ""
     templates_nave: str = ""
+    # molo (banchina con casetta) e faro da schema o da mondo, per `porti.py`
+    templates_molo: str = ""
+    templates_faro: str = ""
     castelli: float = 1.0
     navi: float = 1.0
     porti: float = 1.0       # molo, barche e faro per gli abitati sulla costa
@@ -658,6 +661,13 @@ def _modelli_monumenti(op: Opzioni) -> tuple[list, list]:
                      op.templates_nave if op.navi > 0 else "", op.versione)
 
 
+def _modelli_porti(op: Opzioni) -> tuple[list, list]:
+    """(moli, fari) da schema; vuoti se non c'e' nessuna cartella."""
+    if op.porti <= 0 or not (op.templates_molo or op.templates_faro):
+        return [], []
+    return MN.carica_porti(op.templates_molo, op.templates_faro, op.versione)
+
+
 def _pianifica_monumenti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
                          banchi: list, muro, tipo_strada, campi, urbano,
                          avamposti: list, miniere: list, arredi_r,
@@ -724,16 +734,27 @@ def _pianifica_porti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     if isolate:
         evita |= IS.maschera(isolate, a.cls.shape, margine=3)
     ver = TM.traduttore(op.versione)
+    moli, fari = _modelli_porti(op)
+    primo_molo = n_case + len(castelli) + len(navi)
     pezzi, extra = PO.pianifica(
         citta, a.cls, h, M.MARINO, LIVELLO_MARE, evita, navi,
-        primo_barche=n_case + len(castelli), primo_extra=n_case + len(castelli) + len(navi),
-        ver=ver, seed=op.seed + 97)
+        primo_barche=n_case + len(castelli),
+        primo_extra=primo_molo + len(moli) + len(fari),
+        ver=ver, seed=op.seed + 97,
+        moli=moli, primo_molo=primo_molo, fari=fari, primo_faro=primo_molo + len(moli))
     if pezzi:
         protetto |= IS.maschera(pezzi, a.cls.shape)
-        moli = sum(1 for p in pezzi if p.modello >= n_case + len(castelli) + len(navi)
-                   and p.larghezza != PO.LATO_FARO)
-        note.append(f"porti: {moli} moli, {len(pezzi) - len(extra)} barche ormeggiate, "
-                    f"{sum(1 for p in pezzi if p.larghezza == PO.LATO_FARO and p.profondita == PO.LATO_FARO)} fari")
+        da_schema = len(moli) + len(fari)
+        e_molo = lambda p: (primo_molo <= p.modello < primo_molo + len(moli)          # noqa: E731
+                            or (not moli and p.modello >= primo_molo + da_schema
+                                and p.larghezza != PO.LATO_FARO and 3 in (p.larghezza, p.profondita)))
+        e_faro = lambda p: (primo_molo + len(moli) <= p.modello < primo_molo + da_schema  # noqa: E731
+                            or (not fari and p.larghezza == PO.LATO_FARO
+                                and p.profondita == PO.LATO_FARO))
+        n_moli = sum(1 for p in pezzi if e_molo(p))
+        n_fari = sum(1 for p in pezzi if e_faro(p))
+        note.append(f"porti: {n_moli} moli, {len(pezzi) - n_moli - n_fari} barche ormeggiate, "
+                    f"{n_fari} fari")
     else:
         note.append("porti: nessun abitato abbastanza vicino a un mare con fondale basso")
     return pezzi, extra
@@ -1238,7 +1259,7 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
                   manto_c=None, scarpata_c=None, sponda_c=None,
                   campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
-                  piazze=None):
+                  piazze=None, piede_c=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -1356,6 +1377,12 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
             out[cima & mm] = scrittore.blocco(sup, axis="y") if "basalt" in sup \
                 else scrittore.blocco(sup)
             out[sotto & mm] = scrittore.blocco(sub)
+
+    # --- piede del vulcano: striature scure che sfumano nel terreno -----------
+    if piede_c is not None and np.any(piede_c):
+        pc = np.asarray(piede_c)
+        for k, blocco in enumerate(_blocchi_piede(scrittore), start=1):
+            out[cima & (pc == k)[:, None, :]] = blocco
 
     if colata_c is not None and np.any(colata_c):
         cima_i = (hh - 1 - y0)
@@ -1719,6 +1746,12 @@ def _posa_varco(out, s, M, lx, lz, base, pietra) -> bool:
                                               waterlogged="false"))
         if t != 1:
             metti(ALTEZZA_MURA, pietra)
+            # la chiave di volta, scolpita, sul centro dell'arco
+            metti(4, s.blocco("stone_bricks", variant="chiseled"))
+    elif t != 1:
+        # una lanterna appesa sotto il primo gradino dell'arco, su ogni faccia:
+        # il varco si legge dalla strada e di notte e' illuminato
+        metti(2, s.blocco("lantern", hanging="true", waterlogged="false"))
     # i battenti a meta' profondita'
     if t == 1:
         for dy, meta in ((0, "lower"), (1, "upper")):
@@ -1727,6 +1760,12 @@ def _posa_varco(out, s, M, lx, lz, base, pietra) -> bool:
                                material="dark_oak", open="false", powered="false"))
         metti(2, s.blocco("planks", material="dark_oak"))
     return True
+
+
+def _blocchi_piede(s) -> list[int]:
+    """Dal piu' scuro (vicino al cono) al piu' chiaro (lontano), vedi `U.piede`."""
+    return [s.blocco("blackstone"), s.blocco("basalt", axis="y"), s.blocco("tuff"),
+            s.blocco("gravel"), s.blocco("coarse_dirt"), s.blocco("podzol", snowy="false")]
 
 
 def _posa_piazze(out, s, piazze, h_c, ox, oz, y0):
@@ -1782,8 +1821,10 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
     # distingue un corso dal vicolo, non una lastra di pietra continua.
     sentiero = s.blocco("grass_path")
     ghiaia = s.blocco("gravel")
-    assi = s.blocco("planks", material="oak")
-    pilastro = s.blocco("log", axis="y", material="oak", stripped="true")
+    # i ponti sono di rovere scuro: contro il verde e la pietra delle mura il
+    # legno chiaro faceva un tavolato che sembrava finto
+    assi = s.blocco("planks", material="dark_oak")
+    pilastro = s.blocco("log", axis="y", material="dark_oak", stripped="true")
     aria = s.id_aria
     H = out.shape[1]
 
@@ -1816,7 +1857,7 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
                 # _posa_campi): il vicino puo' stare nel chunk accanto, da
                 # qui `tipo_orlo` con la sua cella di margine.
                 staccionata = s.blocco(
-                    "fence", material="oak",
+                    "fence", material="dark_oak",
                     north="true" if orlo_parapetto(lx + 1, lz) else "false",
                     south="true" if orlo_parapetto(lx + 1, lz + 2) else "false",
                     east="true" if orlo_parapetto(lx + 2, lz + 1) else "false",
@@ -1976,6 +2017,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         scarto_m = SG.piega(max(piano.h.shape),
                             seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
         manto_m = U.manto(a.cls, seed=op.seed)
+        piede_m = U.piede(a.cls, seed=op.seed)
         tav = V.Tavolozza(m) if piano.alberi is not None else None
         tav_ed = E.TavolozzaEdilizia(m) if (piano.edifici or piano.isolate) else None
         tav_ba = (BA.Tavolozza(m)
@@ -1994,7 +2036,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             if op.templates_castello or op.templates_nave:
                 castelli_m, navi_m = _modelli_monumenti(op)
                 modelli = modelli + castelli_m + navi_m
-            modelli = modelli + list(piano.modelli_extra)
+            moli_m, fari_m = _modelli_porti(op)
+            modelli = modelli + moli_m + fari_m + list(piano.modelli_extra)
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
@@ -2035,6 +2078,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 roccia=roccia, scarto_c=fetta(scarto_m, sx, sz),
                 nuda_c=fetta(nuda_m, sx, sz), neve_c=fetta(neve_m, sx, sz),
                 manto_c=fetta(manto_m, sx, sz),
+                piede_c=fetta(piede_m, sx, sz),
                 scarpata_c=(fetta(piano.scarpata, sx, sz)
                             if piano.scarpata is not None else None),
                 sponda_c=fetta(sponda_m, sx, sz),

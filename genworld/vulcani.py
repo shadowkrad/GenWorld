@@ -234,6 +234,45 @@ def manto(cls: np.ndarray, seed: int = 0) -> np.ndarray:
     return fuori
 
 
+RAGGIO_PIEDE = 16        # fin dove arrivano le striature scure attorno al cono
+
+
+def piede(cls: np.ndarray, seed: int = 0) -> np.ndarray:
+    """Le striature scure ai piedi di un vulcano: 0 niente, 1..6 un tipo di
+    superficie (vedi `_PIEDE` in `motore`: dalle piu' scure vicino al cono alle
+    piu' chiare lontano).
+
+    Un cono di basalto che finisce di colpo sull'erba e' un confine troppo netto.
+    Attorno al vulcano la cenere e le colate vecchie si mescolano al terreno:
+    chiazze scure sempre piu' rade andando via, e a RAGGIERA - lingue che
+    scendono lungo i valloni, non un anello. Si lavora sulla mappa intera.
+    """
+    from scipy.ndimage import distance_transform_edt
+
+    from .rumore import fbm
+    vulc = np.isin(cls, (VULCANO, CRATERE))
+    fuori = np.zeros(cls.shape, np.uint8)
+    if not vulc.any():
+        return fuori
+    d, (iz, ix) = distance_transform_edt(~vulc, return_indices=True)
+    H, W = cls.shape
+    zz, xx = np.mgrid[:H, :W]
+    angolo = np.arctan2(zz - iz, xx - ix)
+    lato = max(cls.shape)
+    n = fbm(lato, ottave=3, celle_base=max(4, lato // 60), persistenza=0.5,
+            seed=seed + 7703)[:H, :W]
+    n = (n - n.min()) / max(float(n.max() - n.min()), 1e-6)
+    raggi = 0.5 + 0.5 * np.sin(angolo * 11 + n * 7.0)        # lingue radiali
+    rng = np.random.default_rng(seed + 7717)
+    prob = np.clip((1.0 - d / RAGGIO_PIEDE) ** 1.1, 0, 1) * (0.2 + 0.8 * raggi)
+    dove = (rng.random(cls.shape) < prob) & ~vulc & (d > 0) & (d <= RAGGIO_PIEDE)         & ~np.isin(cls, ACQUA)
+    # il tipo dipende dalla distanza (e un po' dal caso): scuro vicino, chiaro lontano
+    t = np.clip(d / RAGGIO_PIEDE + (rng.random(cls.shape) - 0.5) * 0.5, 0, 0.999)
+    tipo = 1 + (t * 6).astype(np.uint8)
+    fuori[dove] = tipo[dove]
+    return fuori
+
+
 def _bocche(liscio: np.ndarray, v: "Vulcano", quante: int,
             rng: np.random.Generator) -> list[float]:
     """Gli angoli da cui esce la lava: le SELLE dell'orlo, non angoli a caso.

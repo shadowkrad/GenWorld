@@ -185,19 +185,21 @@ def fontana() -> Disegno:
     Dal riferimento dato in gioco (uno screenshot): vasca bassa di mattoni
     con un orlo di pietra scura, un pilastro centrale, due piatti
     che si stringono verso l'alto, le tende d'acqua che cadono dall'orlo e
-    una guglia in cima. 9 x 11 x 9.
+    una guglia in cima. 9 x 9 x 9.
 
-    L'acqua vera sta dove e' sigillata: nel bacino e nei due piatti, chiusi
-    da un orlo pieno. Le tende e la guglia sono vetro azzurro, non acqua:
-    un blocco d'acqua scritto a mano e circondato d'aria si mette a scorrere
-    alla prima occasione e allaga la piazza, il vetro sta fermo e si legge
-    allo stesso modo da lontano.
+    L'acqua vera sta solo nel bacino, chiusa da un orlo pieno. I due piatti
+    sono UN solo strato (un anello di mattoni con dentro vetro azzurro, senza
+    un fondo di pietra sotto): prima erano due strati di pietra e la fontana
+    risultava pesante. Le tende e la guglia sono vetro azzurro, non acqua: un
+    blocco d'acqua scritto a mano e circondato d'aria si mette a scorrere alla
+    prima occasione e allaga la piazza, il vetro sta fermo e si legge allo
+    stesso modo da lontano.
     """
-    d = Disegno("fontana", 9, 11, 9)
+    d = Disegno("fontana", 9, 9, 9)
     c = 4
-    vetro = ("blue_stained_glass", {})
+    vetro = "blue_stained_glass"
 
-    def mattone(x: int, y: int, z: int, spesso: bool = False) -> None:
+    def mattone(x: int, y: int, z: int) -> None:
         h = (x * 73856093) ^ (z * 19349663) ^ (y * 83492791)
         r = h % 100
         nome = ("mossy_stone_bricks" if r < 22 else
@@ -220,32 +222,32 @@ def fontana() -> Disegno:
         else:
             d.metti(x, 0, z, nome, **prop)
 
-    def piatto(r, taglio, y_fondo):
+    def piatto(r, taglio, y):
+        """Un solo strato: anello di mattoni, vetro dentro."""
         forma = _ottagono(r, taglio)
         for dx, dz in forma:
             x, z = c + dx, c + dz
-            mattone(x, y_fondo, z)
             if orlo((dx, dz), forma):
-                d.metti(x, y_fondo + 1, z, "stone_bricks")
+                mattone(x, y, z)
             elif (dx, dz) != (0, 0):
-                d.metti(x, y_fondo + 1, z, nome, **prop)
+                d.metti(x, y, z, vetro)
 
     # pilastro centrale, con qualche mattone scolpito
-    for y in range(0, 9):
+    for y in range(0, 7):
         d.metti(c, y, c, "chiseled_stone_bricks" if y in (1, 3, 5) else "stone_bricks")
-    piatto(3, 4, 3)                     # il piatto basso, fondo a y=3
-    piatto(2, 3, 7)                     # il piatto alto, fondo a y=7
-    # tende d'acqua: dall'orlo del piatto basso e di quello alto
+    piatto(3, 4, 3)                     # il piatto basso, a y=3
+    piatto(2, 3, 6)                     # il piatto alto, a y=6
+    # tende: sotto il piatto basso e fra i due piatti
     for dx, dz in ((2, 0), (-2, 0), (0, 2), (0, -2), (2, 1), (2, -1), (-2, 1),
                    (-2, -1), (1, 2), (-1, 2), (1, -2), (-1, -2)):
-        d.metti(c + dx, 1, c + dz, *vetro[:1], **vetro[1])
-        d.metti(c + dx, 2, c + dz, *vetro[:1], **vetro[1])
+        for y in (1, 2):
+            d.metti(c + dx, y, c + dz, vetro)
     for dx, dz in ((2, 0), (-2, 0), (0, 2), (0, -2), (1, 1), (1, -1), (-1, 1), (-1, -1)):
-        d.metti(c + dx, 5, c + dz, *vetro[:1], **vetro[1])
-        d.metti(c + dx, 6, c + dz, *vetro[:1], **vetro[1])
+        for y in (4, 5):
+            d.metti(c + dx, y, c + dz, vetro)
     # guglia
-    d.metti(c, 9, c, *vetro[:1], **vetro[1])
-    d.metti(c, 10, c, *vetro[:1], **vetro[1])
+    for y in (7, 8):
+        d.metti(c, y, c, vetro)
     return d
 
 

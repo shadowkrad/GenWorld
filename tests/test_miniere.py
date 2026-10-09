@@ -953,3 +953,49 @@ class TestArredoGallerie(unittest.TestCase):
         y1 = 50 + 1 - self.Y0
         centro = out[:, y1, 8]
         self.assertTrue(np.isin(centro, [s.id_aria, *tav.rotaia.values(), tav.palo]).all())
+
+
+class TestCollinaCopreLaRampa(unittest.TestCase):
+    """La galleria non deve sbucare all'aperto dietro l'imbocco."""
+
+    Y0, ALTEZZA, SOLIDO = -64, 284, 9999
+
+    def posa(self, quota=71, lunghezza=60):
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        h_c = np.full((16, 16), quota, np.int32)
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out[np.broadcast_to(ys < h_c[:, None, :], out.shape)] = self.SOLIDO
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        tav.decora = False
+        r = MI.Rampa(x=1, z=8, dx=1, dz=0, y=quota - 1, lunghezza=lunghezza)
+        mn = MI.Miniera(x=1, z=8, y_superficie=quota - 1, y_fondo=r.fine[2], rampa=r, segmenti=[])
+        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
+        return out, tav, s, r
+
+    def test_sopra_la_galleria_c_e_sempre_terra_o_collina(self):
+        out, tav, s, r = self.posa()
+        for i in range(2, 15):
+            x = 1 + i
+            _, _, fy = r.cella(i)
+            cielo = [int(out[x, y - self.Y0, 8]) for y in range(fy + MI.ALTEZZA_GALLERIA + 1,
+                                                                  fy + MI.ALTEZZA_GALLERIA + 3)]
+            self.assertNotIn(s.id_aria, cielo, f"galleria scoperta alla cella {i}")
+
+    def test_la_collina_prende_il_materiale_del_terreno(self):
+        out, tav, s, r = self.posa()
+        sabbia = s.blocco("sand")
+        # un deserto: tutta la superficie e' sabbia
+        out2 = np.zeros_like(out)
+        h_c = np.full((16, 16), 71, np.int32)
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out2[np.broadcast_to(ys < h_c[:, None, :], out2.shape)] = self.SOLIDO
+        out2[:, 70 - self.Y0, :] = sabbia
+        tav2 = MI.Tavolozza(s)
+        tav2.decora = False
+        mn = MI.Miniera(x=1, z=8, y_superficie=70, y_fondo=r.fine[2], rampa=r, segmenti=[])
+        MI.posa(out2, tav2, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=1)
+        cima = out2[5, :, 11]                                # a lato, sulla collina
+        presenti = {int(v) for v in cima[71 - self.Y0:]} - {s.id_aria}
+        self.assertTrue(presenti)
+        self.assertNotIn(tav2.erba, presenti)

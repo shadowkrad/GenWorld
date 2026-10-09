@@ -44,7 +44,7 @@ class TestDisegni(unittest.TestCase):
 
     def test_gli_arredi_fissi_si_costruiscono_e_si_traducono(self):
         for fabbrica, dim in ((A.lampione, (1, 4, 1)), (A.campana, (3, 3, 1)),
-                              (A.fontana, (9, 11, 9)), (A.fontana_piccola, (5, 3, 5)), (A.pozzo, (3, 4, 3)),
+                              (A.fontana, (9, 9, 9)), (A.fontana_piccola, (5, 3, 5)), (A.pozzo, (3, 4, 3)),
                               (A.panchina, (3, 1, 1))):
             m = self.modello(fabbrica())
             self.assertEqual(m.celle.shape, dim)
@@ -81,8 +81,21 @@ class TestDisegni(unittest.TestCase):
                 self.assertNotEqual(m.celle[x, y - 1, z], -1)
             for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
                 self.assertNotEqual(m.celle[x + dx, y, z + dz], -1)
-        self.assertEqual(livelli, {0, 4, 8})
+        self.assertEqual(livelli, {0}, "acqua vera solo nel bacino")
         self.assertIn("stained_glass", " ".join(n for n, _ in m.tavolozza))
+
+    def test_i_piatti_della_fontana_sono_di_uno_strato(self):
+        """Anello di mattoni con il vetro dentro, niente fondo di pietra sotto:
+        ogni piatto occupa un solo piano."""
+        d = A.fontana()
+        for y in (3, 6):
+            strato = [(x, z) for (x, yy, z) in d.blocchi if yy == y]
+            self.assertGreater(len(strato), 8, f"piatto a y={y} vuoto")
+        for y in (2, 5):                       # sotto un piatto: solo pilastro e tende
+            blocchi = {n for (x, yy, z), (n, p) in d.blocchi.items() if yy == y
+                       and (x, z) != (4, 4)}
+            self.assertLessEqual(blocchi, {"blue_stained_glass"}, f"fondo di pietra a y={y}")
+        self.assertEqual(d.dim[1], 9)
 
     def test_un_blocco_non_traducibile_solleva_invece_di_sparire(self):
         d = A.Disegno("prova", 1, 1, 1)
