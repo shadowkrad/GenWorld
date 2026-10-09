@@ -659,6 +659,12 @@ def _pianifica_isolate(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     isolate = IS.pianifica(modelli_case, h, a.cls, evita_is, LIVELLO_MARE,
                            seed=83, densita=op.isolate)
     if isolate:
+        # il terreno si adatta alla casa: una scarpata irregolare tutto attorno,
+        # non una zolla rettangolare a picco sul terreno piu' basso
+        acqua_is = np.isin(a.cls, M.ACQUA)
+        for c in isolate:
+            MN.appiana(h, c.x, c.z, c.larghezza, c.profondita, c.base,
+                       seme=c.x * 31 + c.z, fascia=20, escludi=acqua_is)
         protetto |= IS.maschera(isolate, a.cls.shape)
         note.append(f"case isolate: {len(isolate)} "
                     f"({', '.join(modelli_case[c.modello].nome for c in isolate)})")

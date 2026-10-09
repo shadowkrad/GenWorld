@@ -272,6 +272,8 @@ def _faro(percorso: str, meta: dict, versione) -> TM.Modello:
         if 0 <= y < celle.shape[1]:
             terra = (celle[:, y, :] >= 0) & ~e_aria[celle[:, y, :]] & impronta
             fuori[:, y, :] = np.where(terra, celle[:, y, :], -1)
+    fuori = _piede_a_gradoni(fuori, gy, tavolozza, int(meta.get("piede", PIEDE_FARO)),
+                             int(meta.get("altura", ALTURA_FARO)))
     sl = _bbox(fuori >= 0)
     fuori = np.ascontiguousarray(fuori[sl][:, max(gy - 1, 0) - sl[1].start:, :]
                                  if sl[1].start <= max(gy - 1, 0) else fuori[sl])
@@ -279,6 +281,60 @@ def _faro(percorso: str, meta: dict, versione) -> TM.Modello:
                    celle=fuori, tavolozza=tavolozza)
     m.meta = dict(meta)
     return m
+
+
+PIEDE_FARO = 6              # larghezza del piede a gradoni attorno all'altura del faro
+ALTURA_FARO = 7             # strati sopra il terreno che formano l'altura di pietra
+
+
+def _piede_a_gradoni(celle: np.ndarray, gy: int, tavolozza: list, piede: int,
+                     altura: int) -> np.ndarray:
+    """Un raccordo di pietra e terra attorno all'altura di un faro.
+
+    L'altura del modello e' un parallelepipedo con le pareti a picco: sul terreno
+    vero sembra un blocco appoggiato. Qui le si aggiunge un piede a gradoni: a
+    ogni strato (dal basso in alto) la sagoma si restringe, con il bordo mangiato
+    a caso - una scarpata franata, non una piramide - di pietra in basso, terra
+    poi, erba all'ultimo strato. Il piede si estende anche sotto, sugli strati di
+    terra. Il modello cresce di `piede` celle per lato.
+    """
+    from scipy.ndimage import distance_transform_edt
+
+    nomi = [n for n, _ in tavolozza]
+
+    def voce(nome):
+        return nomi.index(nome) if nome in nomi else None
+
+    pietra, terra, erba = voce("stone"), voce("dirt"), voce("grass_block")
+    if pietra is None or piede <= 0:
+        return celle
+    dx, dy, dz = celle.shape
+    m = piede
+    ampio = np.full((dx + 2 * m, dy, dz + 2 * m), -1, np.int32)
+    ampio[m:m + dx, :, m:m + dz] = celle
+    base = ampio[:, gy + 1, :] >= 0                       # la sagoma dell'altura
+    if not base.any():
+        return celle
+    dist = distance_transform_edt(~base)
+    zz, xx = np.mgrid[:ampio.shape[0], :ampio.shape[2]]
+    rumore = ((xx * 73856093) ^ (zz * 19349663)) % 1000 / 1000.0
+    for k in range(min(altura, dy - gy - 1)):
+        y = gy + 1 + k
+        raggio = piede - (k * piede) / max(altura - 1, 1)     # si restringe salendo
+        entro = dist <= raggio * (0.55 + 0.45 * rumore)       # il bordo mangiato
+        vuote = entro & (ampio[:, y, :] < 0)
+        if k >= altura - 2 and erba is not None:
+            blocco = erba
+        elif k >= altura // 2 and terra is not None:
+            blocco = terra
+        else:
+            blocco = pietra
+        ampio[:, y, :][vuote] = blocco
+    for y in (gy - 1, gy):                                    # la terra sotto
+        if 0 <= y < dy and terra is not None:
+            vuote = (dist <= piede * (0.55 + 0.45 * rumore)) & (ampio[:, y, :] < 0)
+            ampio[:, y, :][vuote] = terra
+    return ampio
 
 
 def carica_porti(moli: str, fari: str, versione=(1, 21, 4)) -> tuple[list, list]:
@@ -362,9 +418,16 @@ def carica(castelli: str, navi: str, versione=(1, 21, 4)) -> tuple[list, list]:
 # --------------------------------------------------------------------------
 
 def appiana(h: np.ndarray, x0: int, z0: int, ix: int, iz: int, base: int,
-            seme: int, fascia: int = FASCIA_CASTELLO) -> None:
+            seme: int, fascia: int = FASCIA_CASTELLO,
+            escludi: np.ndarray | None = None) -> None:
     """Il terreno si adatta al rettangolo (x0, z0, ix, iz): piano a `base` dentro,
-    poi una scarpata a pendenza costante e irregolare, come per le citta'."""
+    poi una scarpata a pendenza costante e irregolare, come per le citta'.
+
+    Va usata per OGNI struttura posata fuori dai paesi (case isolate, faro,
+    castello, cimiteri, portali): senza, la costruzione sta su una zolla
+    rettangolare con la parete a picco sul terreno piu' basso intorno - troppo
+    squadrata per essere vera. `escludi` (maschera) marca le celle da non toccare,
+    per esempio il mare."""
     H, W = h.shape
     za, zb = max(0, z0 - fascia), min(H, z0 + iz + fascia)
     xa, xb = max(0, x0 - fascia), min(W, x0 + ix + fascia)
@@ -382,6 +445,8 @@ def appiana(h: np.ndarray, x0: int, z0: int, ix: int, iz: int, base: int,
     nuova = np.clip(q, base - limite, base + limite)
     nuova = np.where(d == 0, base, nuova)
     zona = d <= fascia
+    if escludi is not None:
+        zona = zona & ~escludi[za:zb, xa:xb]
     h[za:zb, xa:xb] = np.where(zona, np.round(nuova), q).astype(h.dtype)
 
 
