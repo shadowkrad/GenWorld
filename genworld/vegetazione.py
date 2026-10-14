@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from .biomi import INDICE as INDICE_BIOMI
 from .mappa import (ACQUA, DESERTO, FORESTA, MONTAGNA, NEVE, PIANURA,
                     PRATERIA, SPIAGGIA)
 from .rumore import fbm
@@ -28,7 +29,8 @@ from .rumore import fbm
 # specie
 (QUERCIA, BETULLA, ABETE, CACTUS, ARBUSTO, CESPUGLIO, MELO, CILIEGIO, BACCHE,
  DENTE_DI_LEONE, PAPAVERO, TULIPANO, FIORDALISO, ALLIUM, GIGLIO_VALLE,
- FUNGO_MARRONE, FUNGO_ROSSO, CANNA) = range(18)
+ FUNGO_MARRONE, FUNGO_ROSSO, CANNA, ACACIA, ROVERE_SCURO, GIUNGLA,
+ ABETE_ALTO) = range(22)
 
 # i fiori a un blocco solo: stesso trattamento di arbusto/cespuglio nel
 # disegno, distinti solo per varieta' e per come si mescolano per classe
@@ -46,6 +48,8 @@ NOMI_SPECIE = {
     TULIPANO: "tulipano", FIORDALISO: "fiordaliso", ALLIUM: "allium",
     GIGLIO_VALLE: "giglio_valle", FUNGO_MARRONE: "fungo_marrone",
     FUNGO_ROSSO: "fungo_rosso", CANNA: "canna",
+    ACACIA: "acacia", ROVERE_SCURO: "rovere_scuro", GIUNGLA: "giungla",
+    ABETE_ALTO: "abete_alto",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -79,13 +83,31 @@ MISCELA = {
 }
 
 MATERIALE = {QUERCIA: "oak", BETULLA: "birch", ABETE: "spruce",
-             MELO: "oak", CILIEGIO: "cherry"}
+             MELO: "oak", CILIEGIO: "cherry", ACACIA: "acacia",
+             ROVERE_SCURO: "dark_oak", GIUNGLA: "jungle", ABETE_ALTO: "spruce"}
 ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            CACTUS: (2, 5), ARBUSTO: (1, 2), CESPUGLIO: (1, 2),
            MELO: (4, 6), CILIEGIO: (5, 7), BACCHE: (1, 2),
            DENTE_DI_LEONE: (1, 2), PAPAVERO: (1, 2), TULIPANO: (1, 2),
            FIORDALISO: (1, 2), ALLIUM: (1, 2), GIGLIO_VALLE: (1, 2),
-           FUNGO_MARRONE: (1, 2), FUNGO_ROSSO: (1, 2), CANNA: (1, 4)}
+           FUNGO_MARRONE: (1, 2), FUNGO_ROSSO: (1, 2), CANNA: (1, 4),
+           ACACIA: (5, 8), ROVERE_SCURO: (6, 9), GIUNGLA: (11, 18),
+           ABETE_ALTO: (14, 23)}
+
+# Le specie per BIOMA, dove il bioma ha un suo bosco: sostituiscono la miscela
+# della classe. Il bioma lo decide `biomi.assegna` (caldo, freddo, macchie):
+# la savana ha l'acacia piatta, il bosco scuro il rovere scuro a tronco doppio,
+# la giungla alberi altissimi, il prato fresco i ciliegi, la taiga gigante gli
+# abeti piu' alti.
+MISCELA_BIOMA = {
+    "savanna": [(ACACIA, 0.55), (CESPUGLIO, 0.20), (ARBUSTO, 0.15), (QUERCIA, 0.10)],
+    "dark_forest": [(ROVERE_SCURO, 0.62), (QUERCIA, 0.16), (FUNGO_MARRONE, 0.12),
+                    (FUNGO_ROSSO, 0.10)],
+    "jungle": [(GIUNGLA, 0.62), (CESPUGLIO, 0.28), (QUERCIA, 0.10)],
+    "meadow": [(CILIEGIO, 0.22), (QUERCIA, 0.30), (DENTE_DI_LEONE, 0.18),
+               (TULIPANO, 0.12), (CESPUGLIO, 0.18)],
+    "giant_spruce_taiga": [(ABETE_ALTO, 0.55), (ABETE, 0.35), (CESPUGLIO, 0.10)],
+}
 
 # Dove puo' crescere la canna da zucchero: SOLO sul bordo dell'acqua, come in
 # Minecraft davvero - non e' una questione di classe di terreno ma di essere
@@ -94,7 +116,7 @@ CANNA_CLASSI = (SPIAGGIA, PIANURA, PRATERIA, FORESTA)
 
 # Ingombro orizzontale massimo, in blocchi dal centro. Serve a sapere quali
 # alberi di chunk vicini possono sporgere dentro questo.
-RAGGIO_MAX = 3
+RAGGIO_MAX = 4
 
 
 # --------------------------------------------------------------------------
@@ -110,8 +132,10 @@ def semina(
     scala_densita: float = 1.0,
     grumi: float = 0.85,
     seed: int = 0,
+    biomi: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Dove piantare. Ritorna array paralleli in coordinate della mappa.
+    """Dove piantare. Con `biomi` (indici di `biomi.BIOMI`) le specie dei biomi in
+    `MISCELA_BIOMA` prendono il posto della miscela della classe. Ritorna array paralleli in coordinate della mappa.
 
     La griglia sfalsata e' il modo economico di ottenere rumore blu: un
     candidato per cella, spostato a caso dentro la cella. Cosi' due alberi non
@@ -179,6 +203,20 @@ def semina(
             specie[dentro] = sp
             soglia += peso
         specie[m & (r >= soglia)] = miscela[-1][0]
+
+    if biomi is not None:
+        b = biomi[z, x]
+        r2 = rng.random(x.size)
+        for nome, miscela in MISCELA_BIOMA.items():
+            m = b == INDICE_BIOMI[nome]
+            if not m.any():
+                continue
+            soglia = 0.0
+            for sp, peso in miscela:
+                dentro = m & (r2 >= soglia) & (r2 < soglia + peso)
+                specie[dentro] = sp
+                soglia += peso
+            specie[m & (r2 >= soglia)] = miscela[-1][0]
 
     altezza = np.zeros(x.size, np.int32)
     for sp, (lo, hi) in ALTEZZA.items():
@@ -291,12 +329,12 @@ class Tavolozza:
         s = scrittore
         self.tronco = {
             sp: s.blocco("log", axis="y", material=MATERIALE[sp], stripped="false")
-            for sp in (QUERCIA, BETULLA, ABETE, MELO, CILIEGIO)
+            for sp in ALBERI
         }
         self.foglie = {
             sp: s.blocco("leaves", check_decay="false", distance="7",
                          material=MATERIALE[sp], persistent="true")
-            for sp in (QUERCIA, BETULLA, ABETE, MELO, CILIEGIO)
+            for sp in ALBERI
         }
         self.bacche = s.blocco("sweet_berry_bush", age="3")
         self.cactus = s.blocco("cactus", age="0")
@@ -319,8 +357,74 @@ class Tavolozza:
         self.aria = s.id_aria
 
 
+# le specie che hanno un tronco e delle foglie (le altre sono piante a un blocco)
+ALBERI = (QUERCIA, BETULLA, ABETE, MELO, CILIEGIO, ACACIA, ROVERE_SCURO, GIUNGLA,
+          ABETE_ALTO)
+
 # profilo dell'abete dall'alto verso il basso: raggio per livello
 PROFILO_ABETE = (0, 1, 1, 2, 1, 2, 2, 1, 2, 2, 1, 2)
+
+
+def _disco(posa, cx: float, cz: float, y: int, raggio2: float, foglie: int,
+           rng=None, mangia: float = 0.0) -> None:
+    """Un disco di foglie centrato in (cx, cz): le celle a distanza al quadrato
+    <= raggio2. `mangia` e' la probabilita' di togliere una cella del bordo,
+    perche' una chioma tonda perfetta si legge finta."""
+    r = int(raggio2 ** 0.5) + 1
+    for dx in range(-r, r + 2):
+        for dz in range(-r, r + 2):
+            gx, gz = int(np.floor(cx)) + dx, int(np.floor(cz)) + dz
+            d2 = (gx - cx) ** 2 + (gz - cz) ** 2
+            if d2 > raggio2:
+                continue
+            if rng is not None and d2 > raggio2 * 0.55 and rng.random() < mangia:
+                continue
+            posa(gx, y, gz, foglie)
+
+
+def _disegna_acacia(posa, x, z, base, alt, rng, tronco, foglie) -> None:
+    """L'acacia della savana: un tronco che si piega di lato e una chioma
+    PIATTA, larga e bassa, come un ombrello."""
+    dritto = max(3, alt - 3)
+    dx, dz = ((1, 0), (-1, 0), (0, 1), (0, -1))[int(rng.integers(0, 4))]
+    for k in range(dritto):
+        posa(x, base + k, z, tronco, solo_aria=False)
+    # il tronco scavalca di un blocco e sale ancora di due
+    px, pz = x + dx, z + dz
+    for k in range(dritto, dritto + 3):
+        posa(px, base + k, pz, tronco, solo_aria=False)
+    cima = base + dritto + 2
+    _disco(posa, px, pz, cima, 7.0, foglie, rng, 0.25)
+    _disco(posa, px, pz, cima + 1, 2.2, foglie)
+    # un ramo piu' basso dall'altra parte, con una chiomina
+    ox_, oz_ = x - dx, z - dz
+    posa(ox_, base + dritto - 1, oz_, tronco, solo_aria=False)
+    _disco(posa, ox_, oz_, base + dritto, 3.2, foglie, rng, 0.2)
+
+
+def _disegna_rovere_scuro(posa, x, z, base, alt, tronco, foglie) -> None:
+    """Il rovere scuro: tronco a 2x2 e una chioma larghissima e fitta."""
+    cx, cz = x + 0.5, z + 0.5
+    cima = base + alt
+    for y, r2 in ((cima - 3, 6.5), (cima - 2, 10.5), (cima - 1, 10.5),
+                  (cima, 6.5), (cima + 1, 2.5)):
+        _disco(posa, cx, cz, y, r2, foglie)
+    for k in range(alt):
+        for ddx, ddz in ((0, 0), (1, 0), (0, 1), (1, 1)):
+            posa(x + ddx, base + k, z + ddz, tronco, solo_aria=False)
+
+
+def _disegna_giungla(posa, x, z, base, alt, tronco, foglie) -> None:
+    """La giungla: un tronco altissimo, una chioma in cima e una corona piu'
+    bassa a meta' altezza, cosi' si legge a piani come nei boschi tropicali."""
+    cima = base + alt
+    for y, r2 in ((cima - 2, 7.0), (cima - 1, 9.0), (cima, 5.0), (cima + 1, 1.5)):
+        _disco(posa, x, z, y, r2, foglie)
+    meta = base + alt // 2
+    _disco(posa, x, z, meta, 4.5, foglie)
+    _disco(posa, x, z, meta + 1, 2.0, foglie)
+    for k in range(alt):
+        posa(x, base + k, z, tronco, solo_aria=False)
 
 
 def disegna(
@@ -384,11 +488,25 @@ def disegna(
         tronco = tav.tronco[sp]
         foglie = tav.foglie[sp]
 
-        if sp == ABETE:
-            livelli = min(len(PROFILO_ABETE), max(3, alt - 1))
+        if sp == ACACIA:
+            _disegna_acacia(posa, x, z, base, alt, rng, tronco, foglie)
+            messi += 1
+            continue
+        if sp == ROVERE_SCURO:
+            _disegna_rovere_scuro(posa, x, z, base, alt, tronco, foglie)
+            messi += 1
+            continue
+        if sp == GIUNGLA:
+            _disegna_giungla(posa, x, z, base, alt, tronco, foglie)
+            messi += 1
+            continue
+
+        if sp in (ABETE, ABETE_ALTO):
+            profilo = PROFILO_ABETE if sp == ABETE else PROFILO_ABETE * 3
+            livelli = min(len(profilo), max(3, alt - 1))
             for k in range(livelli):
                 y = base + alt - 1 - k
-                r = PROFILO_ABETE[k]
+                r = profilo[k]
                 for dx in range(-r, r + 1):
                     for dz in range(-r, r + 1):
                         if abs(dx) + abs(dz) > r + (1 if r > 1 else 0):
@@ -413,7 +531,7 @@ def disegna(
         # `base + alt - 1`, e un tronco alto `alt` la sostituiva - in gioco la
         # cima di certi abeti era un blocco di legno nudo. Nelle latifoglie
         # il tronco arriva a `alt - 1` e la cima e' un blocco piu' su.
-        alt_tronco = alt - 1 if sp == ABETE else alt
+        alt_tronco = alt - 1 if sp in (ABETE, ABETE_ALTO) else alt
         for k in range(alt_tronco):
             posa(x, base + k, z, tronco, solo_aria=False)
         messi += 1
