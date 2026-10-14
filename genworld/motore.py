@@ -783,7 +783,7 @@ def _semina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
     le mura, la carreggiata, una casa, un giardino, un accampamento, vicino a
     uno scalino urbano o a un fiume. Ritorna (alberi, indice per chunk)."""
     alberi = (V.semina(a.cls, h, livello_mare=LIVELLO_MARE,
-                       scala_densita=op.alberi, seed=21)
+                       scala_densita=op.alberi, seed=21, biomi=a.biomi)
               if op.alberi > 0 else None)
     if alberi is not None and op.alberi > 0:
         # la canna da zucchero e' nello stesso elenco: la pianta chi semina
