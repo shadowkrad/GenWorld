@@ -1762,6 +1762,8 @@ def _posa_mura(out, s, muro, h_c, ox, oz, y0, orlo=None):
             v = int(orlo[lx + c + dx_, lz + c + dz_])
             if v >= SCALA_BASE and (v - SCALA_BASE) % 8 >= 5:
                 return True
+            if PIOLO_BASE <= v < SCALA_BASE:
+                return True            # in cima a una scala a pioli niente merlo
         return False
 
     for lx in range(16):
@@ -1799,6 +1801,13 @@ def _posa_mura(out, s, muro, h_c, ox, oz, y0, orlo=None):
                         for k in range(base + ALTEZZA_MURA, base + ALTEZZA_MURA + 2):
                             if 0 <= k < H:
                                 out[lx, k, lz] = aria
+            elif PIOLO_BASE <= m < SCALA_BASE:
+                # una scala a pioli addossata alla cinta curva: dalla quota del
+                # terreno fino all'ultimo blocco del muro, guarda verso l'interno
+                verso = ("north", "east", "south", "west")[m - PIOLO_BASE]
+                for k in range(base, min(base + ALTEZZA_MURA, H)):
+                    if k >= 0:
+                        out[lx, k, lz] = s.blocco("ladder", facing=verso)
             elif m >= SCALA_BASE:
                 # un gradino della scalinata che sale dall'interno sul cammino
                 # di ronda: sotto, pietra piena fino a terra; sopra, la scala
@@ -1825,6 +1834,7 @@ def _posa_mura(out, s, muro, h_c, ox, oz, y0, orlo=None):
 # Di quante celle si deve vedere oltre il chunk per capire come e' orientato un
 # varco (largo cinque, profondo tre: puo' stare a cavallo di due chunk).
 ORLO_VARCO = 5
+PIOLO_BASE = 4         # in `muro` i valori 4..7 sono scale a pioli (vedi `citta._pioli`)
 SCALA_BASE = 16        # in `muro` i valori da qui in su sono gradini (vedi `citta._scale`)
 LARGHEZZA_VARCO = 5
 
