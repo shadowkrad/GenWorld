@@ -924,6 +924,44 @@ class TestIndiceDelChunk(unittest.TestCase):
         self.assertEqual(MO._dal_chunk(indice, 512, 128), [2])
 
 
+class TestScalaAPioli(unittest.TestCase):
+    """Sulle cinte curve si sale con una scala a pioli addossata al muro."""
+
+    def costruisci(self, verso_codice=6):
+        s = FintoScrittore()
+        h_c = np.full((16, 16), 70, np.int32)
+        cls_c = np.full((16, 16), M.PIANURA, np.uint8)
+        muro = np.zeros((16, 16), np.uint8)
+        muro[:, 8:11] = 1                  # il muro corre lungo z, a x = 8..10
+        muro[5, 7] = verso_codice          # la scala sta subito prima, a x = 7
+        orlo = np.pad(muro, 5)
+        out = blocchi_chunk(s, h_c, cls_c, muro_c=muro, ox=0, oz=0, muro_orlo_c=orlo)
+        return out, s
+
+    def test_la_scala_va_da_terra_in_cima_al_muro_e_guarda_dentro(self):
+        from genworld import motore as MO
+        out, s = self.costruisci(MO.PIOLO_BASE + 3)         # guarda a ovest
+        scala = s.blocco("ladder", facing="west")
+        base = 70 + 64
+        for k in range(MO.ALTEZZA_MURA):
+            self.assertEqual(int(out[5, base + k, 7]), scala, f"manca un piolo a +{k}")
+        self.assertNotEqual(int(out[5, base + MO.ALTEZZA_MURA, 7]), scala)
+        self.assertNotEqual(int(out[5, base - 1, 7]), scala)
+
+    def test_i_quattro_versi(self):
+        from genworld import motore as MO
+        for i, nome in enumerate(("north", "east", "south", "west")):
+            out, s = self.costruisci(MO.PIOLO_BASE + i)
+            self.assertEqual(int(out[5, 70 + 64, 7]), s.blocco("ladder", facing=nome))
+
+    def test_in_cima_alla_scala_il_merlo_dietro_manca(self):
+        from genworld import motore as MO
+        out, s = self.costruisci(MO.PIOLO_BASE + 3)
+        pietra = s.blocco("stone_bricks", variant="normal")
+        cima = 70 + 64 + MO.ALTEZZA_MURA
+        self.assertNotEqual(int(out[5, cima, 8]), pietra)
+
+
 class TestCintaMerliTorriScale(unittest.TestCase):
     ALTEZZA = 220 + 64
 

@@ -435,6 +435,7 @@ def _mura(D, dz, dx, lato, forma: Forma | None = None) -> np.ndarray:
     return muro
 
 
+PIOLO_BASE = 4         # in `muro` i valori 4..7 sono una scala a pioli (verso: nord, est, sud, ovest)
 SCALA_BASE = 16        # in `muro` i valori da qui in su sono gradini di una scalinata
 LUNGHEZZA_SCALA = 7    # un gradino per ogni blocco di altezza della cinta
 _NORMALI = ((-1, 0), (0, 1), (1, 0), (0, -1))        # nord, est, sud, ovest (dz, dx)
@@ -481,6 +482,67 @@ def _scale(centro: tuple[int, int], lato: int, forma: tuple[int, int],
             continue
         for z, x, k in celle:
             fuori.append((z, x, SCALA_BASE + (salita * 4 + lato_i) * 8 + k))
+    return fuori
+
+
+ANGOLI_PIOLI = (3 * np.pi / 16, 5 * np.pi / 16)      # due per quadrante, fra una torre e l'altra
+
+
+def _pioli(centro: tuple[int, int], lato: int, forma: tuple[int, int],
+           muro: np.ndarray, edifici: list, contorno: Forma) -> list[tuple[int, int, int]]:
+    """Sulle cinte curve le scalinate dritte non si addossano al muro: si sale con
+    scale a pioli, otto in tutto (due per quadrante, fra una torre e l'altra).
+
+    Ogni scala sta nella cella appena dentro la cinta (la berma, D == lato), ha
+    sul retro una cella di muro e guarda verso l'interno. Ritorna
+    [(z, x, PIOLO_BASE + verso)] con verso 0..3 = nord, est, sud, ovest (verso
+    dove guarda la scala). Si salta un punto se sotto c'e' un edificio, un muro
+    o altro."""
+    cz, cx = centro
+    H, W = forma
+    fuori: list[tuple[int, int, int]] = []
+    scelti: set = set()
+    for sz in (1, -1):
+        for sx in (1, -1):
+            for theta in ANGOLI_PIOLI:
+                # il punto ideale: sul raggio a quell'angolo, dove la distanza vale `lato`
+                ideale = None
+                for r in np.arange(lato - 8.0, lato + 3.0, 0.25):
+                    # angolo nella scala della forma (come per le torri): sull'ovale
+                    # il raggio a 3/16 di pi greco non e' quello della circonferenza
+                    dz = int(round(sz * (r / lato) * contorno.lz * np.sin(theta)))
+                    dx = int(round(sx * (r / lato) * contorno.lx * np.cos(theta)))
+                    if int(_metrica(contorno, lato, np.array(dz), np.array(dx))) == lato:
+                        ideale = (cz + dz, cx + dx)
+                        break
+                if ideale is None:
+                    continue
+                cella = None
+                migliore = None
+                for z in range(ideale[0] - 3, ideale[0] + 4):
+                    for x in range(ideale[1] - 3, ideale[1] + 4):
+                        if not (1 <= z < H - 1 and 1 <= x < W - 1) or muro[z, x] or (z, x) in scelti:
+                            continue
+                        if int(_metrica(contorno, lato, np.array(z - cz), np.array(x - cx))) != lato:
+                            continue
+                        # il muro dietro: un vicino che sia cinta (non torre)
+                        dietro = [v for v, (vz, vx) in enumerate(((-1, 0), (0, 1), (1, 0), (0, -1)))
+                                  if muro[z + vz, x + vx] == 1]
+                        if not dietro:
+                            continue
+                        d2 = (z - ideale[0]) ** 2 + (x - ideale[1]) ** 2
+                        if migliore is None or d2 < migliore:
+                            # la scala guarda dalla parte opposta al muro
+                            migliore = d2
+                            cella = (z, x, PIOLO_BASE + (dietro[0] + 2) % 4)
+                if cella is None:
+                    continue
+                z, x, _ = cella
+                if any(ex0 - 1 <= x <= ex1 + 1 and ez0 - 1 <= z <= ez1 + 1
+                       for ex0, ez0, ex1, ez1 in (e.ingombro_tetto() for e in edifici)):
+                    continue
+                scelti.add((z, x))
+                fuori.append(cella)
     return fuori
 
 
@@ -724,7 +786,13 @@ def pianifica(
         C, dz, dx = _distanza((H, W), sz, sx)
         # la forma si sceglie per prima e non cambia piu'; se non produce
         # abbastanza lotti si ripiega sul quadrato, che sul sito ci sta di sicuro
-        candidate = [scegli_forma(forme, lato, murata, rng)]
+        # `forme` puo' essere un elenco ("tondo,ovale,rettangolo"): le citta' murate
+        # lo percorrono in ordine, per vedere tutte le forme in una mappa sola
+        scelta = forme
+        if "," in forme:
+            elenco = forme.split(",")
+            scelta = elenco[sum(1 for c_ in citta if c_.murata) % len(elenco)] if murata else "quadrato"
+        candidate = [scegli_forma(scelta, lato, murata, rng)]
         if candidate[0].tipo != "quadrato":
             candidate.append(forma_quadrata(lato))
         for contorno in candidate:
@@ -758,6 +826,9 @@ def pianifica(
             muro[m > 0] = m[m > 0]
             for z, x, v in _scale((sz, sx), lato, (H, W), muro, ed, contorno):
                 muro[z, x] = v
+            if contorno.tipo in ("ovale", "tondo"):
+                for z, x, v in _pioli((sz, sx), lato, (H, W), muro, ed, contorno):
+                    muro[z, x] = v
         citta.append(Citta(
             z=sz, x=sx, raggio=_raggio_piana(lato, murata), piazza=(sz, sx),
             porte=_porte_esterne(sz, sx, lato, murata, (H, W), contorno),
