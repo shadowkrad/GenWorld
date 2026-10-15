@@ -292,6 +292,24 @@ def pozzo() -> Disegno:
     return d
 
 
+# I colori degli stendardi delle citta': ognuna ne ha uno, scelto dal suo numero
+COLORI_STENDARDI = ("red", "blue", "green", "purple", "orange", "cyan", "yellow",
+                    "magenta")
+
+
+def stendardo(colore: str = "red") -> Disegno:
+    """Un palo scuro con un traversino e due stendardi, uno per lato, nei
+    colori della citta'. 1 x 5 x 3: l'asta al centro, gli stendardi a z=0 e z=2."""
+    d = Disegno(f"stendardo_{colore}", 1, 5, 3)
+    for y in range(3):
+        d.metti(0, y, 1, "dark_oak_fence")
+    d.metti(0, 3, 1, "dark_oak_planks")
+    d.metti(0, 4, 1, "lantern", hanging="false", waterlogged="false")
+    d.metti(0, 3, 0, f"{colore}_wall_banner", facing="north")
+    d.metti(0, 3, 2, f"{colore}_wall_banner", facing="south")
+    return d
+
+
 def panchina() -> Disegno:
     d = Disegno("panchina", 3, 1, 1)
     d.metti(0, 0, 0, "oak_stairs", facing="east", half="bottom", shape="straight",
@@ -345,6 +363,13 @@ def giardino(w: int, d: int, verso: int, rng: np.random.Generator) -> Disegno:
                 g.metti(x, 0, z, _FIORI[int(rng.integers(0, len(_FIORI)))])
             elif r < 0.66:
                 g.metti(x, 0, z, "sweet_berry_bush", age="3")
+            elif r < 0.70:
+                g.metti(x, 0, z, "pumpkin" if rng.random() < 0.6 else "jack_o_lantern",
+                        facing=("north", "south", "east", "west")[int(rng.integers(0, 4))])
+    # un alveare su un palo in un angolo, fra i fiori: le api ci vengono da sole
+    if w >= 6 and d >= 6 and rng.random() < 0.5:
+        g.metti(1, 0, 1, "oak_fence")
+        g.metti(1, 1, 1, "beehive", facing="south", honey_level="0")
     if w >= 8 and d >= 8:
         g.incolla(lampione(), w // 2, 0, d // 2)
     return g
@@ -384,6 +409,9 @@ def piazzetta(w: int, d: int, verso: int, rng: np.random.Generator) -> Disegno:
     g.incolla(pozzo(), (w - 3) // 2, 0, (d - 3) // 2)
     for z in (1, d - 2):
         g.incolla(panchina(), (w - 3) // 2, 0, z)
+        # una candela sul sedile di mezzo
+        g.metti((w - 3) // 2 + 1, 1, z, "candle", candles="2", lit="true",
+                waterlogged="false")
     for x, z in ((0, 0), (w - 1, 0), (0, d - 1), (w - 1, d - 1)):
         g.metti(x, 0, z, "oak_leaves", **_FOGLIE)
     return g
@@ -538,6 +566,13 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
         q = cerca(px, pz, 3, 1, r_campana, 12)
         if q is not None:
             posa("campana", q[0], q[1], 3, 1, indice("campana", campana))
+        # due stendardi nei colori della citta' ai lati della piazza
+        colore = COLORI_STENDARDI[(c.x * 31 + c.z * 17) % len(COLORI_STENDARDI)]
+        for _ in range(2):
+            q = cerca(px, pz, 1, 3, r_campana, 12)
+            if q is not None:
+                posa("stendardo", q[0], q[1], 1, 3,
+                     indice(f"stendardo_{colore}", lambda col=colore: stendardo(col)))
 
     # 2) lotti senza casa
     banchi_nuovi = 0
