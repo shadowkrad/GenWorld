@@ -31,7 +31,7 @@ from .rumore import fbm
  DENTE_DI_LEONE, PAPAVERO, TULIPANO, FIORDALISO, ALLIUM, GIGLIO_VALLE,
  FUNGO_MARRONE, FUNGO_ROSSO, CANNA, ACACIA, ROVERE_SCURO, GIUNGLA,
  ABETE_ALTO, GIRASOLE, FELCE_GRANDE, LILLA, ROSAIO, PEONIA, FUNGO_GIGANTE_M,
- FUNGO_GIGANTE_R, TORCHFLOWER) = range(30)
+ FUNGO_GIGANTE_R, TORCHFLOWER, MANGROVIA, AZALEA) = range(32)
 
 # piante alte due blocchi (meta' bassa e meta' alta)
 DOPPI = {GIRASOLE: "sunflower", FELCE_GRANDE: "large_fern", LILLA: "lilac",
@@ -58,7 +58,7 @@ NOMI_SPECIE = {
     ABETE_ALTO: "abete_alto", GIRASOLE: "girasole", FELCE_GRANDE: "felce_grande",
     LILLA: "lilla", ROSAIO: "rosaio", PEONIA: "peonia",
     FUNGO_GIGANTE_M: "fungo_gigante_marrone", FUNGO_GIGANTE_R: "fungo_gigante_rosso",
-    TORCHFLOWER: "torchflower",
+    TORCHFLOWER: "torchflower", MANGROVIA: "mangrovia", AZALEA: "azalea",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -78,7 +78,7 @@ DENSITA = {
 # dappertutto si legge finto quanto un bosco tutto quercia - e restano fuori
 # da montagna, neve e deserto, dove in Minecraft non nascono naturalmente.
 MISCELA = {
-    FORESTA:  [(QUERCIA, 0.50), (BETULLA, 0.22), (ABETE, 0.18),
+    FORESTA:  [(QUERCIA, 0.47), (AZALEA, 0.03), (BETULLA, 0.22), (ABETE, 0.18),
                (GIGLIO_VALLE, 0.06), (FUNGO_MARRONE, 0.03), (FUNGO_ROSSO, 0.01)],
     PRATERIA: [(QUERCIA, 0.55), (BETULLA, 0.15), (CESPUGLIO, 0.08),
                (DENTE_DI_LEONE, 0.08), (PAPAVERO, 0.06), (TULIPANO, 0.04),
@@ -93,7 +93,8 @@ MISCELA = {
 
 MATERIALE = {QUERCIA: "oak", BETULLA: "birch", ABETE: "spruce",
              MELO: "oak", CILIEGIO: "cherry", ACACIA: "acacia",
-             ROVERE_SCURO: "dark_oak", GIUNGLA: "jungle", ABETE_ALTO: "spruce"}
+             ROVERE_SCURO: "dark_oak", GIUNGLA: "jungle", ABETE_ALTO: "spruce",
+             MANGROVIA: "mangrove"}
 ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            CACTUS: (2, 5), ARBUSTO: (1, 2), CESPUGLIO: (1, 2),
            MELO: (4, 6), CILIEGIO: (5, 7), BACCHE: (1, 2),
@@ -103,7 +104,8 @@ ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            ACACIA: (5, 8), ROVERE_SCURO: (6, 9), GIUNGLA: (11, 18),
            ABETE_ALTO: (14, 23), GIRASOLE: (2, 3), FELCE_GRANDE: (2, 3),
            LILLA: (2, 3), ROSAIO: (2, 3), PEONIA: (2, 3),
-           FUNGO_GIGANTE_M: (4, 7), FUNGO_GIGANTE_R: (4, 7), TORCHFLOWER: (1, 2)}
+           FUNGO_GIGANTE_M: (4, 7), FUNGO_GIGANTE_R: (4, 7), TORCHFLOWER: (1, 2),
+           MANGROVIA: (5, 8), AZALEA: (1, 2)}
 
 # Le specie per BIOMA, dove il bioma ha un suo bosco: sostituiscono la miscela
 # della classe. Il bioma lo decide `biomi.assegna` (caldo, freddo, macchie):
@@ -121,6 +123,8 @@ MISCELA_BIOMA = {
     "taiga": [(ABETE, 0.62), (FELCE_GRANDE, 0.14), (CESPUGLIO, 0.12),
               (FUNGO_MARRONE, 0.06), (BACCHE, 0.06)],
     "snowy_taiga": [(ABETE, 0.80), (CESPUGLIO, 0.12), (BACCHE, 0.08)],
+    "mangrove_swamp": [(MANGROVIA, 0.55), (CESPUGLIO, 0.20), (FUNGO_MARRONE, 0.05),
+                       (AZALEA, 0.10), (CANNA, 0.10)],
     "jungle": [(GIUNGLA, 0.62), (CESPUGLIO, 0.28), (QUERCIA, 0.10)],
     "meadow": [(CILIEGIO, 0.20), (QUERCIA, 0.24), (DENTE_DI_LEONE, 0.12),
                (TULIPANO, 0.08), (LILLA, 0.08), (PEONIA, 0.08), (ROSAIO, 0.06),
@@ -374,6 +378,9 @@ class Tavolozza:
             FUNGO_ROSSO: s.blocco("red_mushroom"),
         }
         self.torchflower = s.blocco("torchflower")
+        self.azalea = s.blocco("azalea")
+        self.azalea_fiorita = s.blocco("flowering_azalea")
+        self.radici = s.blocco("mangrove_roots")
         self.doppio = {
             sp: (s.blocco("double_plant", plant_type=n, half="lower"),
                  s.blocco("double_plant", plant_type=n, half="upper"))
@@ -393,7 +400,7 @@ class Tavolozza:
 
 # le specie che hanno un tronco e delle foglie (le altre sono piante a un blocco)
 ALBERI = (QUERCIA, BETULLA, ABETE, MELO, CILIEGIO, ACACIA, ROVERE_SCURO, GIUNGLA,
-          ABETE_ALTO)
+          ABETE_ALTO, MANGROVIA)
 
 # profilo dell'abete dall'alto verso il basso: raggio per livello
 PROFILO_ABETE = (0, 1, 1, 2, 1, 2, 2, 1, 2, 2, 1, 2)
@@ -446,6 +453,21 @@ def _disegna_rovere_scuro(posa, x, z, base, alt, tronco, foglie) -> None:
     for k in range(alt):
         for ddx, ddz in ((0, 0), (1, 0), (0, 1), (1, 1)):
             posa(x + ddx, base + k, z + ddz, tronco, solo_aria=False)
+
+
+def _disegna_mangrovia(posa, x, z, base, alt, rng, tronco, foglie, radici) -> None:
+    """La mangrovia: radici a trampolo attorno al piede, un tronco sottile e una
+    chioma larga e irregolare."""
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        if rng.random() < 0.8:
+            posa(x + dx, base, z + dz, radici, solo_aria=False)
+            if rng.random() < 0.5:
+                posa(x + dx, base + 1, z + dz, radici, solo_aria=False)
+    cima = base + alt
+    for y, r2 in ((cima - 2, 9.0), (cima - 1, 9.0), (cima, 5.0), (cima + 1, 1.5)):
+        _disco(posa, x, z, y, r2, foglie, rng, 0.2)
+    for k in range(alt):
+        posa(x, base + k, z, tronco, solo_aria=False)
 
 
 def _disegna_giungla(posa, x, z, base, alt, tronco, foglie) -> None:
@@ -507,6 +529,15 @@ def disegna(
             continue
         if sp in FIORI:
             posa(x, base, z, tav.fiore[sp])
+            messi += 1
+            continue
+        if sp == AZALEA:
+            posa(x, base, z, tav.azalea_fiorita if rng.random() < 0.4 else tav.azalea)
+            messi += 1
+            continue
+        if sp == MANGROVIA:
+            _disegna_mangrovia(posa, x, z, base, alt, rng, tav.tronco[sp], tav.foglie[sp],
+                              tav.radici)
             messi += 1
             continue
         if sp == TORCHFLOWER:

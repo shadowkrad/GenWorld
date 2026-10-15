@@ -34,7 +34,7 @@ BIOMI = (
     "frozen_river", "river",
     "snowy_beach", "beach",
     "desert", "savanna", "plains", "sunflower_plains", "meadow", "snowy_tundra",
-    "forest", "birch_forest", "dark_forest", "jungle", "taiga", "snowy_taiga",
+    "forest", "birch_forest", "dark_forest", "jungle", "mangrove_swamp", "taiga", "snowy_taiga",
     "giant_spruce_taiga",
     "mountains", "gravelly_mountains", "snowy_slopes", "frozen_peaks",
     "stony_peaks", "badlands",
@@ -94,7 +94,7 @@ PESO_LATITUDINE = 0.62
 # che non sono qui hanno il rovere, cioe' il legno di default degli arredi.
 LEGNO_BIOMA = {
     "desert": "acacia", "savanna": "acacia", "badlands": "acacia",
-    "jungle": "jungle",
+    "jungle": "jungle", "mangrove_swamp": "mangrove",
     "taiga": "spruce", "snowy_taiga": "spruce", "giant_spruce_taiga": "spruce",
     "snowy_tundra": "spruce", "snowy_slopes": "spruce", "frozen_peaks": "spruce",
     "dark_forest": "dark_oak", "meadow": "cherry", "birch_forest": "birch",
@@ -213,6 +213,9 @@ def assegna(cls: np.ndarray, altezze: np.ndarray, livello_mare: int = 62,
     posa(bosco & (var < 0.34), "dark_forest")
     # il bosco caldo e' giungla: alberi alti, chioma a piu' livelli
     posa(bosco & caldo, "jungle")
+    # le terre basse e umide, a macchie, sono palude di mangrovie
+    umido = (aperto | bosco) & (h <= livello_mare + 4) & ~gelido & (var > 0.42)
+    posa(umido, "mangrove_swamp")
     posa(bosco & fresco, "taiga")
     posa(bosco & fresco & (var > 0.62), "giant_spruce_taiga")
     posa(bosco & gelido, "snowy_taiga")
@@ -263,7 +266,7 @@ COLORI = {
     "plains": (150, 192, 104), "sunflower_plains": (176, 204, 96),
     "meadow": (128, 180, 128), "snowy_tundra": (238, 242, 246),
     "forest": (44, 118, 56), "birch_forest": (108, 156, 88),
-    "dark_forest": (28, 78, 44), "jungle": (34, 120, 40), "taiga": (52, 104, 92),
+    "dark_forest": (28, 78, 44), "jungle": (34, 120, 40), "mangrove_swamp": (74, 96, 52), "taiga": (52, 104, 92),
     "snowy_taiga": (154, 186, 182), "giant_spruce_taiga": (38, 84, 76),
     "mountains": (132, 126, 118), "gravelly_mountains": (108, 104, 100),
     "snowy_slopes": (206, 218, 228), "frozen_peaks": (182, 214, 236),

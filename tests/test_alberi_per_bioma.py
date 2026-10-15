@@ -19,6 +19,7 @@ class Finta:
         self.cactus, self.arbusto = 30, 31
         self.erba_alta, self.felce = 32, 33
         self.torchflower = 34
+        self.azalea, self.azalea_fiorita, self.radici = 35, 36, 37
         self.doppio = {sp: (300 + sp, 400 + sp) for sp in V.DOPPI}
         self.gambo = 500
         self.cappello = {sp: 600 + sp for sp in V.FUNGHI_GIGANTI}
@@ -124,9 +125,38 @@ class TestPianteNuove(unittest.TestCase):
             self.assertIn(attese, set(a["specie"].tolist()), nome)
 
     def test_ogni_specie_ha_altezza_e_nome(self):
-        for sp in range(30):
+        for sp in range(32):
             self.assertIn(sp, V.ALTEZZA)
             self.assertIn(sp, V.NOMI_SPECIE)
+
+
+class TestPalude(unittest.TestCase):
+    def test_la_mangrovia_ha_radici_al_piede_e_chioma_larga(self):
+        out = disegnato(V.MANGROVIA, 6)
+        self.assertTrue((out[8, 70:76, 8] == 100 + V.MANGROVIA).all())
+        self.assertGreaterEqual(int((out[:, 70, :] == 37).sum()), 1)
+        self.assertGreaterEqual(int((out == 200 + V.MANGROVIA).sum()), 25)
+
+    def test_la_palude_semina_mangrovie_e_azalee(self):
+        cls = np.full((200, 200), M.PIANURA, np.uint8)
+        h = np.full((200, 200), 64, np.int32)
+        biomi = np.full((200, 200), B.INDICE["mangrove_swamp"], np.uint8)
+        a = V.semina(cls, h, livello_mare=62, seed=3, biomi=biomi, scala_densita=3.0)
+        sp = set(a["specie"].tolist())
+        self.assertIn(V.MANGROVIA, sp)
+        self.assertIn(V.AZALEA, sp)
+
+    def test_il_bioma_palude_nasce_nelle_terre_basse_e_non_in_alto(self):
+        cls = np.full((200, 200), M.PIANURA, np.uint8)
+        basso = np.full((200, 200), 64, np.int32)
+        alto = np.full((200, 200), 90, np.int32)
+        idx = B.INDICE["mangrove_swamp"]
+        self.assertGreater(int((B.assegna(cls, basso) == idx).sum()), 1000)
+        self.assertEqual(int((B.assegna(cls, alto) == idx).sum()), 0)
+
+    def test_il_bioma_palude_traduce_e_ha_il_legno(self):
+        self.assertNotIn("mangrove_swamp", B.verifica_traduzioni((26, 2, 0)))
+        self.assertEqual(B.LEGNO_BIOMA["mangrove_swamp"], "mangrove")
 
 
 class TestTraduzioni(unittest.TestCase):
@@ -143,6 +173,9 @@ class TestTraduzioni(unittest.TestCase):
                 ("double_plant", {"plant_type": "rose_bush", "half": "lower"}, "rose_bush"),
                 ("double_plant", {"plant_type": "peony", "half": "lower"}, "peony"),
                 ("torchflower", {}, "torchflower"),
+                ("azalea", {}, "azalea"), ("flowering_azalea", {}, "flowering_azalea"),
+                ("mangrove_roots", {}, "mangrove_roots"), ("mud", {}, "mud"),
+                ("log", {"material": "mangrove", "axis": "y", "stripped": "false"}, "mangrove_log"),
                 ("brown_mushroom_block", dict(lati, up="true", down="false"),
                  "brown_mushroom_block"),
                 ("red_mushroom_block", dict(lati, up="true", down="false"),

@@ -1318,6 +1318,7 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
 
     if biomi_c is not None:
         PI.mesa(out, scrittore, h_c, cls_c, biomi_c, nuda_c, y0)
+        PI.palude(out, scrittore, h_c, cls_c, biomi_c, ox, oz, y0)
 
     # --- fronti dei gradoni -----------------------------------------------
     # Dove la citta' e' terrazzata, il salto fra un ripiano e l'altro si veste
