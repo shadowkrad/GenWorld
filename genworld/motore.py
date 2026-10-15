@@ -42,6 +42,7 @@ from . import isolate as IS
 from . import monumenti as MN
 from . import neve as NV
 from . import pietre as PI
+from . import sfumatura as SF
 from . import porti as PO
 from . import laghi as LG
 from . import mappa as M
@@ -2394,6 +2395,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         st = EN.scrivi_regioni(op.uscita, in_gioco,
                                _Imp(versione=op.versione).data_version)
         fuori["abitanti"] = st["abitanti"]
+
+    if restano == 0 and not interrotto and op.fuori_mappa == "naturale":
+        # il terreno che il gioco genera oltre il bordo si raccorda al nostro
+        fuori["sfumatura"] = SF.segna_bordo(op.uscita)
 
     if restano == 0 and not interrotto and piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "")
