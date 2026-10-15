@@ -896,7 +896,8 @@ def _fauna(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
     cortile nei poderi."""
     if op.fauna > 0:
         selvatici = FA.semina_selvatica(a.cls, h, livello_mare=LIVELLO_MARE,
-                                        scala_densita=op.fauna, seed=41)
+                                        scala_densita=op.fauna, seed=41,
+                                        biomi=a.biomi)
         if selvatici:
             # stessa idea del "preso" dei campi: un'unica maschera di
             # esclusione, non un animale-per-un-animale contro ogni muro,
@@ -922,7 +923,10 @@ def _fauna(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
                 esclusa |= AP.maschera(avamposti, a.cls.shape)
             selvatici = [an for an in selvatici
                         if not esclusa[int(an.z), int(an.x)]]
-        animali = selvatici + (FA.per_poderi(poderi, seed=41) if poderi else [])
+        marini = (FA.semina_marina(a.cls, h, a.biomi, livello_mare=LIVELLO_MARE,
+                                   scala_densita=op.fauna, seed=41)
+                  if a.biomi is not None else [])
+        animali = selvatici + marini + (FA.per_poderi(poderi, seed=41) if poderi else [])
     else:
         animali = []
     if animali:
