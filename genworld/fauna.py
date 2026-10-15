@@ -349,6 +349,34 @@ def semina_marina(cls: np.ndarray, altezze: np.ndarray, biomi: np.ndarray,
     return fuori
 
 
+def gatti(citta: list, tipo_strada, altezze: np.ndarray, per_citta: tuple[int, int] = (1, 4),
+          seed: int = 0) -> list[Animale]:
+    """Qualche gatto per citta', sulle strade attorno alla piazza.
+
+    Si scelgono celle di strada entro 14 blocchi dalla piazza: un gatto in
+    mezzo a una via non finisce mai dentro un muro o una casa.
+    """
+    rng = np.random.default_rng(seed + 8586)
+    fuori: list[Animale] = []
+    if tipo_strada is None:
+        return fuori
+    H, W = tipo_strada.shape
+    for c in citta:
+        pz, px = c.piazza
+        z0, z1 = max(0, pz - 14), min(H, pz + 15)
+        x0, x1 = max(0, px - 14), min(W, px + 15)
+        zz, xx = np.nonzero(tipo_strada[z0:z1, x0:x1] > 0)
+        if zz.size == 0:
+            continue
+        n = int(rng.integers(per_citta[0], per_citta[1] + 1))
+        for i in rng.choice(zz.size, size=min(n, zz.size), replace=False):
+            z, x = int(zz[i]) + z0, int(xx[i]) + x0
+            fuori.append(Animale(x=x + 0.5, y=float(altezze[z, x]), z=z + 0.5,
+                                 specie="gatto",
+                                 seme=int(rng.integers(0, 2 ** 31 - 1))))
+    return fuori
+
+
 def per_poderi(poderi: list, quanti: tuple[int, int] = (1, 3),
               seed: int = 0) -> list[Animale]:
     """Animali da cortile dentro i campi coltivati (non nei frutteti: li'

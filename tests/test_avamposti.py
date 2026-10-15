@@ -135,7 +135,7 @@ class TestNemici(unittest.TestCase):
         av = AV.Avamposto(x=20, z=20, y=90, tipo="campo")
         nem = AV.nemici([av], seed=1)
         self.assertGreater(len(nem), 0)
-        self.assertTrue(all(n.specie in ("zombie", "scheletro", "cavallo") for n in nem))
+        self.assertTrue(all(n.specie in ("zombie", "scheletro", "cavallo", "predone") for n in nem))
 
     def test_il_campo_ha_due_cavalli(self):
         av = AV.Avamposto(x=20, z=20, y=90, tipo="campo")
@@ -146,6 +146,37 @@ class TestNemici(unittest.TestCase):
         av = AV.Avamposto(x=20, z=20, y=90, tipo="cimitero")
         nem = AV.nemici([av], seed=1)
         self.assertTrue(any(n.specie == "scheletro" for n in nem))
+
+    def biomi(self, nome):
+        import numpy as np
+        from genworld import biomi as B
+        return np.full((40, 40), B.INDICE[nome], np.uint8)
+
+    def test_nel_deserto_gli_zombie_sono_husk(self):
+        av = AV.Avamposto(x=20, z=20, y=90, tipo="campo")
+        nem = AV.nemici([av], seed=1, biomi=self.biomi("desert"))
+        specie = {n.specie for n in nem}
+        self.assertIn("husk", specie)
+        self.assertNotIn("zombie", specie)
+
+    def test_sulla_neve_gli_scheletri_sono_stray(self):
+        av = AV.Avamposto(x=20, z=20, y=90, tipo="cimitero")
+        nem = AV.nemici([av], seed=1, biomi=self.biomi("snowy_tundra"))
+        specie = {n.specie for n in nem}
+        self.assertIn("stray", specie)
+        self.assertNotIn("scheletro", specie)
+
+    def test_il_campo_ha_un_predone_con_la_balestra(self):
+        av = AV.Avamposto(x=20, z=20, y=90, tipo="campo")
+        nem = AV.nemici([av], seed=1)
+        self.assertIn("predone", {n.specie for n in nem})
+        p = next(n for n in nem if n.specie == "predone")
+        self.assertEqual(str(p.nbt_tag()["id"]), "minecraft:pillager")
+
+    def test_gli_id_di_gioco_dei_nemici(self):
+        for nostro, gioco in AV.NEMICI_GIOCO.items():
+            n = AV.Nemico(x=1.0, y=2.0, z=3.0, specie=nostro, seme=1)
+            self.assertEqual(str(n.nbt_tag()["id"]), f"minecraft:{gioco}")
 
     def test_niente_nemici_senza_avamposti(self):
         self.assertEqual(AV.nemici([], seed=1), [])

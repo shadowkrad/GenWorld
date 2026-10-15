@@ -30,7 +30,13 @@ from .rumore import fbm
 (QUERCIA, BETULLA, ABETE, CACTUS, ARBUSTO, CESPUGLIO, MELO, CILIEGIO, BACCHE,
  DENTE_DI_LEONE, PAPAVERO, TULIPANO, FIORDALISO, ALLIUM, GIGLIO_VALLE,
  FUNGO_MARRONE, FUNGO_ROSSO, CANNA, ACACIA, ROVERE_SCURO, GIUNGLA,
- ABETE_ALTO) = range(22)
+ ABETE_ALTO, GIRASOLE, FELCE_GRANDE, LILLA, ROSAIO, PEONIA, FUNGO_GIGANTE_M,
+ FUNGO_GIGANTE_R, TORCHFLOWER) = range(30)
+
+# piante alte due blocchi (meta' bassa e meta' alta)
+DOPPI = {GIRASOLE: "sunflower", FELCE_GRANDE: "large_fern", LILLA: "lilac",
+         ROSAIO: "rose_bush", PEONIA: "peony"}
+FUNGHI_GIGANTI = (FUNGO_GIGANTE_M, FUNGO_GIGANTE_R)
 
 # i fiori a un blocco solo: stesso trattamento di arbusto/cespuglio nel
 # disegno, distinti solo per varieta' e per come si mescolano per classe
@@ -49,7 +55,10 @@ NOMI_SPECIE = {
     GIGLIO_VALLE: "giglio_valle", FUNGO_MARRONE: "fungo_marrone",
     FUNGO_ROSSO: "fungo_rosso", CANNA: "canna",
     ACACIA: "acacia", ROVERE_SCURO: "rovere_scuro", GIUNGLA: "giungla",
-    ABETE_ALTO: "abete_alto",
+    ABETE_ALTO: "abete_alto", GIRASOLE: "girasole", FELCE_GRANDE: "felce_grande",
+    LILLA: "lilla", ROSAIO: "rosaio", PEONIA: "peonia",
+    FUNGO_GIGANTE_M: "fungo_gigante_marrone", FUNGO_GIGANTE_R: "fungo_gigante_rosso",
+    TORCHFLOWER: "torchflower",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -92,7 +101,9 @@ ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            FIORDALISO: (1, 2), ALLIUM: (1, 2), GIGLIO_VALLE: (1, 2),
            FUNGO_MARRONE: (1, 2), FUNGO_ROSSO: (1, 2), CANNA: (1, 4),
            ACACIA: (5, 8), ROVERE_SCURO: (6, 9), GIUNGLA: (11, 18),
-           ABETE_ALTO: (14, 23)}
+           ABETE_ALTO: (14, 23), GIRASOLE: (2, 3), FELCE_GRANDE: (2, 3),
+           LILLA: (2, 3), ROSAIO: (2, 3), PEONIA: (2, 3),
+           FUNGO_GIGANTE_M: (4, 7), FUNGO_GIGANTE_R: (4, 7), TORCHFLOWER: (1, 2)}
 
 # Le specie per BIOMA, dove il bioma ha un suo bosco: sostituiscono la miscela
 # della classe. Il bioma lo decide `biomi.assegna` (caldo, freddo, macchie):
@@ -100,12 +111,20 @@ ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
 # la giungla alberi altissimi, il prato fresco i ciliegi, la taiga gigante gli
 # abeti piu' alti.
 MISCELA_BIOMA = {
-    "savanna": [(ACACIA, 0.55), (CESPUGLIO, 0.20), (ARBUSTO, 0.15), (QUERCIA, 0.10)],
-    "dark_forest": [(ROVERE_SCURO, 0.62), (QUERCIA, 0.16), (FUNGO_MARRONE, 0.12),
-                    (FUNGO_ROSSO, 0.10)],
+    "savanna": [(ACACIA, 0.52), (CESPUGLIO, 0.18), (ARBUSTO, 0.12), (QUERCIA, 0.10),
+                (TORCHFLOWER, 0.08)],
+    "dark_forest": [(ROVERE_SCURO, 0.55), (QUERCIA, 0.14), (FUNGO_GIGANTE_M, 0.07),
+                    (FUNGO_GIGANTE_R, 0.06), (FUNGO_MARRONE, 0.10),
+                    (FUNGO_ROSSO, 0.08)],
+    "sunflower_plains": [(GIRASOLE, 0.38), (QUERCIA, 0.10), (CESPUGLIO, 0.20),
+                         (DENTE_DI_LEONE, 0.17), (TULIPANO, 0.10), (PAPAVERO, 0.05)],
+    "taiga": [(ABETE, 0.62), (FELCE_GRANDE, 0.14), (CESPUGLIO, 0.12),
+              (FUNGO_MARRONE, 0.06), (BACCHE, 0.06)],
+    "snowy_taiga": [(ABETE, 0.80), (CESPUGLIO, 0.12), (BACCHE, 0.08)],
     "jungle": [(GIUNGLA, 0.62), (CESPUGLIO, 0.28), (QUERCIA, 0.10)],
-    "meadow": [(CILIEGIO, 0.22), (QUERCIA, 0.30), (DENTE_DI_LEONE, 0.18),
-               (TULIPANO, 0.12), (CESPUGLIO, 0.18)],
+    "meadow": [(CILIEGIO, 0.20), (QUERCIA, 0.24), (DENTE_DI_LEONE, 0.12),
+               (TULIPANO, 0.08), (LILLA, 0.08), (PEONIA, 0.08), (ROSAIO, 0.06),
+               (CESPUGLIO, 0.14)],
     "giant_spruce_taiga": [(ABETE_ALTO, 0.55), (ABETE, 0.35), (CESPUGLIO, 0.10)],
 }
 
@@ -354,6 +373,21 @@ class Tavolozza:
             FUNGO_MARRONE: s.blocco("brown_mushroom"),
             FUNGO_ROSSO: s.blocco("red_mushroom"),
         }
+        self.torchflower = s.blocco("torchflower")
+        self.doppio = {
+            sp: (s.blocco("double_plant", plant_type=n, half="lower"),
+                 s.blocco("double_plant", plant_type=n, half="upper"))
+            for sp, n in DOPPI.items()
+        }
+        lati = dict(north="true", south="true", east="true", west="true")
+        self.gambo = s.blocco("mushroom_stem", up="false", down="false",
+                              material="red", **lati)
+        self.cappello = {
+            FUNGO_GIGANTE_M: s.blocco("brown_mushroom_block", up="true", down="false",
+                                      **lati),
+            FUNGO_GIGANTE_R: s.blocco("red_mushroom_block", up="true", down="false",
+                                      **lati),
+        }
         self.aria = s.id_aria
 
 
@@ -473,6 +507,23 @@ def disegna(
             continue
         if sp in FIORI:
             posa(x, base, z, tav.fiore[sp])
+            messi += 1
+            continue
+        if sp == TORCHFLOWER:
+            posa(x, base, z, tav.torchflower)
+            messi += 1
+            continue
+        if sp in DOPPI:
+            basso, alto = tav.doppio[sp]
+            posa(x, base, z, basso)
+            posa(x, base + 1, z, alto)
+            messi += 1
+            continue
+        if sp in FUNGHI_GIGANTI:
+            for k in range(alt - 1):
+                posa(x, base + k, z, tav.gambo, solo_aria=False)
+            _disco(posa, x, z, base + alt - 2, 5.0, tav.cappello[sp])
+            _disco(posa, x, z, base + alt - 1, 2.5, tav.cappello[sp])
             messi += 1
             continue
         if sp in FUNGHI:
