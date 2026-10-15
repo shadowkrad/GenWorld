@@ -37,6 +37,7 @@ from . import fiumi as R
 from . import insediamenti as I
 from . import isolate as IS
 from . import monumenti as MN
+from . import neve as NV
 from . import pietre as PI
 from . import porti as PO
 from . import laghi as LG
@@ -1177,7 +1178,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"carrelli: {len(carrelli)}")
         abitanti = abitanti + carrelli
 
-    nemici = AP.nemici(avamposti, seed=63, modelli_cimitero=modelli_cim) if avamposti else []
+    nemici = (AP.nemici(avamposti, seed=63, modelli_cimitero=modelli_cim, biomi=a.biomi)
+              if avamposti else [])
     if nemici:
         note.append(f"nemici: {len(nemici)} fra accampamenti e cimiteri")
         abitanti = abitanti + nemici
@@ -2178,6 +2180,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                               tav_ed, scelte)
             bio_c = (id_bioma[fetta(a.biomi, sx, sz)]
                      if id_bioma is not None else None)
+            if a.biomi is not None:
+                NV.neve_sui_tetti(blocchi, m, fetta(a.biomi, sx, sz), ox, oz)
             # Bottino dei forzieri: si cerca il blocco DOPO che le case sono
             # gia' state piazzate (vedi `bauli.trova()` sul perche' non si
             # segue l'elenco degli edifici), quindi va qui, a valle di tutto

@@ -183,6 +183,10 @@ class ScrittoreMondo:
             )
         return self._cache_blocchi[chiave]
 
+    def nome_blocco(self, id_: int) -> str:
+        """Il nome (senza namespace) del blocco con quell'id di palette."""
+        return self._livello.block_palette[int(id_)].base_name
+
     @property
     def id_aria(self) -> int:
         return self.blocco(ARIA)

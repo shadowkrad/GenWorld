@@ -45,6 +45,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from . import biomi as B
 from . import template as TM
 
 RAGGIO_CAMPO = 7        # meta' lato del campo (15x15): terreno calpestato in cerchio
@@ -94,6 +95,27 @@ class Avamposto:
         return max(self.mezzo_x, self.mezzo_z)
 
 
+# nome nostro -> id di gioco. `husk` (zombie del deserto) e `stray` (scheletro
+# delle nevi) non bruciano al sole; `predone` e' il `pillager` con la balestra.
+NEMICI_GIOCO = {"zombie": "zombie", "scheletro": "skeleton", "husk": "husk",
+                "stray": "stray", "predone": "pillager"}
+
+# i biomi dove il nemico cambia faccia
+BIOMI_ARIDI = ("desert", "badlands")
+BIOMI_GELATI = ("snowy_tundra", "snowy_taiga", "snowy_slopes", "frozen_peaks",
+                "snowy_beach", "frozen_ocean", "frozen_river")
+
+
+def _per_bioma(specie: str, bioma: str | None) -> str:
+    """Zombie e scheletri prendono la forma del posto: husk nel deserto, stray
+    sulla neve. Senza bioma restano quelli di sempre."""
+    if bioma in BIOMI_ARIDI and specie == "zombie":
+        return "husk"
+    if bioma in BIOMI_GELATI and specie == "scheletro":
+        return "stray"
+    return specie
+
+
 @dataclass
 class Nemico:
     """Un mostro piazzato a mano, stessa interfaccia di `entita.Abitante` e
@@ -101,7 +123,7 @@ class Nemico:
     x: float
     y: float
     z: float
-    specie: str = "zombie"     # "zombie" o "scheletro"
+    specie: str = "zombie"     # vedi NEMICI_GIOCO
     seme: int = 0
 
     def nbt_tag(self):
@@ -109,7 +131,7 @@ class Nemico:
                                 IntTag, ListTag, StringTag)
 
         from .entita import _uuid
-        nome_gioco = "skeleton" if self.specie == "scheletro" else "zombie"
+        nome_gioco = NEMICI_GIOCO.get(self.specie, "zombie")
         return CompoundTag({
             "id": StringTag(f"minecraft:{nome_gioco}"),
             "Pos": ListTag([DoubleTag(self.x), DoubleTag(self.y), DoubleTag(self.z)]),
@@ -332,7 +354,7 @@ def _punto_da_ragnatela(m) -> tuple[int, int, int] | None:
 
 
 def nemici(avamposti: list[Avamposto], seed: int = 0,
-          modelli_cimitero: list | None = None) -> list[Nemico]:
+          modelli_cimitero: list | None = None, biomi=None) -> list[Nemico]:
     """Chi presidia l'avamposto appena il mondo si apre. Posizioni scelte a
     mano dentro le zone lasciate libere dal disegno (mai dentro un muro, mai
     su una lapide, mai alla luce diretta del sole - vedi
@@ -346,7 +368,7 @@ def nemici(avamposti: list[Avamposto], seed: int = 0,
         if av.tipo == "campo":
             # gli angoli liberi accanto al fuoco (vedi `_carica_campo`: ne'
             # centro, ne' panca, ne' barile, ne' staccionata)
-            for specie, dx, dz in (("zombie", 1, 1), ("zombie", -1, -1)):
+            for specie, dx, dz in (("zombie", 1, 1), ("predone", -1, -1)):
                 posti.append((specie, av.x + dx + 0.5, float(av.y + 1), av.z + dz + 0.5))
             # i cavalli del campo, in due punti diversi del cerchio
             from .fauna import Animale
@@ -370,7 +392,11 @@ def nemici(avamposti: list[Avamposto], seed: int = 0,
                 for specie, dx, dz in (("scheletro", 0, 0), ("zombie", 0, av.raggio - 2)):
                     posti.append((specie, av.x + dx + 0.5, float(av.y + 1), av.z + dz + 0.5))
         # "portale": nessun posto, niente piazzato a mano.
+        bioma = (B.BIOMI[int(biomi[av.z, av.x])]
+                 if biomi is not None and 0 <= av.z < biomi.shape[0]
+                 and 0 <= av.x < biomi.shape[1] else None)
         for k, (specie, x, y, z) in enumerate(posti):
+            specie = _per_bioma(specie, bioma)
             fuori.append(Nemico(x=x, y=y, z=z, specie=specie,
                                 seme=int(rng.integers(0, 2 ** 31 - 1)) + i * 131 + k))
     return fuori
