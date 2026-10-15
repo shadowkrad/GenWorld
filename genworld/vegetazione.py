@@ -132,6 +132,9 @@ MISCELA_BIOMA = {
     "giant_spruce_taiga": [(ABETE_ALTO, 0.55), (ABETE, 0.35), (CESPUGLIO, 0.10)],
 }
 
+# moltiplicatore della densita' di piante per bioma, dove la classe e' troppo rada
+DENSITA_BIOMA = {"mangrove_swamp": 5.0, "jungle": 1.5, "savanna": 1.5}
+
 # Dove puo' crescere la canna da zucchero: SOLO sul bordo dell'acqua, come in
 # Minecraft davvero - non e' una questione di classe di terreno ma di essere
 # a un blocco esatto da un fiume, un lago o il mare.
@@ -199,6 +202,12 @@ def semina(
             campo = (campo - lo) / (hi - lo)
         fattore = (1.0 - grumi) + 2.0 * grumi * campo[z, x]
         prob = np.clip(prob * fattore, 0.0, 1.0)
+
+    # i biomi fitti hanno piu' alberi della loro classe: una palude di mangrovie
+    # o una giungla con la densita' di una pianura sembrano un prato
+    if biomi is not None:
+        for nome, k in DENSITA_BIOMA.items():
+            prob = np.where(biomi[z, x] == INDICE_BIOMI[nome], np.clip(prob * k, 0, 1), prob)
 
     tieni = rng.random(n) < prob
 

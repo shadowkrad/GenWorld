@@ -214,7 +214,7 @@ def assegna(cls: np.ndarray, altezze: np.ndarray, livello_mare: int = 62,
     # il bosco caldo e' giungla: alberi alti, chioma a piu' livelli
     posa(bosco & caldo, "jungle")
     # le terre basse e umide, a macchie, sono palude di mangrovie
-    umido = (aperto | bosco) & (h <= livello_mare + 4) & ~gelido & (var > 0.42)
+    umido = (aperto | bosco) & (h <= livello_mare + 8) & ~gelido & (var > 0.38)
     posa(umido, "mangrove_swamp")
     posa(bosco & fresco, "taiga")
     posa(bosco & fresco & (var > 0.62), "giant_spruce_taiga")
