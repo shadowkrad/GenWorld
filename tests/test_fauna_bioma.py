@@ -106,5 +106,30 @@ class TestNbt(unittest.TestCase):
         self.assertEqual(int(t["OnGround"]), 1)
 
 
+
+class TestGatti(unittest.TestCase):
+    def test_i_gatti_stanno_sulle_strade_vicino_alla_piazza(self):
+        from genworld.citta import Citta
+        strada = np.zeros((100, 100), np.uint8)
+        strada[50, 20:80] = 1
+        strada[20:80, 50] = 1
+        h = np.full((100, 100), 70, np.int32)
+        c = Citta(z=50, x=50, raggio=30, piazza=(50, 50))
+        gatti = FA.gatti([c], strada, h, seed=1)
+        self.assertGreaterEqual(len(gatti), 1)
+        for g in gatti:
+            self.assertEqual(g.specie, "gatto")
+            self.assertGreater(strada[int(g.z), int(g.x)], 0)
+            self.assertLessEqual(abs(g.x - 50.5), 15)
+            self.assertEqual(g.y, 70.0)
+
+    def test_senza_strade_niente_gatti(self):
+        from genworld.citta import Citta
+        c = Citta(z=50, x=50, raggio=30, piazza=(50, 50))
+        self.assertEqual(FA.gatti([c], None, np.zeros((100, 100), np.int32)), [])
+        self.assertEqual(FA.gatti([c], np.zeros((100, 100), np.uint8),
+                                  np.zeros((100, 100), np.int32)), [])
+
+
 if __name__ == "__main__":
     unittest.main()

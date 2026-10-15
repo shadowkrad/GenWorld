@@ -1171,6 +1171,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     avanza(0.9, "fauna")
     animali = _fauna(op, a, h, edifici, muro, tipo_strada, poderi, avamposti,
                      arredi_r, isolate, note)
+    if op.fauna > 0 and citta:
+        animali = animali + FA.gatti(citta, tipo_strada, h, seed=41)
     abitanti = abitanti + animali
 
     carrelli = MI.carrelli(miniere, seed=53) if miniere else []
