@@ -29,14 +29,25 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from .mappa import DESERTO, FORESTA, MONTAGNA, NEVE, PIANURA, PRATERIA, SPIAGGIA
+from . import biomi as B
+from .mappa import (DESERTO, FORESTA, MARE, MONTAGNA, NEVE, OCEANO, PIANURA,
+                    PRATERIA, SPIAGGIA)
 
 # nome nostro -> id di gioco
 SPECIE = {
     "mucca": "cow", "pecora": "sheep", "gallina": "chicken", "maiale": "pig",
     "lupo": "wolf", "coniglio": "rabbit", "volpe": "fox", "capra": "goat",
     "cammello": "camel", "cavallo": "horse", "orso_polare": "polar_bear", "tartaruga": "turtle",
+    "lama": "llama", "asino": "donkey", "armadillo": "armadillo", "panda": "panda",
+    "pappagallo": "parrot", "ocelotto": "ocelot", "ape": "bee", "gatto": "cat",
+    "rana": "frog", "merluzzo": "cod", "salmone": "salmon",
+    "pesce_tropicale": "tropical_fish", "calamaro": "squid", "delfino": "dolphin",
+    "pesce_palla": "pufferfish", "calamaro_luminoso": "glow_squid",
 }
+
+# chi vive in acqua: nessun "OnGround", si piazza dentro l'acqua e non sul fondo
+ACQUATICI = ("merluzzo", "salmone", "pesce_tropicale", "calamaro", "delfino",
+             "pesce_palla", "calamaro_luminoso")
 
 # vita massima vera di ciascuno: mettere 10 dappertutto per comodita' vorrebbe
 # dire scrivere una gallina con piu' salute di un lupo.
@@ -44,6 +55,10 @@ SALUTE = {
     "mucca": 10.0, "pecora": 8.0, "gallina": 4.0, "maiale": 10.0,
     "lupo": 8.0, "coniglio": 3.0, "volpe": 10.0, "capra": 10.0,
     "cammello": 32.0, "cavallo": 22.0, "orso_polare": 30.0, "tartaruga": 30.0,
+    "lama": 15.0, "asino": 15.0, "armadillo": 12.0, "panda": 20.0,
+    "pappagallo": 6.0, "ocelotto": 10.0, "ape": 10.0, "gatto": 10.0, "rana": 10.0,
+    "merluzzo": 3.0, "salmone": 3.0, "pesce_tropicale": 3.0, "calamaro": 10.0,
+    "delfino": 10.0, "pesce_palla": 3.0, "calamaro_luminoso": 10.0,
 }
 
 CORTILE = ("mucca", "pecora", "gallina", "maiale")
@@ -59,6 +74,22 @@ MISCELA = {
     NEVE:     [("orso_polare", 0.3), ("volpe", 0.4), ("coniglio", 0.3)],
     DESERTO:  [("cammello", 1.0)],
     SPIAGGIA: [("tartaruga", 1.0)],
+}
+
+# Dove il bioma ha una sua fauna, prende il posto della miscela della classe
+# (stessa idea di `vegetazione.MISCELA_BIOMA`): la savana ha lama, asini e
+# armadilli, la giungla panda, pappagalli e ocelotti, i prati fioriti le api.
+MISCELA_BIOMA = {
+    "savanna": [("lama", 0.3), ("asino", 0.2), ("armadillo", 0.2), ("cavallo", 0.2),
+                ("coniglio", 0.1)],
+    "jungle": [("panda", 0.3), ("pappagallo", 0.4), ("ocelotto", 0.3)],
+    "sunflower_plains": [("ape", 0.5), ("cavallo", 0.3), ("coniglio", 0.2)],
+    "meadow": [("ape", 0.4), ("coniglio", 0.3), ("volpe", 0.15), ("cavallo", 0.15)],
+    "plains": [("cavallo", 0.3), ("asino", 0.1), ("coniglio", 0.4), ("ape", 0.2)],
+    "desert": [("cammello", 0.7), ("armadillo", 0.3)],
+    "forest": [("lupo", 0.4), ("coniglio", 0.3), ("ape", 0.15), ("volpe", 0.15)],
+    "taiga": [("lupo", 0.5), ("volpe", 0.3), ("coniglio", 0.2)],
+    "snowy_taiga": [("lupo", 0.4), ("volpe", 0.4), ("coniglio", 0.2)],
 }
 
 # animali per blocco quadrato: molto piu' radi degli alberi apposta, sono
@@ -139,7 +170,7 @@ class Animale:
             "Fire": IntTag(-1),
             "FallDistance": FloatTag(0.0),
             "Invulnerable": ByteTag(0),
-            "OnGround": ByteTag(1),
+            "OnGround": ByteTag(0 if self.specie in ACQUATICI else 1),
             # senza questo un animale lontano dal giocatore puo' sparire nel
             # giro di pochi minuti - stessa ragione degli abitanti
             "PersistenceRequired": ByteTag(1),
@@ -159,8 +190,9 @@ def semina_selvatica(
     passo: int = 24,
     scala_densita: float = 1.0,
     seed: int = 0,
+    biomi: np.ndarray | None = None,
 ) -> list[Animale]:
-    """Fauna selvatica sparsa per classe di terreno.
+    """Fauna selvatica sparsa per classe di terreno (e, con `biomi`, per bioma).
 
     Stessa griglia sfalsata degli alberi (un candidato per cella, spostato a
     caso dentro la cella) per lo stesso motivo: rumore blu a costo zero,
@@ -202,6 +234,19 @@ def semina_selvatica(
             specie[dentro] = sp
             soglia += peso
         specie[m & (r >= soglia)] = miscela[-1][0]
+    if biomi is not None:
+        b = biomi[z, x]
+        r3 = rng.random(x.size)
+        for nome, miscela in MISCELA_BIOMA.items():
+            m = b == B.INDICE[nome]
+            if not m.any():
+                continue
+            soglia = 0.0
+            for sp, peso in miscela:
+                dentro = m & (r3 >= soglia) & (r3 < soglia + peso)
+                specie[dentro] = sp
+                soglia += peso
+            specie[m & (r3 >= soglia)] = miscela[-1][0]
     tieni2 = specie != ""
     x, z, h, c, specie = x[tieni2], z[tieni2], h[tieni2], c[tieni2], specie[tieni2]
 
@@ -234,6 +279,74 @@ def semina_selvatica(
     return [Animale(x=float(xi) + 0.5, y=float(hi), z=float(zi) + 0.5,
                     specie=str(spi), seme=int(si), variante=vi)
             for xi, zi, hi, spi, si, vi in zip(x, z, h, specie, semi, variante)]
+
+
+# Fauna del mare, per bioma dell'acqua. (specie, peso, quanti nel branco)
+FAUNA_MARINA = {
+    "warm_ocean": [("pesce_tropicale", 0.5, 4), ("pesce_palla", 0.2, 1),
+                   ("calamaro", 0.15, 1), ("delfino", 0.15, 2)],
+    "deep_warm_ocean": [("pesce_tropicale", 0.4, 4), ("pesce_palla", 0.2, 1),
+                        ("calamaro", 0.2, 1), ("delfino", 0.2, 2)],
+    "ocean": [("merluzzo", 0.45, 4), ("salmone", 0.1, 3), ("calamaro", 0.2, 1),
+              ("delfino", 0.25, 2)],
+    "deep_ocean": [("merluzzo", 0.3, 3), ("calamaro", 0.3, 1), ("delfino", 0.25, 2),
+                   ("calamaro_luminoso", 0.15, 1)],
+    "cold_ocean": [("salmone", 0.45, 3), ("merluzzo", 0.4, 4), ("calamaro", 0.15, 1)],
+    "deep_cold_ocean": [("salmone", 0.4, 3), ("merluzzo", 0.3, 3), ("calamaro", 0.15, 1),
+                        ("calamaro_luminoso", 0.15, 1)],
+}
+PROFONDITA_MARINA = 4          # sotto questo non c'e' acqua per nuotare
+
+
+def semina_marina(cls: np.ndarray, altezze: np.ndarray, biomi: np.ndarray,
+                  livello_mare: int = 62, passo: int = 30, scala_densita: float = 1.0,
+                  seed: int = 0) -> list[Animale]:
+    """Pesci, calamari e delfini nel mare, per bioma dell'acqua.
+
+    Si piazzano a mezz'acqua, tra il fondo e il pelo; in un branco i pesci sono
+    vicini ma non nella stessa cella. Il mare gelato non ha fauna.
+    """
+    rng = np.random.default_rng(seed + 7475)
+    H, W = cls.shape
+    gx, gz = np.meshgrid(np.arange(0, W - 1, passo), np.arange(0, H - 1, passo),
+                         indexing="xy")
+    gx, gz = gx.ravel(), gz.ravel()
+    if gx.size == 0:
+        return []
+    x = np.clip(gx + rng.integers(0, passo, gx.size), 0, W - 1)
+    z = np.clip(gz + rng.integers(0, passo, gz.size), 0, H - 1)
+    fuori: list[Animale] = []
+    for xi, zi in zip(x.tolist(), z.tolist()):
+        if int(cls[zi, xi]) not in (MARE, OCEANO):
+            continue
+        prof = livello_mare - int(altezze[zi, xi])
+        if prof < PROFONDITA_MARINA or rng.random() > 0.55 * scala_densita:
+            continue
+        miscela = FAUNA_MARINA.get(B.BIOMI[int(biomi[zi, xi])])
+        if not miscela:
+            continue
+        r = rng.random()
+        soglia = 0.0
+        scelta = miscela[-1]
+        for voce in miscela:
+            if r < soglia + voce[1]:
+                scelta = voce
+                break
+            soglia += voce[1]
+        sp, _, branco = scelta
+        for _ in range(branco):
+            px = xi + 0.5 + float(rng.uniform(-2, 2))
+            pz = zi + 0.5 + float(rng.uniform(-2, 2))
+            ix, iz = int(px), int(pz)
+            if not (0 <= ix < W and 0 <= iz < H) or int(cls[iz, ix]) not in (MARE, OCEANO):
+                continue
+            fondo = int(altezze[iz, ix])
+            if livello_mare - fondo < PROFONDITA_MARINA:
+                continue
+            y = float(rng.uniform(fondo + 2, livello_mare - 1))
+            fuori.append(Animale(x=px, y=y, z=pz, specie=sp,
+                                 seme=int(rng.integers(0, 2 ** 31 - 1))))
+    return fuori
 
 
 def per_poderi(poderi: list, quanti: tuple[int, int] = (1, 3),
