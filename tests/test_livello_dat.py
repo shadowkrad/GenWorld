@@ -38,12 +38,30 @@ class TestLevelDat(unittest.TestCase):
         self.assertEqual(data_version_di((1, 21, 3)), data_version_di((1, 21, 2)))
 
     def test_overworld_e_superflat_vuoto(self):
-        """I chunk non scritti devono restare vuoti, non riempirsi di vanilla."""
-        d = costruisci(ImpostazioniMondo()).compound["Data"]
+        """Con fuori_mappa="vuoto" i chunk non scritti restano vuoti."""
+        d = costruisci(ImpostazioniMondo(fuori_mappa="vuoto")).compound["Data"]
         gen = d["WorldGenSettings"]["dimensions"]["minecraft:overworld"]["generator"]
         self.assertEqual(str(gen["type"]), "minecraft:flat")
         self.assertEqual(len(gen["settings"]["layers"]), 1)
         self.assertEqual(str(gen["settings"]["layers"][0]["block"]), "minecraft:air")
+
+    def test_di_default_il_mondo_continua_da_solo_oltre_la_mappa(self):
+        """Il predefinito e' il generatore normale: niente bordo, niente vuoto."""
+        d = costruisci(ImpostazioniMondo(seed=1234)).compound["Data"]
+        gen = d["WorldGenSettings"]["dimensions"]["minecraft:overworld"]["generator"]
+        self.assertEqual(str(gen["type"]), "minecraft:noise")
+        self.assertEqual(str(gen["settings"]), "minecraft:overworld")
+        self.assertEqual(str(gen["biome_source"]["type"]), "minecraft:multi_noise")
+        self.assertEqual(str(gen["biome_source"]["preset"]), "minecraft:overworld")
+        self.assertEqual(int(d["WorldGenSettings"]["seed"]), 1234)
+
+    def test_world_gen_settings_dat_segue_la_stessa_scelta(self):
+        from genworld.livello_dat import costruisci_impostazioni_generazione as cw
+        for scelta, tipo in (("naturale", "minecraft:noise"), ("vuoto", "minecraft:flat")):
+            t = cw(ImpostazioniMondo(fuori_mappa=scelta)).compound
+            gen = t["data"]["dimensions"]["minecraft:overworld"]["generator"]
+            self.assertEqual(str(gen["type"]), tipo)
+            self.assertEqual(int(t["data"]["generate_features"]), 1 if scelta == "naturale" else 0)
 
     def test_spawn_e_modalita(self):
         d = costruisci(ImpostazioniMondo(spawn=(10, 90, -20), modalita=1)).compound["Data"]

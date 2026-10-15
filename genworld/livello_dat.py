@@ -6,9 +6,12 @@ correttamente, ma il level.dat che produce contiene solo quattro campi
 GameType, Version, lo spawn e i gamerule, e Minecraft rifiuta o rigenera il
 mondo. Questo modulo lo riscrive completo dopo la creazione.
 
-Il generatore dell'overworld e' un superflat di sola aria: il terreno lo
-scriviamo noi, e cosi' i chunk che non tocchiamo restano vuoti invece di
-riempirsi di terreno vanilla a caso.
+Fuori dalla mappa disegnata il mondo continua da solo (`fuori_mappa="naturale"`,
+il predefinito): il generatore dell'overworld e' quello normale di Minecraft con
+il seme del mondo, e i chunk che non abbiamo scritto nascono al volo quando ci si
+arriva - nessun bordo, nessun vuoto. I chunk scritti da noi sono gia' "completi"
+e il gioco non li tocca. Con `fuori_mappa="vuoto"` il generatore e' un superflat
+di sola aria: i chunk non toccati restano vuoti (utile per i test).
 """
 
 from __future__ import annotations
@@ -66,6 +69,9 @@ class ImpostazioniMondo:
     nome: str = "GenWorld"
     versione: tuple[int, int, int] = (1, 21, 4)   # versione di gioco di riferimento
     seed: int = 0
+    # cosa c'e' oltre i chunk scritti: "naturale" (terreno vanilla generato al
+    # volo) o "vuoto" (aria)
+    fuori_mappa: str = "naturale"
     modalita: int = 1               # 0 sopravvivenza, 1 creativa
     difficolta: int = 2
     comandi: bool = True
@@ -100,11 +106,24 @@ def _generatore_vuoto() -> CompoundTag:
     })
 
 
-def _dimensioni(seed: int) -> CompoundTag:
+def _generatore_naturale() -> CompoundTag:
+    """Il generatore normale dell'overworld, con i biomi di Minecraft."""
+    return CompoundTag({
+        "type": StringTag("minecraft:noise"),
+        "settings": StringTag("minecraft:overworld"),
+        "biome_source": CompoundTag({
+            "type": StringTag("minecraft:multi_noise"),
+            "preset": StringTag("minecraft:overworld"),
+        }),
+    })
+
+
+def _dimensioni(seed: int, fuori_mappa: str = "naturale") -> CompoundTag:
     return CompoundTag({
         "minecraft:overworld": CompoundTag({
             "type": StringTag("minecraft:overworld"),
-            "generator": _generatore_vuoto(),
+            "generator": (_generatore_vuoto() if fuori_mappa == "vuoto"
+                          else _generatore_naturale()),
         }),
         "minecraft:the_nether": CompoundTag({
             "type": StringTag("minecraft:the_nether"),
@@ -187,9 +206,9 @@ def costruisci(imp: ImpostazioniMondo) -> NamedTag:
         # --- generazione ---------------------------------------------
         "WorldGenSettings": CompoundTag({
             "seed": LongTag(imp.seed),
-            "generate_features": ByteTag(0),
+            "generate_features": ByteTag(1 if imp.fuori_mappa == "naturale" else 0),
             "bonus_chest": ByteTag(0),
-            "dimensions": _dimensioni(imp.seed),
+            "dimensions": _dimensioni(imp.seed, imp.fuori_mappa),
         }),
 
         # Minecraft lo cerca all'apertura anche se l'End non l'hai mai visto,
@@ -225,9 +244,9 @@ def costruisci_impostazioni_generazione(imp: ImpostazioniMondo) -> NamedTag:
         "DataVersion": IntTag(imp.data_version),
         "data": CompoundTag({
             "seed": LongTag(imp.seed),
-            "generate_features": ByteTag(0),
+            "generate_features": ByteTag(1 if imp.fuori_mappa == "naturale" else 0),
             "bonus_chest": ByteTag(0),
-            "dimensions": _dimensioni(imp.seed),
+            "dimensions": _dimensioni(imp.seed, imp.fuori_mappa),
         }),
     }), "")
 

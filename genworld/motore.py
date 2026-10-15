@@ -133,6 +133,10 @@ class Opzioni:
     dungeon: float = 1.0
     # Idem per le torri isolate con un capo (vedi `torri.py`).
     torri: float = 1.0
+    # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
+    # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
+    # l'analisi, quindi fuori da `firma_analisi`.
+    fuori_mappa: str = "naturale"
     # Moltiplicatore di densita' di accampamenti di nemici e cimiteri (vedi
     # `avamposti.py`). 0 spegne l'uno o l'altro. Non toccano il terreno
     # (solo cio' che ci sta sopra), quindi fuori da `firma_analisi` come
@@ -2115,7 +2119,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
     if piano.cls is not None:
         a = replace(a, cls=piano.cls, livello=piano.livello)
     imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
-                            versione=op.versione)
+                            versione=op.versione, seed=op.seed,
+                            fuori_mappa=op.fuori_mappa)
     os.makedirs(os.path.dirname(os.path.abspath(op.uscita)) or ".", exist_ok=True)
     primo = da == 0
     t0 = time.time()
