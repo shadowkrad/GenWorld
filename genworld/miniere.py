@@ -655,6 +655,25 @@ def carrelli(miniere: list[Miniera], seed: int = 0) -> list[Carrello]:
     return fuori
 
 
+def ragni(miniere: list[Miniera], seed: int = 0) -> list:
+    """Ragni e ragni delle caverne lungo le gallerie in fondo alle miniere: uno
+    ogni tanto, in punti diversi da quelli dei carrelli (che stanno a t 0.2-0.8)."""
+    from .avamposti import Nemico
+    rng = np.random.default_rng(seed + 9697)
+    fuori: list = []
+    for i, mn in enumerate(miniere):
+        for k, s in enumerate(mn.segmenti):
+            if rng.random() > 0.30:
+                continue
+            t = float(rng.uniform(0.1, 0.9))
+            x = s.x0 + (s.x1 - s.x0) * t
+            z = s.z0 + (s.z1 - s.z0) * t
+            fuori.append(Nemico(x=x + 0.5, y=float(s.y + 1), z=z + 0.5,
+                                specie="ragno_grotta" if rng.random() < 0.6 else "ragno",
+                                seme=i * 193 + k * 7 + int(t * 100) + 77))
+    return fuori
+
+
 def statistiche(miniere: list[Miniera]) -> dict:
     if not miniere:
         return {"miniere": 0, "gallerie": 0, "lunghezza": 0}

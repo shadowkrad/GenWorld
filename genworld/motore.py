@@ -1180,6 +1180,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"carrelli: {len(carrelli)}")
         abitanti = abitanti + carrelli
 
+    ragni = MI.ragni(miniere, seed=53) if miniere else []
+    if ragni:
+        note.append(f"ragni nelle miniere: {len(ragni)}")
+        abitanti = abitanti + ragni
+
     nemici = (AP.nemici(avamposti, seed=63, modelli_cimitero=modelli_cim, biomi=a.biomi)
               if avamposti else [])
     if nemici:

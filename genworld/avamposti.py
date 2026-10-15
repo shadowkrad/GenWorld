@@ -98,7 +98,8 @@ class Avamposto:
 # nome nostro -> id di gioco. `husk` (zombie del deserto) e `stray` (scheletro
 # delle nevi) non bruciano al sole; `predone` e' il `pillager` con la balestra.
 NEMICI_GIOCO = {"zombie": "zombie", "scheletro": "skeleton", "husk": "husk",
-                "stray": "stray", "predone": "pillager"}
+                "stray": "stray", "predone": "pillager", "ragno": "spider",
+                "ragno_grotta": "cave_spider"}
 
 # i biomi dove il nemico cambia faccia
 BIOMI_ARIDI = ("desert", "badlands")

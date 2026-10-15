@@ -210,6 +210,32 @@ class TestIndicePerChunk(unittest.TestCase):
         self.assertIn(0, idx.get((0, 1), []), "manca il chunk (0, 1)")
 
 
+class TestRagni(unittest.TestCase):
+
+    def miniera(self):
+        segs = [MI.Segmento(x0=0, z0=i * 10, x1=40, z1=i * 10, y=50) for i in range(12)]
+        return MI.Miniera(x=0, z=0, y_superficie=90, y_fondo=50, segmenti=segs)
+
+    def test_ci_sono_ragni_lungo_le_gallerie(self):
+        ragni = MI.ragni([self.miniera()], seed=1)
+        self.assertGreater(len(ragni), 0)
+        for r in ragni:
+            self.assertIn(r.specie, ("ragno", "ragno_grotta"))
+            self.assertEqual(r.y, 51.0)
+            self.assertTrue(0 <= r.x <= 41)
+
+    def test_il_nbt_dei_ragni_ha_l_id_giusto(self):
+        ragni = MI.ragni([self.miniera()], seed=1)
+        ids = {str(r.nbt_tag()["id"]) for r in ragni}
+        self.assertTrue(ids <= {"minecraft:spider", "minecraft:cave_spider"}, ids)
+
+    def test_niente_ragni_senza_miniere_ed_e_deterministico(self):
+        self.assertEqual(MI.ragni([], seed=1), [])
+        a = [(r.x, r.z, r.specie) for r in MI.ragni([self.miniera()], seed=5)]
+        b = [(r.x, r.z, r.specie) for r in MI.ragni([self.miniera()], seed=5)]
+        self.assertEqual(a, b)
+
+
 class TestCarrelli(unittest.TestCase):
 
     def test_un_carrello_sta_sul_binario(self):
