@@ -128,10 +128,10 @@ def _tag(v):
     return StringTag(str(v))
 
 
-def _aggiungi_tesori(contenuto: list, rng: np.random.Generator) -> list:
-    """Sostituisce una o due pile con tesori incantati (stesso slot)."""
+def _aggiungi_tesori(contenuto: list, rng: np.random.Generator, quanti: int = 0) -> list:
+    """Sostituisce una o due pile (o `quanti`) con tesori incantati (stesso slot)."""
     contenuto = list(contenuto)
-    quanti = min(len(contenuto), int(rng.integers(1, 3)))
+    quanti = min(len(contenuto), quanti or int(rng.integers(1, 3)))
     for i in rng.choice(len(contenuto), size=quanti, replace=False):
         nome, comp = TESORI[int(rng.integers(0, len(TESORI)))]
         contenuto[int(i)] = (contenuto[int(i)][0], nome, 1, comp)
@@ -183,6 +183,33 @@ def _oggetti_miniera(rng: np.random.Generator) -> list[tuple[int, str, int]]:
             for s, t in zip(slot, tipi)]
 
 
+# Il bottino di una cripta con rovina (vedi `dungeon.py`): la sala dello spawner
+# ha provviste e minerali, il tesoro finale le cose migliori.
+BOTTINO_DUNGEON: tuple[tuple[str, int, int], ...] = (
+    ("iron_ingot", 2, 8), ("gold_ingot", 2, 8), ("diamond", 1, 4), ("emerald", 2, 6),
+    ("golden_apple", 1, 2), ("ender_pearl", 1, 3), ("bone", 4, 16), ("arrow", 8, 24),
+    ("saddle", 1, 1), ("name_tag", 1, 2), ("music_disc_cat", 1, 1),
+    ("music_disc_13", 1, 1), ("book", 2, 6), ("experience_bottle", 2, 8),
+    ("obsidian", 2, 6), ("redstone", 4, 14), ("gunpowder", 3, 10),
+)
+
+
+def _oggetti_dungeon(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
+    """La sala dello spawner: 4-6 pile. Il tesoro: 6-9 pile e tesori incantati,
+    uno vicino alle citta', tre lontano."""
+    n = int(rng.integers(6, 10)) if tipo == "tesoro" else int(rng.integers(4, 7))
+    slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
+    tipi = rng.choice(len(BOTTINO_DUNGEON), size=n, replace=False)
+    contenuto = [(s, BOTTINO_DUNGEON[int(t)][0],
+                  int(rng.integers(BOTTINO_DUNGEON[int(t)][1], BOTTINO_DUNGEON[int(t)][2] + 1)))
+                 for s, t in zip(slot, tipi)]
+    if tipo == "tesoro":
+        contenuto = _aggiungi_tesori(contenuto, rng, 3 if lontano else 1)
+    elif lontano:
+        contenuto = _aggiungi_tesori(contenuto, rng, 1)
+    return contenuto
+
+
 def _oggetti_cripta(rng: np.random.Generator) -> list[tuple[int, str, int]]:
     """3-6 pile di ossa, refurtiva e ogni tanto un oggetto raro."""
     n = int(rng.integers(3, 7))
@@ -226,7 +253,8 @@ def _seme(x: int, y: int, z: int, seed: int) -> int:
 
 def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
          seed: int = 0, campi: list | None = None, minerali: set | None = None,
-         cripte: list | None = None, centri: list | None = None) -> list:
+         cripte: list | None = None, centri: list | None = None,
+         dungeon: dict | None = None) -> list:
     """Cerca i forzieri singoli gia' scritti in un chunk (16, H, 16) e
     ritorna la lista di `amulet.api.block_entity.BlockEntity` col bottino.
 
@@ -247,7 +275,11 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
         rng = np.random.default_rng(_seme(gx, gy, gz, seed))
         # il bottino dipende da DOVE sta il forziere: in una miniera minerale e
         # gemme, in un accampamento un diamante e un'arma, in casa la dispensa
-        if minerali and (gx, gy, gz) in minerali:
+        lontano = bool(centri) and min((gx - cx) ** 2 + (gz - cz) ** 2
+                                       for cx, cz in centri) > DISTANZA_TESORI ** 2
+        if dungeon and (gx, gy, gz) in dungeon:
+            contenuto = _oggetti_dungeon(rng, dungeon[(gx, gy, gz)], lontano)
+        elif minerali and (gx, gy, gz) in minerali:
             contenuto = _oggetti_miniera(rng)
         elif cripte and any((gx - cx) ** 2 + (gz - cz) ** 2 <= r * r for cx, cz, r in cripte):
             contenuto = _oggetti_cripta(rng)
@@ -257,7 +289,8 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
             contenuto = _oggetti(rng)
         # lontano da ogni citta' il bottino di miniere, campi e cripte ha
         # qualche tesoro incantato (le case, per definizione, sono vicine)
-        if centri and contenuto is not None and not _e_dispensa(gx, gy, gz, minerali, campi, cripte):
+        if (centri and not (dungeon and (gx, gy, gz) in dungeon)
+                and not _e_dispensa(gx, gy, gz, minerali, campi, cripte)):
             if min((gx - cx) ** 2 + (gz - cz) ** 2 for cx, cz in centri)                     > DISTANZA_TESORI ** 2:
                 contenuto = _aggiungi_tesori(contenuto, rng)
         items = ListTag([_voce(v) for v in contenuto])
