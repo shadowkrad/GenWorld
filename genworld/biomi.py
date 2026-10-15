@@ -89,6 +89,24 @@ PESO_QUOTA = 0.58
 PESO_LATITUDINE = 0.62
 
 
+# Il legno delle cose costruite (campana, pozzo, recinti, giardini) segue il
+# bioma: l'acacia nel deserto e nella savana, l'abete al freddo, ecc. I biomi
+# che non sono qui hanno il rovere, cioe' il legno di default degli arredi.
+LEGNO_BIOMA = {
+    "desert": "acacia", "savanna": "acacia", "badlands": "acacia",
+    "jungle": "jungle",
+    "taiga": "spruce", "snowy_taiga": "spruce", "giant_spruce_taiga": "spruce",
+    "snowy_tundra": "spruce", "snowy_slopes": "spruce", "frozen_peaks": "spruce",
+    "dark_forest": "dark_oak", "meadow": "cherry", "birch_forest": "birch",
+}
+
+
+def legno_di(indice: int) -> str | None:
+    """Il materiale (`acacia`, `spruce`, ...) per un indice di bioma, o None
+    se resta il rovere."""
+    return LEGNO_BIOMA.get(BIOMI[int(indice)])
+
+
 def freddo(cls: np.ndarray, altezze: np.ndarray, livello_mare: int = 62,
            peso_latitudine: float = PESO_LATITUDINE, seed: int = 0) -> np.ndarray:
     """Campo 0 (caldo) .. 1 (gelido).

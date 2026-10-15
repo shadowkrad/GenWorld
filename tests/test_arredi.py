@@ -74,6 +74,27 @@ class TestDisegni(unittest.TestCase):
         n, p = m.tavolozza[int(m.celle[4, 8, 4])]
         self.assertEqual(n, "lightning_rod")
 
+    def test_il_legno_cambia_col_bioma(self):
+        for mat in ("acacia", "spruce", "jungle", "cherry", "birch", "dark_oak"):
+            m = self.modello(A.campana().con_legno(mat))
+            nomi = " ".join(n for n, _ in m.tavolozza)
+            props = " ".join(str(dict(p)) for _, p in m.tavolozza)
+            self.assertIn(mat, nomi + props, mat)
+
+    def test_senza_materiale_il_disegno_non_cambia(self):
+        d = A.campana()
+        self.assertEqual(d.con_legno(None).blocchi, d.blocchi)
+
+    def test_il_pozzo_e_il_giardino_si_traducono_in_ogni_legno(self):
+        import numpy as np
+        for mat in ("acacia", "spruce", "jungle", "cherry", "birch", "dark_oak"):
+            self.modello(A.pozzo().con_legno(mat))
+            self.modello(A.panchina().con_legno(mat))
+            g = A.giardino(8, 8, 0, np.random.default_rng(1))
+            self.modello(g.con_legno(mat))
+            r, _ = A.recinto(8, 8, 0, np.random.default_rng(1))
+            self.modello(r.con_legno(mat))
+
     def test_la_campana_c_e(self):
         self.assertIn("bell", self.nomi(self.modello(A.campana())))
 
