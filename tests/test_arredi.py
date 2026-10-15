@@ -74,6 +74,47 @@ class TestDisegni(unittest.TestCase):
         n, p = m.tavolozza[int(m.celle[4, 8, 4])]
         self.assertEqual(n, "lightning_rod")
 
+    def test_il_legno_cambia_col_bioma(self):
+        for mat in ("acacia", "spruce", "jungle", "cherry", "birch", "dark_oak"):
+            m = self.modello(A.campana().con_legno(mat))
+            nomi = " ".join(n for n, _ in m.tavolozza)
+            props = " ".join(str(dict(p)) for _, p in m.tavolozza)
+            self.assertIn(mat, nomi + props, mat)
+
+    def test_senza_materiale_il_disegno_non_cambia(self):
+        d = A.campana()
+        self.assertEqual(d.con_legno(None).blocchi, d.blocchi)
+
+    def test_il_pozzo_e_il_giardino_si_traducono_in_ogni_legno(self):
+        import numpy as np
+        for mat in ("acacia", "spruce", "jungle", "cherry", "birch", "dark_oak"):
+            self.modello(A.pozzo().con_legno(mat))
+            self.modello(A.panchina().con_legno(mat))
+            g = A.giardino(8, 8, 0, np.random.default_rng(1))
+            self.modello(g.con_legno(mat))
+            r, _ = A.recinto(8, 8, 0, np.random.default_rng(1))
+            self.modello(r.con_legno(mat))
+
+    def test_lo_stendardo_si_traduce_in_ogni_colore(self):
+        for colore in A.COLORI_STENDARDI:
+            m = self.modello(A.stendardo(colore))
+            self.assertEqual(m.celle.shape, (1, 5, 3))
+            self.assertIn("wall_banner", " ".join(self.nomi(m)) + " banner")
+
+    def test_i_giardini_hanno_zucche_e_alveari_e_si_traducono(self):
+        import numpy as np
+        visti = set()
+        for seed in range(40):
+            g = A.giardino(10, 10, 0, np.random.default_rng(seed))
+            visti |= self.nomi(self.modello(g))
+        self.assertIn("beehive", visti)
+        self.assertTrue(visti & {"pumpkin", "jack_o_lantern"}, visti)
+
+    def test_la_piazzetta_ha_le_candele_sulle_panchine(self):
+        import numpy as np
+        m = self.modello(A.piazzetta(9, 9, 0, np.random.default_rng(1)))
+        self.assertIn("candle", self.nomi(m))
+
     def test_la_campana_c_e(self):
         self.assertIn("bell", self.nomi(self.modello(A.campana())))
 
@@ -220,6 +261,16 @@ class TestPianificazione(unittest.TestCase):
             self.assertFalse(a.x < e.x + e.larghezza and a.x + a.larghezza > e.x
                              and a.z < e.z + e.profondita and a.z + a.profondita > e.z,
                              f"{a.tipo} sopra una casa")
+
+    def test_il_paese_ha_degli_stendardi_e_non_sulla_campana(self):
+        ris, _ = self.piano()
+        stendardi = [a for a in ris.arredi if a.tipo == "stendardo"]
+        self.assertGreaterEqual(len(stendardi), 1)
+        campana = next(a for a in ris.arredi if a.tipo == "campana")
+        for st in stendardi:
+            self.assertFalse(st.x < campana.x + campana.larghezza and st.x + st.larghezza > campana.x
+                             and st.z < campana.z + campana.profondita
+                             and st.z + st.profondita > campana.z, "stendardo sulla campana")
 
     def test_ogni_paese_ha_una_campana_e_una_fontana_o_un_pozzo(self):
         ris, _ = self.piano()

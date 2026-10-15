@@ -64,6 +64,22 @@ class Disegno:
                     and 0 <= oz + z < self.dim[2]:
                 self.blocchi[(ox + x, oy + y, oz + z)] = v
 
+    def con_legno(self, materiale: str | None) -> "Disegno":
+        """Una copia col legno cambiato: `oak_*` e `dark_oak_*` diventano
+        `<materiale>_*` (steccati, assi, gradini, cancelli, foglie). Con None
+        ritorna la copia intatta."""
+        nuovo = Disegno(self.nome, *self.dim)
+        for pos, (nome, prop) in self.blocchi.items():
+            if materiale:
+                for vecchio in ("dark_oak_", "oak_"):
+                    if nome.startswith(vecchio):
+                        nome = materiale + "_" + nome[len(vecchio):]
+                        break
+            nuovo.blocchi[pos] = (nome, prop)
+        if materiale:
+            nuovo.nome = f"{self.nome}@{materiale}"
+        return nuovo
+
     def _connetti(self) -> None:
         """Le staccionate si collegano ai vicini. Un mondo scritto a mano non
         ricalcola le forme dei blocchi al caricamento: una staccionata scritta
@@ -309,6 +325,24 @@ def pozzo() -> Disegno:
     return d
 
 
+# I colori degli stendardi delle citta': ognuna ne ha uno, scelto dal suo numero
+COLORI_STENDARDI = ("red", "blue", "green", "purple", "orange", "cyan", "yellow",
+                    "magenta")
+
+
+def stendardo(colore: str = "red") -> Disegno:
+    """Un palo scuro con un traversino e due stendardi, uno per lato, nei
+    colori della citta'. 1 x 5 x 3: l'asta al centro, gli stendardi a z=0 e z=2."""
+    d = Disegno(f"stendardo_{colore}", 1, 5, 3)
+    for y in range(3):
+        d.metti(0, y, 1, "dark_oak_fence")
+    d.metti(0, 3, 1, "dark_oak_planks")
+    d.metti(0, 4, 1, "lantern", hanging="false", waterlogged="false")
+    d.metti(0, 3, 0, f"{colore}_wall_banner", facing="north")
+    d.metti(0, 3, 2, f"{colore}_wall_banner", facing="south")
+    return d
+
+
 def panchina() -> Disegno:
     d = Disegno("panchina", 3, 1, 1)
     d.metti(0, 0, 0, "oak_stairs", facing="east", half="bottom", shape="straight",
@@ -362,6 +396,13 @@ def giardino(w: int, d: int, verso: int, rng: np.random.Generator) -> Disegno:
                 g.metti(x, 0, z, _FIORI[int(rng.integers(0, len(_FIORI)))])
             elif r < 0.66:
                 g.metti(x, 0, z, "sweet_berry_bush", age="3")
+            elif r < 0.70:
+                g.metti(x, 0, z, "pumpkin" if rng.random() < 0.6 else "jack_o_lantern",
+                        facing=("north", "south", "east", "west")[int(rng.integers(0, 4))])
+    # un alveare su un palo in un angolo, fra i fiori: le api ci vengono da sole
+    if w >= 6 and d >= 6 and rng.random() < 0.5:
+        g.metti(1, 0, 1, "oak_fence")
+        g.metti(1, 1, 1, "beehive", facing="south", honey_level="0")
     if w >= 8 and d >= 8:
         g.incolla(lampione(), w // 2, 0, d // 2)
     return g
@@ -401,6 +442,9 @@ def piazzetta(w: int, d: int, verso: int, rng: np.random.Generator) -> Disegno:
     g.incolla(pozzo(), (w - 3) // 2, 0, (d - 3) // 2)
     for z in (1, d - 2):
         g.incolla(panchina(), (w - 3) // 2, 0, z)
+        # una candela sul sedile di mezzo
+        g.metti((w - 3) // 2 + 1, 1, z, "candle", candles="2", lit="true",
+                waterlogged="false")
     for x, z in ((0, 0), (w - 1, 0), (0, d - 1), (w - 1, d - 1)):
         g.metti(x, 0, z, "oak_leaves", **_FOGLIE)
     return g
@@ -460,13 +504,14 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
               vie: np.ndarray | None, tipo_strada: np.ndarray | None,
               muro: np.ndarray | None, campi: np.ndarray | None, banchi: list,
               seed: int = 0, densita: float = 1.0, versione=(1, 21, 4),
-              evita: np.ndarray | None = None) -> Risultato:
+              evita: np.ndarray | None = None, legno=None) -> Risultato:
     """Arreda i lotti rimasti senza casa e gli spazi civici dei paesi.
 
     `scelte` e' `{indice edificio: (modello, rotazione)}` (vedi
     `template.assegna`): i lotti che non ci sono restano senza casa. `evita` e'
     una maschera in piu' (per esempio la zona del vulcano). `densita` scala i
-    lampioni e la probabilita' del bazar; 0 spegne tutto.
+    lampioni e la probabilita' del bazar; 0 spegne tutto. `legno(x, z)` da' il
+    materiale del posto (vedi `biomi.legno_di`) o None per il rovere.
     """
     ris = Risultato()
     if densita <= 0 or not citta:
@@ -476,11 +521,15 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
     ver = TM.traduttore(versione)
     cache: dict[str, int] = {}
 
-    def indice(nome: str, fabbrica) -> int:
-        if nome not in cache:
-            ris.modelli.append(fabbrica().modello(ver))
-            cache[nome] = len(ris.modelli) - 1
-        return cache[nome]
+    def materiale(x: int, z: int):
+        return legno(x, z) if legno is not None else None
+
+    def indice(nome: str, fabbrica, mat=None) -> int:
+        chiave = nome if not mat else f"{nome}@{mat}"
+        if chiave not in cache:
+            ris.modelli.append(fabbrica().con_legno(mat).modello(ver))
+            cache[chiave] = len(ris.modelli) - 1
+        return cache[chiave]
 
     # occupato: dove un arredo civico NON puo' stare
     occ = np.zeros((H, W), bool)
@@ -549,12 +598,20 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
             p = cerca(px, pz, dx, dx, 0, 8)
             if p is not None:
                 posa(civico, p[0], p[1], dx, dx,
-                     indice(fabbrica.__name__, fabbrica))
+                     indice(fabbrica.__name__, fabbrica, materiale(px, pz)))
                 r_campana = dx // 2 + 2          # la campana accanto, non sotto la fontana
                 break
         q = cerca(px, pz, 3, 1, r_campana, 12)
         if q is not None:
-            posa("campana", q[0], q[1], 3, 1, indice("campana", campana))
+            posa("campana", q[0], q[1], 3, 1,
+                 indice("campana", campana, materiale(px, pz)))
+        # due stendardi nei colori della citta' ai lati della piazza
+        colore = COLORI_STENDARDI[(c.x * 31 + c.z * 17) % len(COLORI_STENDARDI)]
+        for _ in range(2):
+            q = cerca(px, pz, 1, 3, r_campana, 12)
+            if q is not None:
+                posa("stendardo", q[0], q[1], 1, 3,
+                     indice(f"stendardo_{colore}", lambda col=colore: stendardo(col)))
 
     # 2) lotti senza casa
     banchi_nuovi = 0
@@ -593,7 +650,7 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
             disegno, bestie = recinto(w, d, e.porta, rng)
         else:
             tipo, disegno = "giardino", giardino(w, d, e.porta, rng)
-        modello = disegno.modello(ver)
+        modello = disegno.con_legno(materiale(cx, cz)).modello(ver)
         if inutile.any():
             # `inutile` e' (z, x), le celle sono (x, y, z)
             modello.celle = np.where(inutile.T[:, None, :], -1, modello.celle)
@@ -647,6 +704,7 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
                     else -1)
             posa("lampione", px, pz, dx, dz,
                  indice(f"lampione{verso}{rame}",
-                        lambda v=verso, r=rame: lampione_a_braccio(v, r)),
+                        lambda v=verso, r=rame: lampione_a_braccio(v, r),
+                        materiale(x, z) if rame < 0 else None),
                  base=int(h[z, x]))
     return ris

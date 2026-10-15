@@ -623,7 +623,9 @@ def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     arredi_r = AR.pianifica(
         edifici, scelte, citta, h, a.cls, vie, tipo_strada, muro, campi,
         banchi, seed=71, densita=op.arredi, versione=op.versione,
-        evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO))
+        evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO),
+        legno=((lambda x, z: B.legno_di(a.biomi[z, x]))
+               if a.biomi is not None else None))
     if arredi_r.arredi:
         protetto |= AR.maschera(arredi_r.arredi, a.cls.shape)
     for b in arredi_r.banchi:
