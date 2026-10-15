@@ -343,6 +343,16 @@ def stendardo(colore: str = "red") -> Disegno:
     return d
 
 
+def braciere() -> Disegno:
+    """Un braciere di piazza: un basamento di mattoni e un fuoco acceso.
+    1 x 2 x 1 - di notte la piazza si legge da lontano."""
+    d = Disegno("braciere", 1, 2, 1)
+    d.metti(0, 0, 0, "stone_bricks")
+    d.metti(0, 1, 0, "campfire", facing="north", lit="true", signal_fire="false",
+            waterlogged="false")
+    return d
+
+
 def panchina() -> Disegno:
     d = Disegno("panchina", 3, 1, 1)
     d.metti(0, 0, 0, "oak_stairs", facing="east", half="bottom", shape="straight",
@@ -605,6 +615,11 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
         if q is not None:
             posa("campana", q[0], q[1], 3, 1,
                  indice("campana", campana, materiale(px, pz)))
+        # due bracieri accesi attorno alla piazza
+        for _ in range(2):
+            q = cerca(px, pz, 1, 1, r_campana, 12)
+            if q is not None:
+                posa("braciere", q[0], q[1], 1, 1, indice("braciere", braciere))
         # due stendardi nei colori della citta' ai lati della piazza
         colore = COLORI_STENDARDI[(c.x * 31 + c.z * 17) % len(COLORI_STENDARDI)]
         for _ in range(2):

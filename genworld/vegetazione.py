@@ -31,7 +31,8 @@ from .rumore import fbm
  DENTE_DI_LEONE, PAPAVERO, TULIPANO, FIORDALISO, ALLIUM, GIGLIO_VALLE,
  FUNGO_MARRONE, FUNGO_ROSSO, CANNA, ACACIA, ROVERE_SCURO, GIUNGLA,
  ABETE_ALTO, GIRASOLE, FELCE_GRANDE, LILLA, ROSAIO, PEONIA, FUNGO_GIGANTE_M,
- FUNGO_GIGANTE_R, TORCHFLOWER, MANGROVIA, AZALEA, BAMBU) = range(33)
+ FUNGO_GIGANTE_R, TORCHFLOWER, MANGROVIA, AZALEA, BAMBU, SASSO,
+ TRONCO_CADUTO) = range(35)
 
 # piante alte due blocchi (meta' bassa e meta' alta)
 DOPPI = {GIRASOLE: "sunflower", FELCE_GRANDE: "large_fern", LILLA: "lilac",
@@ -59,7 +60,7 @@ NOMI_SPECIE = {
     LILLA: "lilla", ROSAIO: "rosaio", PEONIA: "peonia",
     FUNGO_GIGANTE_M: "fungo_gigante_marrone", FUNGO_GIGANTE_R: "fungo_gigante_rosso",
     TORCHFLOWER: "torchflower", MANGROVIA: "mangrovia", AZALEA: "azalea",
-    BAMBU: "bambu",
+    BAMBU: "bambu", SASSO: "sasso", TRONCO_CADUTO: "tronco_caduto",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -106,7 +107,15 @@ ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            ABETE_ALTO: (14, 23), GIRASOLE: (2, 3), FELCE_GRANDE: (2, 3),
            LILLA: (2, 3), ROSAIO: (2, 3), PEONIA: (2, 3),
            FUNGO_GIGANTE_M: (4, 7), FUNGO_GIGANTE_R: (4, 7), TORCHFLOWER: (1, 2),
-           MANGROVIA: (5, 8), AZALEA: (1, 2), BAMBU: (5, 12)}
+           MANGROVIA: (5, 8), AZALEA: (1, 2), BAMBU: (5, 12),
+           SASSO: (1, 4), TRONCO_CADUTO: (3, 6)}
+
+# Rocce e tronchi caduti: una quota delle piante dei terreni boscosi e rocciosi
+# diventa un sasso (anche in montagna e sulla neve), e nei boschi un tronco a
+# terra. Non sono alberi: stanno sul terreno, a coppie e a gruppi sparsi come il
+# resto.
+QUOTA_SASSI = 0.045
+QUOTA_TRONCHI = 0.035
 
 # Le specie per BIOMA, dove il bioma ha un suo bosco: sostituiscono la miscela
 # della classe. Il bioma lo decide `biomi.assegna` (caldo, freddo, macchie):
@@ -250,6 +259,13 @@ def semina(
                 specie[dentro] = sp
                 soglia += peso
             specie[m & (r2 >= soglia)] = miscela[-1][0]
+
+    # sassi e tronchi caduti, al posto di una parte delle piante
+    dado = rng.random(x.size)
+    sasso = np.isin(c, (FORESTA, MONTAGNA, PRATERIA, NEVE)) & (dado < QUOTA_SASSI)
+    tronco = (c == FORESTA) & (dado >= QUOTA_SASSI) & (dado < QUOTA_SASSI + QUOTA_TRONCHI)
+    specie[sasso] = SASSO
+    specie[tronco] = TRONCO_CADUTO
 
     altezza = np.zeros(x.size, np.int32)
     for sp, (lo, hi) in ALTEZZA.items():
@@ -402,6 +418,13 @@ class Tavolozza:
             livello: s.blocco("bamboo", stage="0", leaves=livello, thickness="thick")
             for livello in ("none", "small", "large")
         }
+        self.sasso = (s.blocco("mossy_cobblestone"), s.blocco("cobblestone"),
+                      s.blocco("stone"), s.blocco("andesite", polished="false"))
+        self.tronco_a_terra = {
+            (mat, asse): s.blocco("log", axis=asse, material=mat, stripped="false")
+            for mat in ("oak", "birch", "spruce") for asse in ("x", "z")
+        }
+        self.tappeto_muschio = s.blocco("moss_carpet")
         self.azalea = s.blocco("azalea")
         self.azalea_fiorita = s.blocco("flowering_azalea")
         self.radici = s.blocco("mangrove_roots")
@@ -553,6 +576,35 @@ def disegna(
             continue
         if sp in FIORI:
             posa(x, base, z, tav.fiore[sp])
+            messi += 1
+            continue
+        if sp == SASSO:
+            # un grumo di sassi: il centro, qualche vicino e, se grande, una cima
+            blocchi = tav.sasso
+            posa(x, base, z, blocchi[int(rng.integers(0, 2))])
+            posa(x, base - 1, z, blocchi[1])
+            vicini = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1)]
+            for k in range(min(alt - 1, len(vicini))):
+                dx, dz = vicini[int(rng.integers(0, len(vicini)))]
+                posa(x + dx, base, z + dz, blocchi[int(rng.integers(0, len(blocchi)))])
+                posa(x + dx, base - 1, z + dz, blocchi[1])
+            if alt >= 3:
+                posa(x, base + 1, z, blocchi[int(rng.integers(0, 3))])
+            messi += 1
+            continue
+        if sp == TRONCO_CADUTO:
+            asse = "x" if rng.random() < 0.5 else "z"
+            mat = ("oak", "birch", "spruce")[int(rng.integers(0, 3))]
+            blocco = tav.tronco_a_terra[(mat, asse)]
+            for k in range(alt):
+                px, pz = (x + k, z) if asse == "x" else (x, z + k)
+                posa(px, base, pz, blocco)
+                posa(px, base - 1, pz, tav.sasso[1])
+                r_ = rng.random()
+                if r_ < 0.35:
+                    posa(px, base + 1, pz, tav.tappeto_muschio)
+                elif r_ < 0.45:
+                    posa(px, base + 1, pz, tav.fungo[FUNGO_MARRONE])
             messi += 1
             continue
         if sp == BAMBU:

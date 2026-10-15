@@ -51,6 +51,7 @@ LUNGHEZZA_TRATTO = (9, 22)
 LUNGHEZZA_DIRAMAZIONE = (6, 14)     # le diramazioni secondarie sono piu' corte
 PROB_DIRAMAZIONE = 0.55             # probabilita' che un braccio ne stacchi una
 RAGGIO_GIACIMENTO_VUOTO = 2         # raggio della saletta scavata vuota
+RAGGIO_CAMERA = 5                   # raggio della camera finale dell'ultimo piano
 GIACIMENTO_QUANTI = (28, 55)        # blocchi di minerale nel grumo che la incastona
 
 # La rampa
@@ -123,6 +124,9 @@ class Giacimento:
     z: int
     y: int
     minerale: str    # `Minerale.nome`, vedi `sottosuolo.MINERALI`
+    # la camera finale dell'ultimo piano: una caverna piu' grande con una pozza
+    # (lava o acqua), un forziere e il filone piu' ricco (vedi `_carica_giacimento`)
+    camera: bool = False
 
 
 @dataclass
@@ -557,8 +561,19 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, acqua: np.ndarray | None = 
         for _ in range(LIVELLI_MAX - 1):
             if rng.random() > PROB_LIVELLO_SOTTO or not _scendi_ancora(mn, altezze, acqua, rng):
                 break
+        _segna_camera(mn, rng)
         fuori.append(mn)
     return fuori
+
+
+def _segna_camera(mn: Miniera, rng: np.random.Generator) -> None:
+    """Il giacimento piu' in fondo diventa la camera finale, col filone ricco."""
+    in_fondo = [g for g in mn.giacimenti if g.y == mn.y_fondo]
+    if not in_fondo:
+        return
+    g = in_fondo[int(rng.integers(0, len(in_fondo)))]
+    g.camera = True
+    g.minerale = ("diamond_ore" if g.y <= 14 else "gold_ore" if g.y <= 30 else "iron_ore")
 
 
 def _celle_chunk(x0: int, x1: int, z0: int, z1: int, m: int, passo: int) -> set:
@@ -756,6 +771,8 @@ class Tavolozza:
                        s.blocco("raw_gold_block"), s.blocco("coal_block")]
         self.forziere = {v: s.blocco("chest", facing=v, connection="none", material="wood")
                          for v in ("north", "south", "east", "west")}
+        self.lava = s.blocco("lava", falling="false", flowing="false", level="0")
+        self.acqua = s.blocco("water")
         self.decora = True            # spento solo dai test che misurano la sezione nuda
         # posizioni (coordinate di MAPPA) dei forzieri messi nel chunk appena
         # scritto: chi scrive il chunk le legge e le svuota (`bauli.trova`)
@@ -1172,6 +1189,9 @@ def _carica_giacimento(out, tav, h_c, rng, g: Giacimento, ox: int, oz: int,
     """
     H = out.shape[1]
     gx, gz, gy = g.x - ox, g.z - oz, g.y
+    if g.camera:
+        _carica_camera(out, tav, h_c, rng, g, ox, oz, y0, scavabile, protetto_c)
+        return
     r = RAGGIO_GIACIMENTO_VUOTO
     for dx in range(-r, r + 1):
         lx = gx + dx
@@ -1200,6 +1220,67 @@ def _carica_giacimento(out, tav, h_c, rng, g: Giacimento, ox: int, oz: int,
     quanti = int(rng.integers(*GIACIMENTO_QUANTI))
     grumo(out, gx, gz, gy, y0, h_c, tav.minerale[(m.nome, profondo)], quanti,
           scavabile, protetto=protetto_c)
+
+
+def _carica_camera(out, tav, h_c, rng, g: Giacimento, ox: int, oz: int, y0: int,
+                   scavabile: tuple, protetto_c=None) -> None:
+    """La camera finale: una caverna a cupola con il pavimento piano, una pozza
+    di lava o d'acqua incassata nel pavimento (con roccia tutt'intorno: niente
+    flussi), un forziere con il bottino e un grumo grande di minerale ricco."""
+    H = out.shape[1]
+    R = RAGGIO_CAMERA
+    cx, cz, base = g.x, g.z, g.y
+    centro_y = base + 2
+    for dx in range(-R, R + 1):
+        for dz in range(-R, R + 1):
+            lx, lz = cx + dx - ox, cz + dz - oz
+            if not (0 <= lx < 16 and 0 <= lz < 16):
+                continue
+            if protetto_c is not None and protetto_c[lx, lz]:
+                continue
+            for y in range(base, base + R + 3):
+                if dx * dx + (y - centro_y) ** 2 + dz * dz > R * R:
+                    continue
+                ly = y - y0
+                if 1 <= ly < H and y <= int(h_c[lx, lz]) - 3:
+                    out[lx, ly, lz] = tav.aria
+            # il pavimento piano: la roccia sotto resta com'e'
+    # la pozza: 3 x 3 incassata un blocco sotto il pavimento, contro la parete
+    # opposta al forziere. Lava o acqua, a sorte.
+    liquido = tav.lava if rng.random() < 0.6 else tav.acqua
+    pozza = {(cx + dx, cz + dz) for dx in range(1, 4) for dz in range(-1, 2)}
+    ly = base - 1 - y0
+
+    def solido(mx: int, mz: int, quota: int) -> bool:
+        """La cella di mappa (mx, mz) e' dentro il chunk e non e' aria."""
+        lx, lz = mx - ox, mz - oz
+        return 0 <= lx < 16 and 0 <= lz < 16 and out[lx, quota, lz] != tav.aria
+
+    for (mx, mz) in pozza:
+        lx, lz = mx - ox, mz - oz
+        if not (0 <= lx < 16 and 0 <= lz < 16 and 1 <= ly < H):
+            continue
+        chiusa = all((nx, nz) in pozza or solido(nx, nz, ly)
+                     for nx, nz in ((mx + 1, mz), (mx - 1, mz), (mx, mz + 1), (mx, mz - 1)))
+        # fuori dal chunk non si sa cosa c'e' accanto: li' non si mette il liquido
+        if chiusa and solido(mx, mz, ly - 1) and out[lx, ly + 1, lz] == tav.aria:
+            out[lx, ly, lz] = liquido
+    # il forziere, dall'altra parte
+    lx, lz = cx - 3 - ox, cz - oz
+    ly = base - y0
+    if 0 <= lx < 16 and 0 <= lz < 16 and 1 <= ly < H:
+        out[lx, ly, lz] = tav.forziere["east"]
+        tav.bauli.append((cx - 3, base, cz))
+    # il filone ricco incastonato nelle pareti
+    m = _MINERALE_PER_NOME.get(g.minerale)
+    if m is not None:
+        profondo = base < QUOTA_ARDESIA - FASCIA_ARDESIA // 2
+        for k in range(3):
+            ang = k * 2.1 + float(rng.random())
+            gxk = int(round(cx + (R + 1) * np.cos(ang))) - ox
+            gzk = int(round(cz + (R + 1) * np.sin(ang))) - oz
+            grumo(out, gxk, gzk, base + 1 + k, y0, h_c, tav.minerale[(m.nome, profondo)],
+                  int(rng.integers(14, 28)), scavabile, protetto=protetto_c)
 
 
 def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,

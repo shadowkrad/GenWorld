@@ -120,9 +120,11 @@ TESORI: tuple[tuple[str, dict], ...] = (
 
 def _tag(v):
     """Un valore python (dict, int, str) come tag NBT."""
-    from amulet_nbt import CompoundTag, IntTag, StringTag
+    from amulet_nbt import CompoundTag, IntTag, ListTag, StringTag
     if isinstance(v, dict):
         return CompoundTag({k: _tag(x) for k, x in v.items()})
+    if isinstance(v, (list, tuple)):
+        return ListTag([_tag(x) for x in v])
     if isinstance(v, int):
         return IntTag(v)
     return StringTag(str(v))
@@ -254,7 +256,8 @@ def _seme(x: int, y: int, z: int, seed: int) -> int:
 def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
          seed: int = 0, campi: list | None = None, minerali: set | None = None,
          cripte: list | None = None, centri: list | None = None,
-         dungeon: dict | None = None) -> list:
+         dungeon: dict | None = None, libri: dict | None = None,
+         libro_citta: tuple | None = None) -> list:
     """Cerca i forzieri singoli gia' scritti in un chunk (16, H, 16) e
     ritorna la lista di `amulet.api.block_entity.BlockEntity` col bottino.
 
@@ -293,6 +296,23 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
                 and not _e_dispensa(gx, gy, gz, minerali, campi, cripte)):
             if min((gx - cx) ** 2 + (gz - cz) ** 2 for cx, cz in centri)                     > DISTANZA_TESORI ** 2:
                 contenuto = _aggiungi_tesori(contenuto, rng)
+        libro = None
+        if libri and (gx, gy, gz) in libri:
+            libro = libri[(gx, gy, gz)]
+        elif libro_citta is not None and not (
+                dungeon and (gx, gy, gz) in dungeon) and _e_dispensa(
+                    gx, gy, gz, minerali, campi, cripte):
+            cx, cz, raggio, spec = libro_citta
+            if ((gx - cx) ** 2 + (gz - cz) ** 2 <= (raggio * 0.8) ** 2
+                    and _seme(gx, gy, gz, 5) % 5 == 0):
+                libro = spec
+        if libro is not None:
+            liberi = [s for s in range(27) if s not in {c[0] for c in contenuto}]
+            if liberi:
+                contenuto = list(contenuto) + [(liberi[0], "written_book", 1, {
+                    "written_book_content": {
+                        "title": {"raw": libro.titolo}, "author": libro.autore,
+                        "pages": [{"raw": p} for p in libro.pagine]}})]
         items = ListTag([_voce(v) for v in contenuto])
         # Namespace "minecraft" (raw) con NBT piatto si perde - verificato
         # con uno spike dedicato - non appena la sessione di scrittura tocca

@@ -32,7 +32,9 @@ from . import bauli as BA
 from . import citta as CT
 from . import edifici as E
 from . import dungeon as DG
+from . import torri as TR
 from . import entita as EN
+from . import luoghi as LU
 from . import fauna as FA
 from . import fiumi as R
 from . import insediamenti as I
@@ -129,6 +131,8 @@ class Opzioni:
     # Moltiplicatore di densita' delle rovine con cripta (vedi `dungeon.py`).
     # Non cambia il terreno, quindi fuori da `firma_analisi`.
     dungeon: float = 1.0
+    # Idem per le torri isolate con un capo (vedi `torri.py`).
+    torri: float = 1.0
     # Moltiplicatore di densita' di accampamenti di nemici e cimiteri (vedi
     # `avamposti.py`). 0 spegne l'uno o l'altro. Non toccano il terreno
     # (solo cio' che ci sta sopra), quindi fuori da `firma_analisi` come
@@ -491,6 +495,13 @@ class Piano:
     indice_miniere: dict = field(default_factory=dict)
     dungeon: list = field(default_factory=list)
     indice_dungeon: dict = field(default_factory=dict)
+    torri: list = field(default_factory=list)
+    indice_torri: dict = field(default_factory=dict)
+    # luoghi con nome, cartelli e indizi (vedi `luoghi.py`)
+    luoghi: list = field(default_factory=list)
+    cartelli: list = field(default_factory=list)
+    libri: dict = field(default_factory=dict)
+    libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
     # {indice edificio: (indice modello, rotazione)}: quale casa da template va
@@ -583,8 +594,33 @@ def _pianifica_dungeon(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     if dungeon:
         a.riservato = DG.maschera(dungeon, a.cls.shape, margine=3)
         st = DG.statistiche(dungeon)
-        note.append(f"rovine con cripta: {st['rovine']} ({st['mob']})")
+        meta = op.lato // 2
+        note.append(f"rovine con cripta: {st['rovine']} ({st['mob']}) a "
+                    + ", ".join(f"({d.x - meta}, {d.z - meta})" for d in dungeon))
     return dungeon
+
+
+def _pianifica_torri(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                     muro, tipo_strada, miniere: list, campi, note: list[str]) -> list:
+    """Torri con un capo: su un pianoro, lontane da tutto il resto."""
+    if op.torri <= 0:
+        return []
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi,
+                       riservato=a.riservato)
+    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 8)
+    if miniere:
+        evita |= MI.maschera_ingresso(miniere, a.cls.shape, margine=12)
+    from scipy.ndimage import binary_dilation as _dil
+    evita |= _dil(evita, iterations=10)
+    acqua = np.isin(a.cls, M.ACQUA)
+    torri = TR.pianifica(h, acqua, evita=evita, densita=op.torri, seed=op.seed)
+    if torri:
+        m = TR.maschera(torri, a.cls.shape, margine=3)
+        a.riservato = m if a.riservato is None else (a.riservato | m)
+        meta = op.lato // 2
+        note.append(f"torri con capo: {len(torri)} a "
+                    + ", ".join(f"({t.x - meta}, {t.z - meta})" for t in torri))
+    return torri
 
 
 def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
@@ -1165,6 +1201,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     if dungeon:
         protetto |= DG.maschera(dungeon, a.cls.shape, margine=1)
 
+    avanza(0.705, "torri")
+    torri = _pianifica_torri(op, a, h, edifici, muro, tipo_strada, miniere, campi, note)
+    if torri:
+        protetto |= TR.maschera(torri, a.cls.shape, margine=1)
+
     avanza(0.71, "accampamenti, cimiteri e portali")
     avamposti, modelli_cim = _pianifica_avamposti(op, a, h, edifici, muro,
                                                   tipo_strada, protetto, note)
@@ -1225,11 +1266,43 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"ragni nelle miniere: {len(ragni)}")
         abitanti = abitanti + ragni
 
+    if torri:
+        capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed)
+        note.append(f"capi e guardie delle torri: {len(capi)}")
+        abitanti = abitanti + capi
+
     nemici = (AP.nemici(avamposti, seed=63, modelli_cimitero=modelli_cim, biomi=a.biomi)
               if avamposti else [])
     if nemici:
         note.append(f"nemici: {len(nemici)} fra accampamenti e cimiteri")
         abitanti = abitanti + nemici
+
+    # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
+    meta_l = op.lato // 2
+    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed)
+    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l)
+    if tipo_strada is not None:
+        cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
+    ind = LU.indizi(luoghi)
+    libri: dict = {}
+    for d in dungeon:
+        libro = ind["tappe"].get(("rovina", d.x - meta_l, d.z - meta_l))
+        x, y, z, _ = d.forzieri()[2]
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
+    for t in torri:
+        libro = ind["tappe"].get(("torre", t.x - meta_l, t.z - meta_l))
+        x, y, z, _ = t.forzieri()[1]
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
+    libro_citta = None
+    if ind["inizio"] is not None:
+        c0, libro0 = ind["inizio"]
+        raggio0 = next((c.raggio for c in citta if c.x - meta_l == c0.x and c.z - meta_l == c0.z), 30)
+        libro_citta = (c0.x, c0.z, raggio0, libro0)
+    if luoghi:
+        note.append(f"luoghi con nome: {len(luoghi)}, cartelli: {len(cartelli)}, "
+                    f"libri di indizi: {len(libri) + (1 if libro_citta else 0)}")
 
     avanza(1.0, "pianificazione completata")
     return Piano(h=h, edifici=edifici, indice_edifici=indice_ed,
@@ -1242,6 +1315,9 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  indice_caverne=SS.indice_per_chunk(caverne) if caverne["x"].size else {},
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
+                 luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
+                 torri=torri,
+                 indice_torri=TR.indice_per_chunk(torri) if torri else {},
                  dungeon=dungeon,
                  indice_dungeon=DG.indice_per_chunk(dungeon) if dungeon else {},
                  avamposti=avamposti,
@@ -2050,6 +2126,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_ss = SS.Tavolozza(m)
         tav_mi = MI.Tavolozza(m) if piano.miniere else None
         tav_dg = DG.Tavolozza(m) if piano.dungeon else None
+        tav_tr = TR.Tavolozza(m) if piano.torri else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2213,6 +2290,12 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 DG.posa(blocchi, tav_dg, fetta(piano.h, sx, sz), ox, oz, -64,
                         piano.dungeon, _dal_chunk(piano.indice_dungeon, sx, sz), meta=meta)
                 dungeon_g = {(x - meta, y, z - meta): tipo for x, y, z, tipo in tav_dg.bauli}
+            if tav_tr is not None:
+                tav_tr.bauli.clear()
+                TR.posa(blocchi, tav_tr, fetta(piano.h, sx, sz), ox, oz, -64,
+                        piano.torri, _dal_chunk(piano.indice_torri, sx, sz), meta=meta)
+                dungeon_g.update({(x - meta, y, z - meta): tipo
+                                  for x, y, z, tipo in tav_tr.bauli})
             # Accampamenti e cimiteri: SENZA `protetto_c` - a differenza
             # dello scavo delle caverne e delle miniere, qui non c'e' niente
             # da proteggere da questo disegno, ed e' proprio il loro stesso
@@ -2258,8 +2341,18 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # perche' a lato=16 l'offset `meta` e' zero.
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
                                 campi=campi_g, minerali=minerali_g,
-                                cripte=cripte_g, centri=centri_g, dungeon=dungeon_g)
+                                cripte=cripte_g, centri=centri_g, dungeon=dungeon_g,
+                                libri=piano.libri, libro_citta=piano.libro_citta)
                       if tav_ba is not None else None)
+            if piano.cartelli:
+                for c in piano.cartelli:
+                    gx, gz = c.x - meta, c.z - meta
+                    if not (ox <= gx < ox + 16 and oz <= gz < oz + 16):
+                        continue
+                    y = int(piano.h[c.z, c.x])
+                    blocchi[gx - ox, y + 64, gz - oz] = m.blocco(
+                        "sign", material="oak", rotation=str(c.rotazione))
+                    bauli_c = (bauli_c or []) + [LU.entita_cartello(c, y, meta)]
             if piano.dungeon:
                 spawner = DG.entita_blocco(piano.dungeon, ox, oz, meta)
                 if spawner:
@@ -2296,6 +2389,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         st = EN.scrivi_regioni(op.uscita, in_gioco,
                                _Imp(versione=op.versione).data_version)
         fuori["abitanti"] = st["abitanti"]
+
+    if restano == 0 and not interrotto and piano.luoghi:
+        md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "")
+        fuori["luoghi"] = md
 
     if restano == 0 and not interrotto:
         fuori["level_dat"] = "valido" if not verifica(
