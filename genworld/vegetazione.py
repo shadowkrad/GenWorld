@@ -31,7 +31,7 @@ from .rumore import fbm
  DENTE_DI_LEONE, PAPAVERO, TULIPANO, FIORDALISO, ALLIUM, GIGLIO_VALLE,
  FUNGO_MARRONE, FUNGO_ROSSO, CANNA, ACACIA, ROVERE_SCURO, GIUNGLA,
  ABETE_ALTO, GIRASOLE, FELCE_GRANDE, LILLA, ROSAIO, PEONIA, FUNGO_GIGANTE_M,
- FUNGO_GIGANTE_R, TORCHFLOWER, MANGROVIA, AZALEA) = range(32)
+ FUNGO_GIGANTE_R, TORCHFLOWER, MANGROVIA, AZALEA, BAMBU) = range(33)
 
 # piante alte due blocchi (meta' bassa e meta' alta)
 DOPPI = {GIRASOLE: "sunflower", FELCE_GRANDE: "large_fern", LILLA: "lilac",
@@ -59,6 +59,7 @@ NOMI_SPECIE = {
     LILLA: "lilla", ROSAIO: "rosaio", PEONIA: "peonia",
     FUNGO_GIGANTE_M: "fungo_gigante_marrone", FUNGO_GIGANTE_R: "fungo_gigante_rosso",
     TORCHFLOWER: "torchflower", MANGROVIA: "mangrovia", AZALEA: "azalea",
+    BAMBU: "bambu",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -105,7 +106,7 @@ ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            ABETE_ALTO: (14, 23), GIRASOLE: (2, 3), FELCE_GRANDE: (2, 3),
            LILLA: (2, 3), ROSAIO: (2, 3), PEONIA: (2, 3),
            FUNGO_GIGANTE_M: (4, 7), FUNGO_GIGANTE_R: (4, 7), TORCHFLOWER: (1, 2),
-           MANGROVIA: (5, 8), AZALEA: (1, 2)}
+           MANGROVIA: (5, 8), AZALEA: (1, 2), BAMBU: (5, 12)}
 
 # Le specie per BIOMA, dove il bioma ha un suo bosco: sostituiscono la miscela
 # della classe. Il bioma lo decide `biomi.assegna` (caldo, freddo, macchie):
@@ -125,7 +126,7 @@ MISCELA_BIOMA = {
     "snowy_taiga": [(ABETE, 0.80), (CESPUGLIO, 0.12), (BACCHE, 0.08)],
     "mangrove_swamp": [(MANGROVIA, 0.55), (CESPUGLIO, 0.20), (FUNGO_MARRONE, 0.05),
                        (AZALEA, 0.10), (CANNA, 0.10)],
-    "jungle": [(GIUNGLA, 0.62), (CESPUGLIO, 0.28), (QUERCIA, 0.10)],
+    "jungle": [(GIUNGLA, 0.50), (BAMBU, 0.20), (CESPUGLIO, 0.20), (QUERCIA, 0.10)],
     "meadow": [(CILIEGIO, 0.20), (QUERCIA, 0.24), (DENTE_DI_LEONE, 0.12),
                (TULIPANO, 0.08), (LILLA, 0.08), (PEONIA, 0.08), (ROSAIO, 0.06),
                (CESPUGLIO, 0.14)],
@@ -387,6 +388,20 @@ class Tavolozza:
             FUNGO_ROSSO: s.blocco("red_mushroom"),
         }
         self.torchflower = s.blocco("torchflower")
+        self.liana = {
+            "north": s.blocco("vine", north="true", south="false", east="false",
+                              west="false", up="false"),
+            "south": s.blocco("vine", north="false", south="true", east="false",
+                              west="false", up="false"),
+            "east": s.blocco("vine", north="false", south="false", east="true",
+                             west="false", up="false"),
+            "west": s.blocco("vine", north="false", south="false", east="false",
+                             west="true", up="false"),
+        }
+        self.bambu = {
+            livello: s.blocco("bamboo", stage="0", leaves=livello, thickness="thick")
+            for livello in ("none", "small", "large")
+        }
         self.azalea = s.blocco("azalea")
         self.azalea_fiorita = s.blocco("flowering_azalea")
         self.radici = s.blocco("mangrove_roots")
@@ -540,6 +555,18 @@ def disegna(
             posa(x, base, z, tav.fiore[sp])
             messi += 1
             continue
+        if sp == BAMBU:
+            # un gruppetto di canne vicine, di altezze diverse
+            for dx, dz in ((0, 0), (1, 0), (0, 1), (-1, 0), (0, -1), (1, 1)):
+                if (dx, dz) != (0, 0) and rng.random() < 0.55:
+                    continue
+                altezza = max(3, alt - int(rng.integers(0, 4)))
+                for k in range(altezza):
+                    liv = ("large" if k >= altezza - 2 else
+                           "small" if k == altezza - 3 else "none")
+                    posa(x + dx, base + k, z + dz, tav.bambu[liv])
+            messi += 1
+            continue
         if sp == AZALEA:
             posa(x, base, z, tav.azalea_fiorita if rng.random() < 0.4 else tav.azalea)
             messi += 1
@@ -589,6 +616,13 @@ def disegna(
             continue
         if sp == GIUNGLA:
             _disegna_giungla(posa, x, z, base, alt, tronco, foglie)
+            # liane lungo il tronco: attaccate al tronco, sul lato opposto
+            for k in range(2, alt - 2):
+                if rng.random() < 0.28:
+                    lati = (((1, 0), "west"), ((-1, 0), "east"),
+                            ((0, 1), "north"), ((0, -1), "south"))
+                    (dx, dz), faccia = lati[int(rng.integers(0, 4))]
+                    posa(x + dx, base + k, z + dz, tav.liana[faccia])
             messi += 1
             continue
 

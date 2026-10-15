@@ -20,6 +20,8 @@ class Finta:
         self.erba_alta, self.felce = 32, 33
         self.torchflower = 34
         self.azalea, self.azalea_fiorita, self.radici = 35, 36, 37
+        self.liana = {f: 700 + i for i, f in enumerate(('north', 'south', 'east', 'west'))}
+        self.bambu = {'none': 800, 'small': 801, 'large': 802}
         self.doppio = {sp: (300 + sp, 400 + sp) for sp in V.DOPPI}
         self.gambo = 500
         self.cappello = {sp: 600 + sp for sp in V.FUNGHI_GIGANTI}
@@ -125,7 +127,7 @@ class TestPianteNuove(unittest.TestCase):
             self.assertIn(attese, set(a["specie"].tolist()), nome)
 
     def test_ogni_specie_ha_altezza_e_nome(self):
-        for sp in range(32):
+        for sp in range(33):
             self.assertIn(sp, V.ALTEZZA)
             self.assertIn(sp, V.NOMI_SPECIE)
 
@@ -159,6 +161,39 @@ class TestPalude(unittest.TestCase):
         self.assertEqual(B.LEGNO_BIOMA["mangrove_swamp"], "mangrove")
 
 
+class TestBambuELiane(unittest.TestCase):
+    def test_il_bambu_e_un_gruppo_di_canne_con_foglie_in_cima(self):
+        out = disegnato(V.BAMBU, 9)
+        canne = (out >= 800) & (out <= 802)
+        self.assertGreaterEqual(int(canne.any(axis=1).sum()), 1)
+        self.assertTrue((out[8, 70, 8] == 800))
+        self.assertIn(802, set(np.unique(out).tolist()))
+        self.assertGreaterEqual(int(canne.sum()), 7)
+
+    def test_la_giungla_ha_liane_attaccate_al_tronco(self):
+        visti = 0
+        for seed in range(30):
+            out = np.zeros((16, 140, 16), np.uint32)
+            alb = albero(V.GIUNGLA, 14)
+            alb["seme"] = np.array([seed])
+            V.disegna(out, 0, 0, 0, alb, [0], Finta())
+            for f, idv in Finta().liana.items():
+                for lx, ly, lz in zip(*np.nonzero(out == idv)):
+                    visti += 1
+                    dx, dz = {"west": (-1, 0), "east": (1, 0), "north": (0, -1),
+                              "south": (0, 1)}[f]
+                    self.assertEqual(int(out[lx + dx, ly, lz + dz]), 100 + V.GIUNGLA,
+                                     "liana non attaccata al tronco")
+        self.assertGreater(visti, 10)
+
+    def test_la_giungla_semina_bambu(self):
+        cls = np.full((200, 200), M.FORESTA, np.uint8)
+        h = np.full((200, 200), 80, np.int32)
+        biomi = np.full((200, 200), B.INDICE["jungle"], np.uint8)
+        a = V.semina(cls, h, livello_mare=62, seed=3, biomi=biomi, scala_densita=3.0)
+        self.assertIn(V.BAMBU, set(a["specie"].tolist()))
+
+
 class TestTraduzioni(unittest.TestCase):
     def test_i_blocchi_nuovi_si_traducono(self):
         import PyMCTranslate
@@ -173,6 +208,9 @@ class TestTraduzioni(unittest.TestCase):
                 ("double_plant", {"plant_type": "rose_bush", "half": "lower"}, "rose_bush"),
                 ("double_plant", {"plant_type": "peony", "half": "lower"}, "peony"),
                 ("torchflower", {}, "torchflower"),
+                ("bamboo", {"stage": "0", "leaves": "large", "thickness": "thick"}, "bamboo"),
+                ("vine", {"north": "true", "south": "false", "east": "false",
+                          "west": "false", "up": "false"}, "vine"),
                 ("azalea", {}, "azalea"), ("flowering_azalea", {}, "flowering_azalea"),
                 ("mangrove_roots", {}, "mangrove_roots"), ("mud", {}, "mud"),
                 ("log", {"material": "mangrove", "axis": "y", "stripped": "false"}, "mangrove_log"),
