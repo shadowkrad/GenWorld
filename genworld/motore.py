@@ -34,6 +34,7 @@ from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
 from . import entita as EN
+from . import luoghi as LU
 from . import fauna as FA
 from . import fiumi as R
 from . import insediamenti as I
@@ -496,6 +497,11 @@ class Piano:
     indice_dungeon: dict = field(default_factory=dict)
     torri: list = field(default_factory=list)
     indice_torri: dict = field(default_factory=dict)
+    # luoghi con nome, cartelli e indizi (vedi `luoghi.py`)
+    luoghi: list = field(default_factory=list)
+    cartelli: list = field(default_factory=list)
+    libri: dict = field(default_factory=dict)
+    libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
     # {indice edificio: (indice modello, rotazione)}: quale casa da template va
@@ -1271,6 +1277,31 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"nemici: {len(nemici)} fra accampamenti e cimiteri")
         abitanti = abitanti + nemici
 
+    # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
+    meta_l = op.lato // 2
+    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed)
+    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l)
+    ind = LU.indizi(luoghi)
+    libri: dict = {}
+    for d in dungeon:
+        libro = ind["tappe"].get(("rovina", d.x - meta_l, d.z - meta_l))
+        x, y, z, _ = d.forzieri()[2]
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
+    for t in torri:
+        libro = ind["tappe"].get(("torre", t.x - meta_l, t.z - meta_l))
+        x, y, z, _ = t.forzieri()[1]
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
+    libro_citta = None
+    if ind["inizio"] is not None:
+        c0, libro0 = ind["inizio"]
+        raggio0 = next((c.raggio for c in citta if c.x - meta_l == c0.x and c.z - meta_l == c0.z), 30)
+        libro_citta = (c0.x, c0.z, raggio0, libro0)
+    if luoghi:
+        note.append(f"luoghi con nome: {len(luoghi)}, cartelli: {len(cartelli)}, "
+                    f"libri di indizi: {len(libri) + (1 if libro_citta else 0)}")
+
     avanza(1.0, "pianificazione completata")
     return Piano(h=h, edifici=edifici, indice_edifici=indice_ed,
                  cls=a.cls, livello=a.livello,
@@ -1282,6 +1313,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  indice_caverne=SS.indice_per_chunk(caverne) if caverne["x"].size else {},
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
+                 luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
                  torri=torri,
                  indice_torri=TR.indice_per_chunk(torri) if torri else {},
                  dungeon=dungeon,
@@ -2307,8 +2339,18 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # perche' a lato=16 l'offset `meta` e' zero.
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
                                 campi=campi_g, minerali=minerali_g,
-                                cripte=cripte_g, centri=centri_g, dungeon=dungeon_g)
+                                cripte=cripte_g, centri=centri_g, dungeon=dungeon_g,
+                                libri=piano.libri, libro_citta=piano.libro_citta)
                       if tav_ba is not None else None)
+            if piano.cartelli:
+                for c in piano.cartelli:
+                    gx, gz = c.x - meta, c.z - meta
+                    if not (ox <= gx < ox + 16 and oz <= gz < oz + 16):
+                        continue
+                    y = int(piano.h[c.z, c.x])
+                    blocchi[gx - ox, y + 64, gz - oz] = m.blocco(
+                        "sign", material="oak", rotation=str(c.rotazione))
+                    bauli_c = (bauli_c or []) + [LU.entita_cartello(c, y, meta)]
             if piano.dungeon:
                 spawner = DG.entita_blocco(piano.dungeon, ox, oz, meta)
                 if spawner:
@@ -2345,6 +2387,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         st = EN.scrivi_regioni(op.uscita, in_gioco,
                                _Imp(versione=op.versione).data_version)
         fuori["abitanti"] = st["abitanti"]
+
+    if restano == 0 and not interrotto and piano.luoghi:
+        md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "")
+        fuori["luoghi"] = md
 
     if restano == 0 and not interrotto:
         fuori["level_dat"] = "valido" if not verifica(
