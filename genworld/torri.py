@@ -153,6 +153,7 @@ def pianifica(altezze: np.ndarray, acqua: np.ndarray, evita: np.ndarray | None =
     rng = np.random.default_rng(seed + 404)
     quanti = int(max(0, round(H * W / celle_per * densita)))
     fuori: list[Torre] = []
+    nomi_liberi = list(NOMI_CAPO)
     tentativi, limite = 0, quanti * 80 + 80
     while len(fuori) < quanti and tentativi < limite:
         tentativi += 1
@@ -174,9 +175,16 @@ def pianifica(altezze: np.ndarray, acqua: np.ndarray, evita: np.ndarray | None =
         dx, dz = ((1, 0), (-1, 0), (0, 1), (0, -1))[int(rng.integers(0, 4))]
         fuori.append(Torre(x=x, z=z, ys=ys, dx=dx, dz=dz,
                            specie=CAPO_PER_ZONA[int(rng.integers(0, len(CAPO_PER_ZONA)))],
-                           nome=NOMI_CAPO[int(rng.integers(0, len(NOMI_CAPO)))],
+                           nome=_nome_unico(rng, nomi_liberi),
                            seme=int(rng.integers(0, 2 ** 31 - 1))))
     return fuori
+
+
+def _nome_unico(rng, liberi: list) -> str:
+    """Un nome di capo mai usato; esauriti, ne compone uno con un numero."""
+    if liberi:
+        return liberi.pop(int(rng.integers(0, len(liberi))))
+    return f"{NOMI_CAPO[int(rng.integers(0, len(NOMI_CAPO)))]} il {int(rng.integers(2, 9))}°"
 
 
 def maschera(torri: list[Torre], forma: tuple[int, int], margine: int = 0) -> np.ndarray:

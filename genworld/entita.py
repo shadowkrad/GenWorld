@@ -59,6 +59,10 @@ class Abitante:
     mestiere: str = "fruttivendolo"
     livello: int = 2
     seme: int = 0
+    # scambi personalizzati: ognuno e' un dict {"compra": (oggetto, quanti),
+    # "vende": (oggetto, quanti, componenti|None), "usi": n}. Vuoto = gli
+    # scambi normali del mestiere (decide il gioco).
+    offerte: tuple = ()
 
     @property
     def professione(self) -> str:
@@ -87,7 +91,7 @@ def _uuid(seme: int):
 def nbt_abitante(a: Abitante, bioma: str = "plains"):
     from amulet_nbt import (ByteTag, CompoundTag, DoubleTag, FloatTag, IntTag,
                             ListTag, StringTag)
-    return CompoundTag({
+    tag = CompoundTag({
         "id": StringTag("minecraft:villager"),
         "Pos": ListTag([DoubleTag(a.x), DoubleTag(a.y), DoubleTag(a.z)]),
         "Motion": ListTag([DoubleTag(0.0), DoubleTag(0.0), DoubleTag(0.0)]),
@@ -107,6 +111,30 @@ def nbt_abitante(a: Abitante, bioma: str = "plains"):
             "type": StringTag(f"minecraft:{bioma}"),
         }),
         "Xp": IntTag(0),
+    })
+    if a.offerte:
+        tag["Offers"] = CompoundTag({"Recipes": ListTag([_scambio(o) for o in a.offerte])})
+    return tag
+
+
+def _scambio(o: dict):
+    """Un scambio del villager nel formato recente: `buy`/`sell` sono pile
+    {id, count, components?}."""
+    from amulet_nbt import ByteTag, CompoundTag, FloatTag, IntTag, StringTag
+
+    from .bauli import _tag
+
+    def pila(spec):
+        d = {"id": StringTag(f"minecraft:{spec[0]}"), "count": IntTag(int(spec[1]))}
+        if len(spec) > 2 and spec[2]:
+            d["components"] = _tag({f"minecraft:{k}": v for k, v in spec[2].items()})
+        return CompoundTag(d)
+
+    return CompoundTag({
+        "buy": pila(o["compra"]), "sell": pila(o["vende"]),
+        "maxUses": IntTag(int(o.get("usi", 3))), "uses": IntTag(0),
+        "xp": IntTag(5), "rewardExp": ByteTag(1), "demand": IntTag(0),
+        "priceMultiplier": FloatTag(0.05), "specialPrice": IntTag(0),
     })
 
 

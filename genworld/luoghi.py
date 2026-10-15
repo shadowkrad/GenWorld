@@ -28,7 +28,15 @@ CITTA = ("Monteverde", "Valdargento", "Pontealto", "Portobruno", "Roccaserena",
 MINIERE = ("Miniera del Corvo", "Miniera dell'Eco", "Miniera della Lanterna",
            "Miniera di Ferrovecchio", "Miniera del Nano Muto", "Miniera Profonda",
            "Miniera dei Tre Pozzi", "Miniera di Pietrabuia", "Miniera del Rame Verde",
-           "Miniera dell'Ultima Vena")
+           "Miniera dell'Ultima Vena", "Miniera del Lupo", "Miniera del Re Cieco",
+           "Miniera del Fumo", "Miniera dell'Argento Nero", "Miniera del Carbone",
+           "Miniera del Cristallo", "Miniera del Vento", "Miniera del Gufo",
+           "Miniera della Pioggia", "Miniera del Sale", "Miniera del Sole Spento",
+           "Miniera di Roccaforte", "Miniera dei Ciottoli", "Miniera dell'Orso",
+           "Miniera della Volpe Rossa", "Miniera dei Sospiri", "Miniera del Falco",
+           "Miniera della Luna Cava", "Miniera del Ghiaccio", "Miniera di Valpiombo",
+           "Miniera del Cinghiale", "Miniera dello Stagno", "Miniera della Brace",
+           "Miniera dell'Eremita", "Miniera dei Due Fratelli", "Miniera del Salice")
 ROVINE = ("Cripta di Mortelia", "Cripta dei Sussurri", "Cripta di Orrenda",
           "Tomba del Re Smarrito", "Cripta della Veglia", "Rovine di Altomuro",
           "Cripta dell'Osso", "Sepolcro dei Cento", "Cripta di Valdoscura")
@@ -198,6 +206,43 @@ def libro_tappa(da: Luogo, a: Luogo | None) -> Libro:
         (f"Quello che ho nascosto qui non e' tutto. Il resto sta in un altro luogo: "
          f"{a.nome}, {_passi(da, a)} da questo posto.",
          "Segui la strada con prudenza: il capo di quel posto non e' meno testardo del mio."))
+
+
+def libro_di_bottega(qui: Luogo, a: Luogo, mestiere: str = "mercante") -> Libro:
+    """Cio' che un bottegaio racconta a chi paga: dove sta un luogo d'avventura."""
+    gioco = {"rovina": "le rovine di", "torre": "la fortezza di"}.get(a.tipo, "")
+    return Libro(
+        f"Voci di {qui.nome}"[:32] if qui.nome else "Voci di bottega", f"Un {mestiere}",
+        (f"Chi passa di qui racconta di {gioco} {a.nome}, {_passi(qui, a)} da questa bottega.".replace("  ", " "),
+         "Non e' un posto per chi viaggia leggero: porta cibo, una buona lama e delle torce."))
+
+
+def offerte_bottega(abitanti: list, luoghi: list[Luogo], meta: int) -> list:
+    """Ai cartografi e ai librai che stanno in citta' si aggiunge uno scambio:
+    5 smeraldi per un libro che indica la rovina o la torre piu' vicina.
+    Ritorna gli abitanti, con le offerte dove servono."""
+    import dataclasses
+    mete = [l for l in luoghi if l.tipo in TIPI_AVVENTURA]
+    citta = [l for l in luoghi if l.tipo == "citta"]
+    if not mete:
+        return abitanti
+    fuori = []
+    for a in abitanti:
+        if getattr(a, "mestiere", None) in ("cartografo", "libraio"):
+            qui = Luogo("", "bottega", int(a.x - meta), int(a.z - meta))
+            vicina = min(citta, key=lambda c: distanza(qui, c)) if citta else None
+            if vicina is not None:
+                qui.nome = vicina.nome
+            target = min(mete, key=lambda l: distanza(qui, l))
+            libro = libro_di_bottega(qui, target, "cartografo" if a.mestiere == "cartografo" else "libraio")
+            offerta = {"compra": ("emerald", 5),
+                       "vende": ("written_book", 1, {"written_book_content": {
+                           "title": {"raw": libro.titolo}, "author": libro.autore,
+                           "pages": [{"raw": p} for p in libro.pagine]}}),
+                       "usi": 3}
+            a = dataclasses.replace(a, offerte=tuple(a.offerte) + (offerta,))
+        fuori.append(a)
+    return fuori
 
 
 def indizi(luoghi: list[Luogo]) -> dict:

@@ -1,73 +1,109 @@
-# Checklist di controllo in gioco
+# Checklist di controllo in gioco - mappa_arda
 
-Mondo di prova: `mappa_arda.png`, lato 1000, seed predefinito (`esempi/genera_mappa.py --lato 1000`).
-Le coordinate sono di gioco (x, z) e valgono per quel mondo; con un'altra mappa o altre
-opzioni cambiano. Per ricavarle di nuovo: pianificare con le stesse opzioni e sottrarre
-mezzo lato (500) alle coordinate di mappa.
+Per ogni punto: `/tp @s x y z` in creativa o spettatore, guarda, segna OK o difetto.
 
-Teletrasporto (modalita' creativa): `/tp @s <x> <y+6> <z>`. Per ogni punto: guarda, scatta
-uno screenshot (F2) e segna **OK** o **difetto** con una riga.
+## Torri con un capo
 
-## 1. Città murate (le quattro più grandi)
-Cosa guardare: pianta ordinata; cinta chiusa con 4 porte e torri; fosso pieno e senza
-trabocchi; **ponte alla quota della strada** (nessun gradino di un blocco); piazza con
-campana, fontana e 4 banchi; case una per lotto, tutte diverse.
+Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, due forzieri; cartello davanti.
 
-| Città | Centro (x, z) | Quota | Punto di arrivo |
-|---|---|---|---|
-| A | 321, -147 | 79 | `/tp @s 321 85 -147` |
-| B | 239, -322 | 78 | `/tp @s 239 84 -322` |
-| C | 318, -26 | 79 | `/tp @s 318 85 -26` |
-| D | 155, -88 | 79 | `/tp @s 155 85 -88` |
+- [ ] **Torre di Aldric il Cupo** - `/tp @s -338 75 -110` (capo: Aldric il Cupo)
+- [ ] **Torre di Brenna Mano di Ferro** - `/tp @s -34 87 286` (capo: Brenna Mano di Ferro)
+- [ ] **Torre di Corvo Nero** - `/tp @s -125 74 -55` (capo: Corvo Nero)
+- [ ] **Torre di Ivor il Custode** - `/tp @s -175 77 -319` (capo: Ivor il Custode)
+- [ ] **Torre di Kael Lamarotta** - `/tp @s 43 75 -227` (capo: Kael Lamarotta)
 
-Ponti sul fosso (porta est, poi le altre): A `377 85 -147`, B `295 85 -322`, C `366 66 -26`,
-D `211 85 -88`.
-- **C, porta est (366, -26): la strada esterna sta a quota 60, la città a 79.** Guarda se
-  scende in modo decente o se è una parete.
-- Il verificatore automatico segnala un pezzo sospeso vicino a (314, 79, -77): ponte della città C?
+## Rovine con cripta
 
-## 2. Villaggi
-| Villaggio | Centro (x, z) | Lotti | Punto |
-|---|---|---|---|
-| E | -59, 59 | 12 | `/tp @s -59 85 59` |
-| F | 50, -407 | 12 | `/tp @s 50 85 -407` |
-| G | 331, -279 | **4** | `/tp @s 331 85 -279` |
+Rovina in superficie, scala di 14 blocchi, anticamera, sala dello spawner, tesoro con due forzieri-trappola sul TNT. Cartello davanti. Lo spawner sta circa 41 blocchi dalla rovina.
 
-G è il caso limite: quattro case. Dimmi se e' accettabile o se alzare il minimo.
+- [ ] **Cripta della Veglia** - `/tp @s 43 86 286` (cripta con zombie)
+- [ ] **Cripta di Orrenda** - `/tp @s -200 77 -269` (cripta con zombie)
+- [ ] **Rovine di Altomuro** - `/tp @s -207 74 -78` (cripta con skeleton)
+- [ ] **Sepolcro dei Cento** - `/tp @s 210 79 -159` (cripta con zombie)
 
-## 3. Banchi di mercato (non sospesi, sulla piazza)
-Città A: `/tp @s 320 85 -148`; città B: `/tp @s 238 84 -323`. Guarda sotto i banchi
-(pali fino a terra) e che i venditori siano dietro il bancone.
+## Miniere
 
-## 4. Miniere (22 nel mondo di prova)
-Cosa guardare: portale ad arco di legno e pietra; binario e ghiaia davanti; trincea con
-telai e lanterne; discesa a 1 blocco ogni 3 celle; carrelli; minerali piu' ricchi in
-fondo (lapislazzuli, oro, diamanti a y<20).
+Imbocco con cartello, collina del posto, binari. Nell'ultimo piano: camera finale con pozza.
 
-| N | Portale (x, z, y) | Fondo y | Piani | Perché |
-|---|---|---|---|---|
-| 1 | -304, -76, 67 | 0 | 3 | la più profonda |
-| 11 | -303, -170, 67 | -5 | 3 | la più profonda, diamanti |
-| 5 | -41, -81, 69 | 0 | 3 | |
-| 4 | -264, 141, 80 | 60 | 1 | una superficiale (solo carbone/rame) |
+- [ ] **Miniera dei Due Fratelli** - `/tp @s -130 79 -214`
+- [ ] **Miniera dei Sospiri** - `/tp @s 421 83 312`
+- [ ] **Miniera dei Tre Pozzi** - `/tp @s 10 67 10`
+- [ ] **Miniera del Carbone** - `/tp @s -145 76 -3`
+- [ ] **Miniera del Cinghiale** - `/tp @s 111 84 313`
+- [ ] **Miniera del Corvo** - `/tp @s 479 74 -259`
+- [ ] **Miniera del Cristallo** - `/tp @s -296 84 138`
+- [ ] **Miniera del Falco** - `/tp @s 11 73 -235`
+- [ ] **Miniera del Ghiaccio** - `/tp @s -403 80 -18`
+- [ ] **Miniera del Gufo** - `/tp @s -314 83 285`
+- [ ] **Miniera del Re Cieco** - `/tp @s 57 77 -340`
+- [ ] **Miniera del Sale** - `/tp @s 87 83 -170`
+- [ ] **Miniera del Salice** - `/tp @s 358 67 -316`
+- [ ] **Miniera del Vento** - `/tp @s -109 77 -310`
+- [ ] **Miniera dell'Argento Nero** - `/tp @s -285 102 -412`
+- [ ] **Miniera dell'Ultima Vena** - `/tp @s 461 83 108`
+- [ ] **Miniera della Lanterna** - `/tp @s -390 82 -326`
+- [ ] **Miniera della Luna Cava** - `/tp @s -100 84 166`
+- [ ] **Miniera della Pioggia** - `/tp @s 212 85 299`
+- [ ] **Miniera dello Stagno** - `/tp @s -304 73 -76`
+- [ ] **Miniera di Ferrovecchio** - `/tp @s -191 85 127`
+- [ ] **Miniera di Pietrabuia** - `/tp @s 110 72 -464`
 
-Punto: `/tp @s <x> <y+6> <z>`. Scendi a piedi fino in fondo e conta i piani.
+## Citta'
 
-## 5. Case isolate (7)
-`/tp @s -209 78 -301`, `-172 80 -241`, `-125 77 -170`, `-342 77 -21`, `4 76 -286`,
-`34 77 -348`. Guarda: casa appoggiata a terra (niente vuoto sotto), nessun albero dentro.
+Piazza con fontana (parafulmine), campana, 2 stendardi, 2 bracieri, lampioni di rame; giardini con zucche e alveari; legno degli arredi del bioma; gatti sulle strade; un libro 'Il diario del viandante' in alcune case della citta' piu' vicina al centro.
 
-## 6. Avamposti, cimiteri, portali (12)
-Portale: `/tp @s 4 85 -202`; cimitero: `/tp @s 455 85 254`; campo: `/tp @s -124 85 -76`.
-Guarda: struttura dal template, nemici (scheletri/zombie) solo dentro.
+- [ ] **Colledoro** - `/tp @s 50 86 -407` (raggio 41)
+- [ ] **Granvalle** - `/tp @s 155 86 -88` (raggio 54, murata)
+- [ ] **Monteverde** - `/tp @s -59 86 59` (raggio 41)
+- [ ] **Pietrafonda** - `/tp @s 259 86 -318` (raggio 54, murata)
+- [ ] **Rivabella** - `/tp @s 321 86 -147` (raggio 54, murata)
+- [ ] **Valdargento** - `/tp @s 359 86 -247` (raggio 33)
+- [ ] **Villabianca** - `/tp @s 318 86 -6` (raggio 46, murata)
 
-## 7. Arredi di città
-Fontana A: `/tp @s 319 85 -157`; campana: `/tp @s 322 85 -147`; lampioni lungo
-l'asse est: `/tp @s 271 85 -147`; recinto: `/tp @s 287 85 -7`; giardino: `/tp @s 287 85 -42`.
+## Accampamenti
 
-## 8. Acqua
-Il verificatore trova ancora ~4400 celle d'acqua con aria accanto, per lo più fiumi in quota.
-Punti: `/tp @s -451 70 -140` e `/tp @s -388 92 -427`. Guarda se l'acqua cola sulle sponde.
+Cerchio calpestato, falo', predone con balestra, cavalli.
 
-## Come riportare
-Un elenco "punto → OK / difetto + coordinate + screenshot". Ogni difetto diventa una issue.
+- [ ] **Accampamento del Lupo** - `/tp @s 180 77 -316`
+- [ ] **Accampamento delle Ceneri** - `/tp @s 163 83 261`
+- [ ] **Bivacco dell'Esule** - `/tp @s -65 80 -319`
+- [ ] **Campo dei Predoni** - `/tp @s -250 74 -91`
+- [ ] **Campo dei Senzanome** - `/tp @s 4 85 -201`
+- [ ] **Campo dei Senzanome 6** - `/tp @s 463 84 155`
+- [ ] **Campo del Corvo** - `/tp @s 484 85 316`
+
+## Cimiteri
+
+Forzieri con ossa e refurtiva; scheletro (stray sulla neve).
+
+- [ ] **Cimitero degli Impiccati** - `/tp @s -377 85 -284`
+- [ ] **Cimitero di Valdoro** - `/tp @s 106 92 -375`
+- [ ] **Giardino dei Pianti** - `/tp @s -130 85 188`
+
+## Biomi
+
+- [ ] **badlands** (17432 celle) - `/tp @s -27 88 -214` - sabbia rossa e fasce di terracotta
+- [ ] **mangrove_swamp** (11241 celle) - `/tp @s -37 74 -59` - mangrovie con radici, fango, rane
+- [ ] **savanna** (30435 celle) - `/tp @s 120 85 328` - acacie piatte, lama, asini
+- [ ] **jungle** (1094 celle) - `/tp @s 245 80 331` - alberi altissimi, bambu', liane, panda
+- [ ] **taiga** (2009 celle) - `/tp @s 23 88 -404` - abeti, felci grandi
+- [ ] **snowy_tundra** (4843 celle) - `/tp @s -172 102 55` - neve sottile sugli alberi, stray
+- [ ] **dark_forest** (1216 celle) - `/tp @s 41 81 78` - rovere scuro, funghi giganti
+- [ ] **meadow** (99486 celle) - `/tp @s 6 77 -323` - ciliegi, lilla', rose, peonie, api
+- [ ] **sunflower_plains** (37769 celle) - `/tp @s -12 83 30` - girasoli
+- [ ] **warm_ocean** (131202 celle) - `/tp @s 6 46 402` - coralli e pesci tropicali
+- [ ] **desert** (90367 celle) - `/tp @s -167 75 -153` - cactus, cammelli, husk negli accampamenti
+
+## Bordo della mappa
+
+- [ ] Vola oltre un bordo (es. `/tp @s 480 120 0` e poi verso est): il terreno continua e si raccorda al nostro senza un taglio netto.
+
+## Catena degli indizi
+
+- [ ] In una casa della citta' piu' vicina al centro: libro che indica la prima tappa. Seguila: il tesoro di ogni rovina/torre ha un libro che indica la successiva.
+- [ ] Un cartografo o un libraio vende per 5 smeraldi un libro con la rovina o la torre piu' vicina.
+- [ ] Cartelli ai bivi con i due luoghi piu' vicini e la direzione.
+
+## Sottoterra
+
+- [ ] Grotte con dripstone, muschio, pozze, sculk profondo, geodi di ametista (vedi `docs/`).

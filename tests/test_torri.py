@@ -159,6 +159,23 @@ class TestPosa(unittest.TestCase):
         self.assertTrue((out == prima).all())
 
 
+class TestNomi(unittest.TestCase):
+    def test_i_capi_hanno_nomi_diversi_finche_ce_ne_sono(self):
+        h, acqua = terreno()
+        ts = TR.pianifica(h, acqua, seed=2, densita=2.0)
+        self.assertGreater(len(ts), 3)
+        nomi = [t.nome for t in ts]
+        self.assertEqual(len(nomi), len(set(nomi)))
+
+    def test_esauriti_i_nomi_ne_compone_di_nuovi_senza_ripeterli(self):
+        rng = np.random.default_rng(1)
+        liberi = list(TR.NOMI_CAPO)
+        usati = [TR._nome_unico(rng, liberi) for _ in range(len(TR.NOMI_CAPO) + 3)]
+        self.assertEqual(len(usati[:len(TR.NOMI_CAPO)]), len(set(usati[:len(TR.NOMI_CAPO)])))
+        self.assertEqual(liberi, [])
+        self.assertTrue(all(isinstance(n, str) and n for n in usati))
+
+
 class TestCombattenti(unittest.TestCase):
     def test_un_capo_in_cima_e_due_guardie(self):
         t = una_torre()
