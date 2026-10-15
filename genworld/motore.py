@@ -2100,6 +2100,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # accampamento (vedi `bauli.trova`)
         campi_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CAMPO + 1)
                    for av in piano.avamposti if av.tipo == "campo"]
+        centri_g = [(c.x - meta, c.z - meta) for c in piano.citta]
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
         n = max(1, fino - da)
@@ -2207,7 +2208,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # perche' a lato=16 l'offset `meta` e' zero.
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
                                 campi=campi_g, minerali=minerali_g,
-                                cripte=cripte_g)
+                                cripte=cripte_g, centri=centri_g)
                       if tav_ba is not None else None)
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
             scritti += 1

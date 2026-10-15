@@ -96,6 +96,48 @@ BOTTINO_MINIERA: tuple[tuple[str, int, int], ...] = (
 )
 
 
+# Tesori incantati: lontano dalle citta' un forziere di miniera, di campo o di
+# cripta puo' avere uno di questi. (oggetto, componenti nel formato 1.21: gli
+# incantesimi sono una mappa nome -> livello)
+DISTANZA_TESORI = 250
+TESORI: tuple[tuple[str, dict], ...] = (
+    ("diamond_sword", {"enchantments": {"minecraft:sharpness": 3, "minecraft:unbreaking": 2}}),
+    ("iron_pickaxe", {"enchantments": {"minecraft:efficiency": 3, "minecraft:fortune": 2}}),
+    ("diamond_pickaxe", {"enchantments": {"minecraft:efficiency": 4, "minecraft:unbreaking": 3}}),
+    ("bow", {"enchantments": {"minecraft:power": 3, "minecraft:infinity": 1}}),
+    ("crossbow", {"enchantments": {"minecraft:quick_charge": 2, "minecraft:piercing": 3}}),
+    ("iron_chestplate", {"enchantments": {"minecraft:protection": 3}}),
+    ("diamond_helmet", {"enchantments": {"minecraft:respiration": 2, "minecraft:protection": 2}}),
+    ("iron_boots", {"enchantments": {"minecraft:feather_falling": 3}}),
+    ("enchanted_book", {"stored_enchantments": {"minecraft:mending": 1}}),
+    ("enchanted_book", {"stored_enchantments": {"minecraft:sharpness": 4}}),
+    ("enchanted_book", {"stored_enchantments": {"minecraft:fortune": 3}}),
+    ("potion", {"potion_contents": {"potion": "minecraft:healing"}}),
+    ("potion", {"potion_contents": {"potion": "minecraft:swiftness"}}),
+    ("potion", {"potion_contents": {"potion": "minecraft:night_vision"}}),
+)
+
+
+def _tag(v):
+    """Un valore python (dict, int, str) come tag NBT."""
+    from amulet_nbt import CompoundTag, IntTag, StringTag
+    if isinstance(v, dict):
+        return CompoundTag({k: _tag(x) for k, x in v.items()})
+    if isinstance(v, int):
+        return IntTag(v)
+    return StringTag(str(v))
+
+
+def _aggiungi_tesori(contenuto: list, rng: np.random.Generator) -> list:
+    """Sostituisce una o due pile con tesori incantati (stesso slot)."""
+    contenuto = list(contenuto)
+    quanti = min(len(contenuto), int(rng.integers(1, 3)))
+    for i in rng.choice(len(contenuto), size=quanti, replace=False):
+        nome, comp = TESORI[int(rng.integers(0, len(TESORI)))]
+        contenuto[int(i)] = (contenuto[int(i)][0], nome, 1, comp)
+    return contenuto
+
+
 class Tavolozza:
     """Gli id nel palette del livello per i forzieri che sappiamo riempire:
     solo `chest` (mai `trapped_chest`, `ender_chest` o le varianti di rame -
@@ -151,6 +193,28 @@ def _oggetti_cripta(rng: np.random.Generator) -> list[tuple[int, str, int]]:
             for s, t in zip(slot, tipi)]
 
 
+def _voce(v):
+    """Una pila come CompoundTag; il quarto elemento, se c'e', sono i componenti."""
+    from amulet_nbt import ByteTag, CompoundTag, IntTag, StringTag
+    s, nome, quanti = v[0], v[1], v[2]
+    d = {"Slot": ByteTag(s), "id": StringTag(f"minecraft:{nome}"),
+         "count": IntTag(quanti)}
+    if len(v) > 3 and v[3]:
+        d["components"] = _tag({f"minecraft:{k}": x for k, x in v[3].items()})
+    return CompoundTag(d)
+
+
+def _e_dispensa(gx, gy, gz, minerali, campi, cripte) -> bool:
+    """Vero se il forziere NON e' di una miniera, di un campo o di una cripta."""
+    if minerali and (gx, gy, gz) in minerali:
+        return False
+    if cripte and any((gx - cx) ** 2 + (gz - cz) ** 2 <= r * r for cx, cz, r in cripte):
+        return False
+    if campi and any((gx - cx) ** 2 + (gz - cz) ** 2 <= r * r for cx, cz, r in campi):
+        return False
+    return True
+
+
 def _seme(x: int, y: int, z: int, seed: int) -> int:
     """Deterministico sulla posizione: lo stesso forziere ha sempre lo
     stesso contenuto, anche rigenerando lo stesso lotto. Mascherato per le
@@ -162,7 +226,7 @@ def _seme(x: int, y: int, z: int, seed: int) -> int:
 
 def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
          seed: int = 0, campi: list | None = None, minerali: set | None = None,
-         cripte: list | None = None) -> list:
+         cripte: list | None = None, centri: list | None = None) -> list:
     """Cerca i forzieri singoli gia' scritti in un chunk (16, H, 16) e
     ritorna la lista di `amulet.api.block_entity.BlockEntity` col bottino.
 
@@ -191,11 +255,12 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
             contenuto = _oggetti_campo(rng)
         else:
             contenuto = _oggetti(rng)
-        items = ListTag([
-            CompoundTag({"Slot": ByteTag(s), "id": StringTag(f"minecraft:{nome}"),
-                        "count": IntTag(quanti)})
-            for s, nome, quanti in contenuto
-        ])
+        # lontano da ogni citta' il bottino di miniere, campi e cripte ha
+        # qualche tesoro incantato (le case, per definizione, sono vicine)
+        if centri and contenuto is not None and not _e_dispensa(gx, gy, gz, minerali, campi, cripte):
+            if min((gx - cx) ** 2 + (gz - cz) ** 2 for cx, cz in centri)                     > DISTANZA_TESORI ** 2:
+                contenuto = _aggiungi_tesori(contenuto, rng)
+        items = ListTag([_voce(v) for v in contenuto])
         # Namespace "minecraft" (raw) con NBT piatto si perde - verificato
         # con uno spike dedicato - non appena la sessione di scrittura tocca
         # PIU' di un chunk (con un solo chunk sopravvive, che e' perche' il

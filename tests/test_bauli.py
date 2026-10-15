@@ -97,6 +97,37 @@ class TestTrova(unittest.TestCase):
             self.assertTrue(nomi <= cripta, nomi - cripta)
             self.assertGreaterEqual(len(nomi), 3)
 
+    def test_lontano_dalle_citta_i_campi_hanno_tesori_incantati(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        trovati = 0
+        for seed in range(20):
+            bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, campi=[(5, 6, 3)],
+                             centri=[(5000, 5000)])
+            for v in bauli[0].nbt.compound["utags"]["Items"]:
+                if "components" in v:
+                    trovati += 1
+                    comp = v["components"]
+                    self.assertTrue(len(comp) >= 1)
+                    self.assertTrue(all(str(k).startswith("minecraft:") for k in comp))
+        self.assertGreaterEqual(trovati, 10)
+
+    def test_vicino_a_una_citta_niente_tesori_e_le_case_mai(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        for seed in range(20):
+            vicino = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, campi=[(5, 6, 3)],
+                              centri=[(10, 10)])
+            casa = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, centri=[(5000, 5000)])
+            for b in vicino + casa:
+                for v in b.nbt.compound["utags"]["Items"]:
+                    self.assertNotIn("components", v)
+
+    def test_i_tesori_hanno_incantesimi_a_livello_intero(self):
+        for nome, comp in BA.TESORI:
+            for chiave, valore in comp.items():
+                self.assertNotIn(chiave, ("Enchantments",))
+                if chiave in ("enchantments", "stored_enchantments"):
+                    self.assertTrue(all(isinstance(x, int) and x >= 1 for x in valore.values()))
+
     def test_un_forziere_fuori_dal_campo_resta_una_dispensa(self):
         out, s, tav, idf = self.chunk_con_forziere()
         bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=2, campi=[(100, 100, 3)])
