@@ -1,9 +1,12 @@
 """Torri isolate con un capo (#6).
 
-Una torre di pietra a quattro piani su un pianoro, lontana da tutto: una porta
-al piano terra, una scala a pioli fino in cima, feritoie, merli. Nei piani
-vivono dei nemici; in cima il capo, con armatura, arma e un nome, e un forziere
-con il tesoro. Piu' la torre e' lontana dalle citta', piu' il capo e' forte
+Una torre di pietra a quattro piani su un pianoro, lontana da tutto: porta con
+stipiti e gradino, zoccolo a risvolto, fasce scolpite a ogni piano, feritoie,
+merli e lanterne agli angoli del tetto. Dentro, una scala di pietra che gira
+attorno alla sala (quattro rampe) e ogni piano allestito: sala d'armi, camerata
+coi letti, armeria, sala del capo con scaffali, leggio e trono; torce, lanterne,
+candele e stendardi nel colore della torre. Nei piani vivono dei nemici; in cima
+il capo, con armatura, arma e un nome, e un forziere con il tesoro. Piu' la torre e' lontana dalle citta', piu' il capo e' forte
 (armatura di diamante, vita doppia).
 
 Stesso schema di `dungeon.py`: coordinate locali (u, v) rispetto al centro e a
@@ -58,9 +61,9 @@ class Torre:
                 max(p[0] for p in pts), max(p[1] for p in pts))
 
     def forzieri(self) -> list[tuple[int, int, int, str]]:
-        x1, z1 = self.punto(R - 1, R - 1)
-        x2, z2 = self.punto(R - 1, -R + 1)
-        return [(x1, self.piano(2), z1, "stanza"), (x2, self.piano(PIANI - 1), z2, "tesoro")]
+        # in un angolo d'angolo, lontano dalle rampe della scala (vedi `RAMPE`)
+        x1, z1 = self.punto(-R + 1, R - 1)
+        return [(x1, self.piano(2), z1, "stanza"), (x1, self.piano(PIANI - 1), z1, "tesoro")]
 
 
 @dataclass
@@ -223,7 +226,7 @@ def combattenti(torri: list[Torre], centri: list | None = None, seed: int = 0) -
         rng = np.random.default_rng(t.seme + seed)
         for k in (1, 2):
             sp = "scheletro" if rng.random() < 0.4 else "zombie"
-            ux, vz = t.punto(int(rng.integers(-2, 3)), int(rng.integers(-2, 3)))
+            ux, vz = t.punto(*CELLE_GUARDIE[k])
             fuori.append(Combattente(x=ux + 0.5, y=float(t.piano(k)), z=vz + 0.5,
                                      specie=sp, seme=t.seme + 11 * (k + 1) + i))
     return fuori
@@ -237,6 +240,21 @@ def statistiche(torri: list[Torre]) -> dict:
 # Posa
 # --------------------------------------------------------------------------
 
+STENDARDI = ("red", "blue", "green", "purple", "orange", "cyan", "yellow", "magenta")
+
+# Le quattro rampe della scala interna, una per piano, che girano attorno alla
+# sala: (cella di partenza (u, v), passo (du, dv)). Ogni rampa sale di cinque
+# blocchi lungo un muro; chi esce dal gradino piu' alto e' su un angolo, da cui
+# parte la rampa del piano dopo.
+RAMPE = {0: ((-3, -3), (0, 1)),
+         1: ((-2, 3), (1, 0)),
+         2: ((3, 2), (0, -1)),
+         3: ((2, -3), (-1, 0))}
+
+# dove stanno le guardie ai piani 1 e 2 (celle libere dai mobili)
+CELLE_GUARDIE = {1: (1, 1), 2: (-1, -1)}
+
+
 class Tavolozza:
     def __init__(self, scrittore):
         s = scrittore
@@ -244,14 +262,44 @@ class Tavolozza:
         self.mattoni = s.blocco("stone_bricks", variant="normal")
         self.crepati = s.blocco("stone_bricks", variant="cracked")
         self.muschiosi = s.blocco("stone_bricks", variant="mossy")
+        self.scolpiti = s.blocco("stone_bricks", variant="chiseled")
         self.assi = s.blocco("planks", material="oak")
         self.ciottoli = s.blocco("cobblestone")
         self.lanterna = s.blocco("lantern", material="iron", hanging="true")
+        self.lanterna_su = s.blocco("lantern", material="iron", hanging="false")
         self.sbarre = s.blocco("bars", material="iron", north="false", south="false",
                                east="false", west="false")
-        self.scala = {f: s.blocco("ladder", facing=f) for f in FACCIA.values()}
+        self.muretto = s.blocco("wall", material="stone_brick", up="true", north="none",
+                                south="none", east="none", west="none")
+        facce = tuple(FACCIA.values())
+        self.scala_pietra = {f: s.blocco("stairs", material="stone_brick", facing=f,
+                                         half="bottom", shape="straight") for f in facce}
+        self.scala_legno = {f: s.blocco("stairs", material="spruce", facing=f,
+                                        half="bottom", shape="straight") for f in facce}
+        self.lastra_legno = s.blocco("slab", material="spruce", type="top")
         self.forziere = {f: s.blocco("chest", facing=f, connection="none", material="wood")
-                         for f in FACCIA.values()}
+                         for f in facce}
+        self.torcia = {f: s.blocco("torch", facing=f) for f in facce}
+        self.porta = {(f, m): s.blocco("door", material="spruce", facing=f, half=m,
+                                       hinge="left", open="false", powered="false")
+                      for f in facce for m in ("lower", "upper")}
+        self.letto = {(f, p): s.blocco("bed", color="red", facing=f, part=p, occupied="false")
+                      for f in facce for p in ("head", "foot")}
+        self.stendardo = {(c, f): s.blocco("wall_banner", color=c, facing=f)
+                          for c in STENDARDI for f in facce}
+        self.barile = s.blocco("barrel", facing="up", open="false")
+        self.banco_lavoro = s.blocco("crafting_table")
+        self.fucina = s.blocco("smithing_table")
+        self.fletcher = s.blocco("fletching_table")
+        self.cartografo = s.blocco("cartography_table")
+        self.forno = {f: s.blocco("furnace", facing=f, lit="false") for f in facce}
+        self.mola = {f: s.blocco("grindstone", face="floor", facing=f) for f in facce}
+        self.incudine = {f: s.blocco("anvil", facing=f, damage="normal") for f in facce}
+        self.libreria = s.blocco("bookshelf")
+        self.leggio = {f: s.blocco("lectern", facing=f, has_book="false", powered="false")
+                       for f in facce}
+        self.tappeto = s.blocco("carpet", color="red")
+        self.candela = s.blocco("candle", color="default", candles="3", lit="true")
         self.bauli: list[tuple[int, int, int, str]] = []
 
 
@@ -267,7 +315,10 @@ def _hash(a: int, b: int, c: int) -> int:
 def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0: int,
          torri: list[Torre], quali, meta: int = 0) -> None:
     """Disegna le torri nel chunk (16, H, 16). `ox, oz` sono di GIOCO, le torri
-    di MAPPA (`meta` e' lo scarto)."""
+    di MAPPA (`meta` e' lo scarto).
+
+    Dentro, in coordinate locali (u, v): u va verso la porta, v e' la
+    perpendicolare. La sala di ogni piano e' 7 x 7 (u, v da -3 a 3)."""
     H = out.shape[1]
 
     def metti(x: int, y: int, z: int, blocco: int) -> None:
@@ -281,64 +332,180 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
     for i in quali:
         t = torri[i]
         ys = t.ys
-        faccia = FACCIA[(t.dx, t.dz)]          # verso la porta
-        verso_porta = faccia
-        indietro = FACCIA[(-t.dx, -t.dz)]
-        cima = t.piano(PIANI)                   # quota del tetto
+        cima = t.piano(PIANI)                   # quota di calpestio sul tetto
+        colore = STENDARDI[t.seme % len(STENDARDI)]
 
+        def P(u: int, v: int) -> tuple[int, int]:
+            return t.punto(u, v)
+
+        def faccia(du: int, dv: int) -> str:
+            """Il nome della direzione mondiale di uno spostamento locale (du, dv)."""
+            return FACCIA[(t.dx * du - t.dz * dv, t.dz * du + t.dx * dv)]
+
+        def alza(u: int, v: int, y: int, blocco: int) -> None:
+            x, z = P(u, v)
+            metti(x, y, z, blocco)
+
+        fuori = faccia(1, 0)                   # dove guarda la facciata (la porta)
+
+        # ---- muri, solai, fondazioni, interni vuoti ----------------------------
         for u in range(-R, R + 1):
             for v in range(-R, R + 1):
-                x, z = t.punto(u, v)
+                x, z = P(u, v)
                 bordo = max(abs(u), abs(v)) == R
                 lx, lz = x - meta - ox, z - meta - oz
-                # fondazione fino al terreno
                 if 0 <= lx < 16 and 0 <= lz < 16:
                     for y in range(int(h_c[lx, lz]) - 1, ys):
                         metti(x, y, z, _mattone(tav, _hash(x, y, z)))
-                # solai: terra in mattoni, piani in assi, tetto in mattoni
                 for k in range(PIANI + 1):
                     y = ys - 1 + ALTEZZA_PIANO * k
                     if k == 0:
                         blocco = tav.mattoni
-                    elif bordo or k == PIANI:
+                    elif bordo:
+                        # la fascia di ogni piano: un filare scolpito sul filo
+                        blocco = tav.scolpiti if k < PIANI else _mattone(tav, _hash(x, y, z))
+                    elif k == PIANI:
                         blocco = _mattone(tav, _hash(x, y, z))
                     else:
                         blocco = tav.assi
                     metti(x, y, z, blocco)
-                # aria dentro, muri sul bordo
                 for k in range(PIANI):
-                    base = ys + ALTEZZA_PIANO * k
+                    base = t.piano(k)
                     for y in range(base, base + ALTEZZA_PIANO - 1):
                         metti(x, y, z, _mattone(tav, _hash(x, y, z)) if bordo else tav.aria)
                 if bordo:
-                    for y in range(cima, cima + 2):          # parapetto
+                    for y in range(cima, cima + 2):          # parapetto e merli
                         if (u + v) % 2 == 0 or y == cima:
                             metti(x, y, z, _mattone(tav, _hash(x, y, z)))
-                    # il merlo: solo i pieni alternati sopra il parapetto
                     if (u + v) % 2 != 0:
                         metti(x, cima + 1, z, tav.aria)
 
-        # porta: un varco 1 x 2 sul lato +u, piano terra
-        px, pz = t.punto(R, 0)
-        metti(px, ys, pz, tav.aria)
-        metti(px, ys + 1, pz, tav.aria)
-        # feritoie ai piani 1..3, una per lato
+        # ---- zoccolo: un risvolto di gradini appoggiato al piede della torre -----
+        for u in range(-R - 1, R + 2):
+            for v in range(-R - 1, R + 2):
+                if max(abs(u), abs(v)) != R + 1 or (abs(u) == R + 1 and abs(v) == R + 1):
+                    continue
+                if u == R + 1 and abs(v) <= 1:
+                    continue                                   # lo spazio dei gradini d'ingresso
+                x, z = P(u, v)
+                lx, lz = x - meta - ox, z - meta - oz
+                if 0 <= lx < 16 and 0 <= lz < 16:
+                    for y in range(int(h_c[lx, lz]) - 1, ys):
+                        metti(x, y, z, _mattone(tav, _hash(x, y, z)))
+                # appoggiato al muro: il dorso alto contro la torre
+                if abs(u) == R + 1:
+                    verso = faccia(-1 if u > 0 else 1, 0)
+                else:
+                    verso = faccia(0, -1 if v > 0 else 1)
+                metti(x, ys, z, tav.scala_pietra[verso])
+
+        # ---- porta, gradini, stipiti, torce e stendardi all'ingresso -------------
+        alza(R, 0, ys, tav.porta[(fuori, "lower")])
+        alza(R, 0, ys + 1, tav.porta[(fuori, "upper")])
+        for v in (-1, 1):
+            for y in range(ys, ys + 3):
+                alza(R, v, y, tav.scolpiti)                    # gli stipiti
+            alza(R + 1, v, ys + 2, tav.torcia[fuori])
+        alza(R, 0, ys + 2, tav.scolpiti)                       # l'architrave
+        x, z = P(R + 1, 0)
+        lx, lz = x - meta - ox, z - meta - oz
+        if 0 <= lx < 16 and 0 <= lz < 16:
+            for y in range(int(h_c[lx, lz]) - 1, ys):
+                metti(x, y, z, tav.mattoni)
+        alza(R + 1, 0, ys, tav.scala_pietra[faccia(-1, 0)])   # un gradino davanti alla porta
+        for v in (-3, 3):
+            alza(R + 1, v, ys + 3, tav.stendardo[(colore, fuori)])
+
+        # ---- feritoie ai piani 1..3, una per lato -----------------------------------
         for k in range(1, PIANI):
             for u, v in ((R, 0), (-R, 0), (0, R), (0, -R)):
-                fx, fz = t.punto(u, v)
-                metti(fx, ys + ALTEZZA_PIANO * k + 1, fz, tav.sbarre)
-        # i solai si bucano sopra la scala, poi vi si posano i pioli
-        sx, sz = t.punto(-R + 1, 0)
-        for k in range(1, PIANI + 1):
-            metti(sx, ys - 1 + ALTEZZA_PIANO * k, sz, tav.aria)
-        for y in range(ys, cima):
-            metti(sx, y, sz, tav.scala[verso_porta])
-        # una lanterna appesa al centro di ogni piano
+                alza(u, v, t.piano(k) + 1, tav.sbarre)
+                alza(u, v, t.piano(k) + 2, tav.sbarre)
+
+        # ---- tetto: pali agli angoli con lanterne -----------------------------------
+        for u, v in ((R, R), (R, -R), (-R, R), (-R, -R)):
+            alza(u, v, cima + 1, tav.muretto)
+            alza(u, v, cima + 2, tav.muretto)
+            alza(u, v, cima + 3, tav.lanterna_su)
+
+        # ---- la scala interna: quattro rampe che girano --------------------------------
+        for k, ((u0, v0), (du, dv)) in RAMPE.items():
+            y_k = t.piano(k)
+            sale = faccia(du, dv)                      # `facing` di una scala e' il verso in cui si sale
+            for j in range(5):
+                u, v = u0 + du * j, v0 + dv * j
+                # il solaio sopra si buca dove c'e' lo spazio per la testa
+                if j in (2, 3):
+                    alza(u, v, y_k + 4, tav.aria)
+                alza(u, v, y_k + j, tav.scala_pietra[sale])
+
+        # ---- una lanterna appesa al centro di ogni piano -----------------------------
         for k in range(PIANI):
-            lx_, lz_ = t.punto(0, 0)
-            metti(lx_, ys + ALTEZZA_PIANO * k + ALTEZZA_PIANO - 2, lz_, tav.lanterna)
-        # i forzieri
+            alza(0, 0, t.piano(k) + ALTEZZA_PIANO - 2, tav.lanterna)
+
+        # ---- piano terra: sala d'armi -------------------------------------------------
+        y = t.piano(0)
+        for v in (-1, 0, 1):
+            alza(0, v, y, tav.lastra_legno)              # il tavolo lungo...
+        alza(0, 0, y + 1, tav.candela)
+        for v in (-1, 1):
+            alza(1, v, y, tav.scala_legno[faccia(1, 0)])   # ...con le sedie, schienale verso il fondo
+            alza(-1, v, y, tav.scala_legno[faccia(-1, 0)])
+        alza(3, -3, y, tav.barile)
+        alza(3, 3, y, tav.barile)
+        alza(3, 2, y, tav.barile)
+        alza(2, 3, y, tav.banco_lavoro)
+        alza(1, 3, y, tav.forno[faccia(0, -1)])
+        alza(-2, 3, y, tav.incudine[faccia(0, 1)])
+        for u in (1, 2, 3):
+            alza(u, 0, y, tav.tappeto)
+        alza(2, -3, y + 2, tav.stendardo[(colore, faccia(0, 1))])
+        alza(2, 3, y + 2, tav.stendardo[(colore, faccia(0, -1))])
+        alza(3, -2, y + 2, tav.torcia[faccia(-1, 0)])
+        alza(3, 2, y + 2, tav.torcia[faccia(-1, 0)])
+
+        # ---- primo piano: la camerata ---------------------------------------------------
+        y = t.piano(1)
+        testa = faccia(0, -1)                              # i letti hanno la testata contro il muro
+        for u in (-2, 0, 2):
+            alza(u, -3, y, tav.letto[(testa, "head")])
+            alza(u, -2, y, tav.letto[(testa, "foot")])
+        alza(3, -3, y, tav.barile)
+        alza(3, -2, y, tav.barile)
+        alza(-3, -1, y + 2, tav.torcia[faccia(1, 0)])        # non davanti alle feritoie
+        alza(3, 1, y + 2, tav.torcia[faccia(-1, 0)])
+        alza(-1, 0, y, tav.lastra_legno)
+        alza(-1, 0, y + 1, tav.candela)
+
+        # ---- secondo piano: l'armeria ----------------------------------------------------
+        y = t.piano(2)
+        alza(-3, -3, y, tav.fletcher)
+        alza(-3, -2, y, tav.fucina)
+        alza(-3, -1, y, tav.mola[faccia(1, 0)])
+        alza(-3, 0, y, tav.incudine[faccia(0, 1)])
+        alza(-3, 1, y, tav.cartografo)
+        alza(2, -3, y + 2, tav.stendardo[(colore, faccia(0, 1))])
+        alza(2, 3, y + 2, tav.stendardo[(colore, faccia(0, -1))])
+        alza(-2, 3, y + 2, tav.torcia[faccia(0, -1)])
+        alza(-2, -3, y + 2, tav.torcia[faccia(0, 1)])
+
+        # ---- terzo piano: la sala del capo -----------------------------------------------
+        y = t.piano(3)
+        for v in (-2, -1, 0, 1):
+            alza(-3, v, y, tav.libreria)
+            alza(-3, v, y + 1, tav.libreria)
+        alza(-3, 2, y, tav.leggio[faccia(1, 0)])
+        alza(-2, 0, y, tav.scala_legno[faccia(-1, 0)])     # il trono, con lo schienale al muro
+        for u in range(-1, 4):
+            alza(u, 0, y, tav.tappeto)
+        alza(-3, 0, y + 2, tav.candela)
+        alza(2, 3, y + 2, tav.stendardo[(colore, faccia(0, -1))])
+        alza(3, -2, y + 2, tav.torcia[faccia(-1, 0)])
+        alza(3, 2, y + 2, tav.torcia[faccia(-1, 0)])
+        alza(-2, 3, y + 2, tav.torcia[faccia(0, -1)])
+
+        # ---- i forzieri --------------------------------------------------------------------
         for (fx, fy, fz, tipo) in t.forzieri():
-            metti(fx, fy, fz, tav.forziere[indietro])
+            metti(fx, fy, fz, tav.forziere[fuori])
             if nel_chunk(fx, fz):
                 tav.bauli.append((fx, fy, fz, tipo))

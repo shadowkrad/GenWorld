@@ -54,6 +54,14 @@ def posa_su_regione(d, quota=90):
     def blocco(x, y, z):
         out = regione.get((x // 16, z // 16))
         return None if out is None else s.nome(int(out[x % 16, y - Y0, z % 16]))
+
+    def proprieta(x, y, z):
+        out = regione.get((x // 16, z // 16))
+        if out is None:
+            return {}
+        i = int(out[x % 16, y - Y0, z % 16])
+        return next((dict(p) for (n, p), v in s.ids.items() if v == i), {})
+    blocco.proprieta = proprieta
     return s, tav, blocco
 
 
@@ -119,6 +127,21 @@ class TestPosa(unittest.TestCase):
             self.assertEqual(self.b(x, d.ys - u, z), "stairs", f"scalino u={u}")
             self.assertEqual(self.b(x, d.ys - u + 1, z), "air")
             self.assertEqual(self.b(x, d.ys - u + 3, z), "air")
+
+    def test_le_scale_salgono_verso_l_ingresso(self):
+        """`facing` di una scala e' il verso in cui si sale: scendendo verso +d
+        le scale guardano -d. Con il verso sbagliato il dorso alto sta davanti."""
+        d = self.d
+        atteso = DG.FACCIA[(-d.dx, -d.dz)]
+        for u in range(1, DG.PROFONDITA + 1):
+            x, z = d.punto(u, 0)
+            self.assertEqual(self.b.proprieta(x, d.ys - u, z)["facing"], atteso, u)
+        for dire in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            dd = un_dungeon(dire)
+            _, _, b = posa_su_regione(dd)
+            x, z = dd.punto(5, 0)
+            self.assertEqual(b.proprieta(x, dd.ys - 5, z)["facing"],
+                             DG.FACCIA[(-dire[0], -dire[1])], dire)
 
     def test_le_stanze_sono_vuote_e_hanno_un_pavimento(self):
         d = self.d
