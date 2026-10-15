@@ -37,6 +37,7 @@ from . import fiumi as R
 from . import insediamenti as I
 from . import isolate as IS
 from . import monumenti as MN
+from . import pietre as PI
 from . import porti as PO
 from . import laghi as LG
 from . import mappa as M
@@ -1309,6 +1310,9 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         out[cima & m] = scrittore.blocco(sup)
         out[sotto & m] = scrittore.blocco(sub)
 
+    if biomi_c is not None:
+        PI.mesa(out, scrittore, h_c, cls_c, biomi_c, nuda_c, y0)
+
     # --- fronti dei gradoni -----------------------------------------------
     # Dove la citta' e' terrazzata, il salto fra un ripiano e l'altro si veste
     # di pietra: un muro di sostegno si legge come una cosa costruita, un
@@ -1406,6 +1410,8 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         pc = np.asarray(piede_c)
         for k, blocco in enumerate(_blocchi_piede(scrittore), start=1):
             out[cima & (pc == k)[:, None, :]] = blocco
+
+    PI.vulcano(out, scrittore, h_c, cls_c, lava_c, ox, oz, y0)
 
     if colata_c is not None and np.any(colata_c):
         cima_i = (hh - 1 - y0)
