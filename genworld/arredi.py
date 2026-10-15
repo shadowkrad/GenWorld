@@ -64,6 +64,22 @@ class Disegno:
                     and 0 <= oz + z < self.dim[2]:
                 self.blocchi[(ox + x, oy + y, oz + z)] = v
 
+    def con_legno(self, materiale: str | None) -> "Disegno":
+        """Una copia col legno cambiato: `oak_*` e `dark_oak_*` diventano
+        `<materiale>_*` (steccati, assi, gradini, cancelli, foglie). Con None
+        ritorna la copia intatta."""
+        nuovo = Disegno(self.nome, *self.dim)
+        for pos, (nome, prop) in self.blocchi.items():
+            if materiale:
+                for vecchio in ("dark_oak_", "oak_"):
+                    if nome.startswith(vecchio):
+                        nome = materiale + "_" + nome[len(vecchio):]
+                        break
+            nuovo.blocchi[pos] = (nome, prop)
+        if materiale:
+            nuovo.nome = f"{self.nome}@{materiale}"
+        return nuovo
+
     def _connetti(self) -> None:
         """Le staccionate si collegano ai vicini. Un mondo scritto a mano non
         ricalcola le forme dei blocchi al caricamento: una staccionata scritta
@@ -443,13 +459,14 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
               vie: np.ndarray | None, tipo_strada: np.ndarray | None,
               muro: np.ndarray | None, campi: np.ndarray | None, banchi: list,
               seed: int = 0, densita: float = 1.0, versione=(1, 21, 4),
-              evita: np.ndarray | None = None) -> Risultato:
+              evita: np.ndarray | None = None, legno=None) -> Risultato:
     """Arreda i lotti rimasti senza casa e gli spazi civici dei paesi.
 
     `scelte` e' `{indice edificio: (modello, rotazione)}` (vedi
     `template.assegna`): i lotti che non ci sono restano senza casa. `evita` e'
     una maschera in piu' (per esempio la zona del vulcano). `densita` scala i
-    lampioni e la probabilita' del bazar; 0 spegne tutto.
+    lampioni e la probabilita' del bazar; 0 spegne tutto. `legno(x, z)` da' il
+    materiale del posto (vedi `biomi.legno_di`) o None per il rovere.
     """
     ris = Risultato()
     if densita <= 0 or not citta:
@@ -459,11 +476,15 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
     ver = TM.traduttore(versione)
     cache: dict[str, int] = {}
 
-    def indice(nome: str, fabbrica) -> int:
-        if nome not in cache:
-            ris.modelli.append(fabbrica().modello(ver))
-            cache[nome] = len(ris.modelli) - 1
-        return cache[nome]
+    def materiale(x: int, z: int):
+        return legno(x, z) if legno is not None else None
+
+    def indice(nome: str, fabbrica, mat=None) -> int:
+        chiave = nome if not mat else f"{nome}@{mat}"
+        if chiave not in cache:
+            ris.modelli.append(fabbrica().con_legno(mat).modello(ver))
+            cache[chiave] = len(ris.modelli) - 1
+        return cache[chiave]
 
     # occupato: dove un arredo civico NON puo' stare
     occ = np.zeros((H, W), bool)
@@ -532,12 +553,13 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
             p = cerca(px, pz, dx, dx, 0, 8)
             if p is not None:
                 posa(civico, p[0], p[1], dx, dx,
-                     indice(fabbrica.__name__, fabbrica))
+                     indice(fabbrica.__name__, fabbrica, materiale(px, pz)))
                 r_campana = dx // 2 + 2          # la campana accanto, non sotto la fontana
                 break
         q = cerca(px, pz, 3, 1, r_campana, 12)
         if q is not None:
-            posa("campana", q[0], q[1], 3, 1, indice("campana", campana))
+            posa("campana", q[0], q[1], 3, 1,
+                 indice("campana", campana, materiale(px, pz)))
 
     # 2) lotti senza casa
     banchi_nuovi = 0
@@ -576,7 +598,7 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
             disegno, bestie = recinto(w, d, e.porta, rng)
         else:
             tipo, disegno = "giardino", giardino(w, d, e.porta, rng)
-        modello = disegno.modello(ver)
+        modello = disegno.con_legno(materiale(cx, cz)).modello(ver)
         if inutile.any():
             # `inutile` e' (z, x), le celle sono (x, y, z)
             modello.celle = np.where(inutile.T[:, None, :], -1, modello.celle)
@@ -625,6 +647,7 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
             lampioni.append((x, z))
             griglia.setdefault((gz, gx), []).append((x, z))
             posa("lampione", px, pz, dx, dz,
-                 indice(f"lampione{verso}", lambda v=verso: lampione_a_braccio(v)),
+                 indice(f"lampione{verso}", lambda v=verso: lampione_a_braccio(v),
+                        materiale(x, z)),
                  base=int(h[z, x]))
     return ris

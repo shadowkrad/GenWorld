@@ -254,5 +254,18 @@ class TestScrittiSuDisco(unittest.TestCase):
             self.assertGreater(len(visti), 2, f"solo {visti}")
 
 
+class TestLegno(unittest.TestCase):
+    def test_il_legno_dei_biomi(self):
+        self.assertEqual(B.legno_di(B.INDICE["desert"]), "acacia")
+        self.assertEqual(B.legno_di(B.INDICE["taiga"]), "spruce")
+        self.assertEqual(B.legno_di(B.INDICE["jungle"]), "jungle")
+        self.assertIsNone(B.legno_di(B.INDICE["plains"]))
+
+    def test_ogni_legno_e_un_materiale_vero(self):
+        for nome, mat in B.LEGNO_BIOMA.items():
+            self.assertIn(nome, B.BIOMI)
+            self.assertIn(mat, ("acacia", "spruce", "jungle", "cherry", "birch", "dark_oak"))
+
+
 if __name__ == "__main__":
     unittest.main()
