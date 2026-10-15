@@ -200,6 +200,43 @@ def libro_tappa(da: Luogo, a: Luogo | None) -> Libro:
          "Segui la strada con prudenza: il capo di quel posto non e' meno testardo del mio."))
 
 
+def libro_di_bottega(qui: Luogo, a: Luogo, mestiere: str = "mercante") -> Libro:
+    """Cio' che un bottegaio racconta a chi paga: dove sta un luogo d'avventura."""
+    gioco = {"rovina": "le rovine di", "torre": "la fortezza di"}.get(a.tipo, "")
+    return Libro(
+        f"Voci di {qui.nome}"[:32] if qui.nome else "Voci di bottega", f"Un {mestiere}",
+        (f"Chi passa di qui racconta di {gioco} {a.nome}, {_passi(qui, a)} da questa bottega.".replace("  ", " "),
+         "Non e' un posto per chi viaggia leggero: porta cibo, una buona lama e delle torce."))
+
+
+def offerte_bottega(abitanti: list, luoghi: list[Luogo], meta: int) -> list:
+    """Ai cartografi e ai librai che stanno in citta' si aggiunge uno scambio:
+    5 smeraldi per un libro che indica la rovina o la torre piu' vicina.
+    Ritorna gli abitanti, con le offerte dove servono."""
+    import dataclasses
+    mete = [l for l in luoghi if l.tipo in TIPI_AVVENTURA]
+    citta = [l for l in luoghi if l.tipo == "citta"]
+    if not mete:
+        return abitanti
+    fuori = []
+    for a in abitanti:
+        if getattr(a, "mestiere", None) in ("cartografo", "libraio"):
+            qui = Luogo("", "bottega", int(a.x - meta), int(a.z - meta))
+            vicina = min(citta, key=lambda c: distanza(qui, c)) if citta else None
+            if vicina is not None:
+                qui.nome = vicina.nome
+            target = min(mete, key=lambda l: distanza(qui, l))
+            libro = libro_di_bottega(qui, target, "cartografo" if a.mestiere == "cartografo" else "libraio")
+            offerta = {"compra": ("emerald", 5),
+                       "vende": ("written_book", 1, {"written_book_content": {
+                           "title": {"raw": libro.titolo}, "author": libro.autore,
+                           "pages": [{"raw": p} for p in libro.pagine]}}),
+                       "usi": 3}
+            a = dataclasses.replace(a, offerte=tuple(a.offerte) + (offerta,))
+        fuori.append(a)
+    return fuori
+
+
 def indizi(luoghi: list[Luogo]) -> dict:
     """{'inizio': (citta, Libro) | None, 'tappe': {(tipo, x, z): Libro}} - le
     chiavi delle tappe sono tipo e coordinate di GIOCO del luogo."""

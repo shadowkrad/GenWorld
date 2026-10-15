@@ -874,6 +874,22 @@ class TestPilastriPonte(unittest.TestCase):
         pilastro = s.blocco("log", axis="y", material="dark_oak", stripped="true")
         self.assertEqual(int((out == pilastro).sum()), 0)
 
+    def test_un_ponte_alto_e_di_pietra_con_parapetto_di_muretti(self):
+        out, s = self.ponte(10)
+        mattone = s.blocco("stone_bricks", variant="normal")
+        muschio = s.blocco("stone_bricks", variant="mossy")
+        assi = s.blocco("planks", material="dark_oak")
+        y = 70 + 10 - 1 + 64
+        deck = out[:, y, :]
+        self.assertTrue(np.isin(deck, (mattone, muschio)).all())
+        self.assertFalse((out == assi).any())
+        self.assertGreater(int((out == mattone).sum()), 16)      # i pilastri massicci
+
+    def test_un_ponte_basso_resta_di_legno(self):
+        out, s = self.ponte(5)
+        assi = s.blocco("planks", material="dark_oak")
+        self.assertTrue((out[:, 70 + 5 - 1 + 64, :] == assi).all())
+
     def test_un_dislivello_vero_ha_pilastri(self):
         out, s = self.ponte(5)
         pilastro = s.blocco("log", axis="y", material="dark_oak", stripped="true")

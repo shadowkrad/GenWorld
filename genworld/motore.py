@@ -1305,6 +1305,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         c0, libro0 = ind["inizio"]
         raggio0 = next((c.raggio for c in citta if c.x - meta_l == c0.x and c.z - meta_l == c0.z), 30)
         libro_citta = (c0.x, c0.z, raggio0, libro0)
+    abitanti = LU.offerte_bottega(abitanti, luoghi, meta_l)
     if luoghi:
         note.append(f"luoghi con nome: {len(luoghi)}, cartelli: {len(cartelli)}, "
                     f"libri di indizi: {len(libri) + (1 if libro_citta else 0)}")
@@ -1969,6 +1970,11 @@ def _posa_piazze(out, s, piazze, h_c, ox, oz, y0):
                 out[lx, y, lz] = b
 
 
+# Un ponte con almeno questi blocchi di vuoto sotto l'impalcato scavalca un
+# fiume grande o una forra: e' di pietra. Sotto, resta il ponte di legno scuro.
+LUCE_PONTE_PIETRA = 8
+
+
 def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
     """Sede stradale, impalcati, pilastri e parapetti.
 
@@ -1989,6 +1995,12 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
     # legno chiaro faceva un tavolato che sembrava finto
     assi = s.blocco("planks", material="dark_oak")
     pilastro = s.blocco("log", axis="y", material="dark_oak", stripped="true")
+    # i ponti alti sui fiumi grandi sono di pietra: mattoni, pilastri massicci e
+    # un parapetto di muretti (vedi LUCE_PONTE_PIETRA)
+    mattone = s.blocco("stone_bricks", variant="normal")
+    mattone_muschio = s.blocco("stone_bricks", variant="mossy")
+    muretto = s.blocco("wall", material="stone_brick", up="true", north="none",
+                       south="none", east="none", west="none")
     aria = s.id_aria
     H = out.shape[1]
 
@@ -2014,9 +2026,17 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
                 out[lx, y + 1:min(y + 4, H), lz] = aria
                 continue
 
-            out[lx, y, lz] = assi                    # impalcato
+            fondo_pil = max(0, int(h_c[lx, lz]) - 1 - y0)
+            pietra = (y - fondo_pil) >= LUCE_PONTE_PIETRA
+            if pietra:
+                hv = ((ox + lx) * 73856093) ^ ((oz + lz) * 19349663)
+                out[lx, y, lz] = mattone_muschio if hv % 100 < 10 else mattone
+            else:
+                out[lx, y, lz] = assi                # impalcato
             out[lx, y + 1:min(y + 5, H), lz] = aria  # luce sopra
-            if t == ST.PARAPETTO and y + 1 < H:
+            if t == ST.PARAPETTO and y + 1 < H and pietra:
+                out[lx, y + 1, lz] = muretto
+            elif t == ST.PARAPETTO and y + 1 < H:
                 # Connesso come il recinto dei campi (vedi il commento in
                 # _posa_campi): il vicino puo' stare nel chunk accanto, da
                 # qui `tipo_orlo` con la sua cella di margine.
@@ -2037,7 +2057,7 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
             if gx % 5 == 0 and gz % 5 == 0:
                 fondo = max(0, int(h_c[lx, lz]) - 1 - y0)
                 if fondo < y - 1:
-                    out[lx, fondo:y, lz] = pilastro
+                    out[lx, fondo:y, lz] = mattone if pietra else pilastro
 
 
 def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,

@@ -149,6 +149,50 @@ class TestCartelli(unittest.TestCase):
         self.assertEqual([str(x) for x in ut["front_text"]["java_nbt"]][0], "Riga uno")
 
 
+class TestBottega(unittest.TestCase):
+    def test_i_cartografi_e_i_librai_vendono_un_libro_che_indica_il_luogo_piu_vicino(self):
+        from genworld import entita as EN
+        meta, cs, ms, ds, ts, av = mondo()
+        luoghi = LU.raccogli(cs, ms, ds, ts, av, meta, seed=1)
+        gente = [EN.Abitante(x=meta + 10, y=70.0, z=meta + 10, mestiere="cartografo", seme=1),
+                 EN.Abitante(x=meta + 12, y=70.0, z=meta + 10, mestiere="libraio", seme=2),
+                 EN.Abitante(x=meta + 14, y=70.0, z=meta + 10, mestiere="fabbro", seme=3),
+                 NS(x=0, y=0, z=0)]
+        nuovi = LU.offerte_bottega(gente, luoghi, meta)
+        self.assertEqual(len(nuovi), 4)
+        self.assertEqual(len(nuovi[0].offerte), 1)
+        self.assertEqual(len(nuovi[1].offerte), 1)
+        self.assertEqual(nuovi[2].offerte, ())
+        pagine = nuovi[0].offerte[0]["vende"][2]["written_book_content"]["pages"]
+        qui = LU.Luogo("", "", 10, 10)
+        piu_vicino = min((l for l in luoghi if l.tipo in LU.TIPI_AVVENTURA),
+                         key=lambda l: LU.distanza(qui, l))
+        self.assertIn(piu_vicino.nome, pagine[0]["raw"])
+
+    def test_senza_mete_nessuna_offerta(self):
+        from genworld import entita as EN
+        gente = [EN.Abitante(x=1, y=1, z=1, mestiere="cartografo")]
+        self.assertEqual(LU.offerte_bottega(gente, [LU.Luogo("A", "citta", 0, 0)], 0), gente)
+
+    def test_lo_scambio_arriva_nel_nbt_del_villager(self):
+        from genworld import entita as EN
+        meta, cs, ms, ds, ts, av = mondo()
+        luoghi = LU.raccogli(cs, ms, ds, ts, av, meta, seed=1)
+        a = LU.offerte_bottega([EN.Abitante(x=meta, y=70.0, z=meta, mestiere="cartografo")],
+                               luoghi, meta)[0]
+        n = a.nbt_tag()
+        r = n["Offers"]["Recipes"][0]
+        self.assertEqual(str(r["buy"]["id"]), "minecraft:emerald")
+        self.assertEqual(int(r["buy"]["count"]), 5)
+        self.assertEqual(str(r["sell"]["id"]), "minecraft:written_book")
+        c = r["sell"]["components"]["minecraft:written_book_content"]
+        self.assertTrue(str(c["title"]["raw"]).startswith("Voci di"))
+        self.assertGreaterEqual(len(c["pages"]), 2)
+        self.assertEqual(int(r["maxUses"]), 3)
+        # un villager normale non ha il campo
+        self.assertNotIn("Offers", EN.Abitante(x=0, y=0, z=0).nbt_tag())
+
+
 class TestBivi(unittest.TestCase):
     def croce(self, lato=300):
         s = np.zeros((lato, lato), bool)
