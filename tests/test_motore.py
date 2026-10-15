@@ -113,6 +113,28 @@ class TestCache(unittest.TestCase):
             from dataclasses import replace
             self.assertIsNone(_leggi_cache(replace(op, lato=64)))
 
+    def test_una_cache_con_biomi_di_un_altra_epoca_si_ignora(self):
+        """Gli indici dei biomi nella cache dipendono dall'ordine di `BIOMI` e
+        dal codice che li assegna: aggiungere un bioma sposta tutti gli indici
+        dopo di lui. Senza questa guardia una cache vecchia dava biomi sbagliati
+        (giungla al posto della taiga) e nessuno se ne accorgeva."""
+        from unittest import mock
+        from genworld import biomi as B
+        with tempfile.TemporaryDirectory() as d:
+            op = Opzioni(immagine="m.png", uscita=os.path.join(d, "w"), lato=32)
+            _scrivi_cache(op, Analisi(
+                cls=np.zeros((32, 32), np.uint8), h=np.zeros((32, 32), np.int32),
+                livello=np.zeros((32, 32), np.float32),
+                lava=np.zeros((32, 32), bool), colata=np.zeros((32, 32), bool)))
+            self.assertIsNotNone(_leggi_cache(op))
+            with mock.patch.object(B, "BIOMI", B.BIOMI + ("bioma_nuovo",)):
+                self.assertIsNone(_leggi_cache(op))
+
+    def test_la_firma_dei_biomi_e_stabile(self):
+        from genworld import biomi as B
+        self.assertEqual(B.firma(), B.firma())
+        self.assertEqual(len(B.firma()), 12)
+
     def test_cache_illeggibile_non_esplode(self):
         """Una cache di una versione precedente va ignorata, non fatta
         esplodere: costa qualche secondo, un KeyError costa la generazione."""

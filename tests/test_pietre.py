@@ -103,6 +103,24 @@ class TestVulcano(unittest.TestCase):
         self.assertTrue((out == prima).all())
 
 
+class TestPalude(unittest.TestCase):
+    def test_fango_e_argilla_solo_nella_palude(self):
+        s = Finto()
+        trovati = set()
+        for ox in range(0, 800, 16):
+            out, h = colonne(s)
+            cls = np.full((16, 16), M.PIANURA, np.uint8)
+            bio = np.full((16, 16), B.INDICE["mangrove_swamp"], np.uint8)
+            PI.palude(out, s, h, cls, bio, ox, 0, Y0)
+            trovati |= {s.nome(int(i)) for i in np.unique(out)}
+        self.assertTrue({"mud", "clay"} <= trovati, trovati)
+        out, h = colonne(s)
+        prima = out.copy()
+        PI.palude(out, s, h, np.full((16, 16), M.PIANURA, np.uint8),
+                  np.full((16, 16), B.INDICE["plains"], np.uint8), 0, 0, Y0)
+        self.assertTrue((out == prima).all())
+
+
 class TestTraduzioni(unittest.TestCase):
     def test_i_blocchi_si_traducono(self):
         import PyMCTranslate

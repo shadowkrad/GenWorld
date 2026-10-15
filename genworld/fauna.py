@@ -89,6 +89,7 @@ MISCELA_BIOMA = {
     "desert": [("cammello", 0.7), ("armadillo", 0.3)],
     "forest": [("lupo", 0.4), ("coniglio", 0.3), ("ape", 0.15), ("volpe", 0.15)],
     "taiga": [("lupo", 0.5), ("volpe", 0.3), ("coniglio", 0.2)],
+    "mangrove_swamp": [("rana", 0.7), ("coniglio", 0.3)],
     "snowy_taiga": [("lupo", 0.4), ("volpe", 0.4), ("coniglio", 0.2)],
 }
 

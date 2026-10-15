@@ -97,6 +97,21 @@ class TestCaverne(unittest.TestCase):
         self.assertEqual(prima.shape, out.shape)
 
 
+class TestPozze(unittest.TestCase):
+    def test_le_pozze_sono_chiuse_da_roccia_e_non_fluiscono(self):
+        trovate = 0
+        for seed in range(60):
+            s, tav, out, h = mondo()
+            SS.posa(out, tav, h, 0, 0, Y0, caverna(6, -10), [0], seed=seed)
+            acqua = s.blocco("water")
+            for lx, ly, lz in zip(*np.nonzero(out == acqua)):
+                trovate += 1
+                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    self.assertNotEqual(out[lx + dx, ly, lz + dz], 0, "acqua con aria accanto")
+                self.assertNotIn(int(out[lx, ly - 1, lz]), (0, int(acqua)), "acqua sul vuoto")
+        self.assertGreater(trovate, 0, "mai una pozza in 60 caverne")
+
+
 class TestGeodi(unittest.TestCase):
     def test_il_geode_ha_i_gusci_e_il_vuoto(self):
         s, tav, out, h = mondo()

@@ -71,6 +71,31 @@ def mesa(out: np.ndarray, s, h_c, cls_c, biomi_c, nuda_c, y0: int) -> int:
     return n
 
 
+def palude(out: np.ndarray, s, h_c, cls_c, biomi_c, ox: int, oz: int, y0: int) -> int:
+    """Chiazze di fango e di argilla sul terreno della palude di mangrovie."""
+    pal = np.asarray(biomi_c) == B.INDICE["mangrove_swamp"]
+    pal &= ~np.isin(np.asarray(cls_c), M.ACQUA)
+    if not pal.any():
+        return 0
+    H = out.shape[1]
+    gx = ox + np.arange(16)[:, None] + np.zeros((1, 16), np.int64)
+    gz = oz + np.arange(16)[None, :] + np.zeros((16, 1), np.int64)
+    r, grumo = _rumore(gx, gz, 21), _rumore(gx // 6, gz // 6, 22)
+    fango, argilla = s.blocco("mud"), s.blocco("clay")
+    n = 0
+    for lx, lz in zip(*np.nonzero(pal)):
+        cima = int(h_c[lx, lz]) - 1 - y0
+        if not (1 <= cima < H):
+            continue
+        if grumo[lx, lz] > 0.55 and r[lx, lz] < 0.75:
+            out[lx, cima, lz] = fango
+            n += 1
+        elif r[lx, lz] < 0.03:
+            out[lx, cima, lz] = argilla
+            n += 1
+    return n
+
+
 def vulcano(out: np.ndarray, s, h_c, cls_c, lava_c, ox: int, oz: int, y0: int) -> int:
     """Pietra lucida sui fianchi, obsidiana attorno al cratere."""
     cls = np.asarray(cls_c)

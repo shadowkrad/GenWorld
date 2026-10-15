@@ -197,7 +197,7 @@ class Opzioni:
         """
         return (int(self.lato), self.modo(), float(self.erosione),
                 float(self.fiumi), int(self.vulcani), float(self.laghi),
-                float(self.ritaglio), os.path.abspath(self.immagine))
+                float(self.ritaglio), os.path.abspath(self.immagine), B.firma())
 
 
 @dataclass
@@ -1180,6 +1180,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"carrelli: {len(carrelli)}")
         abitanti = abitanti + carrelli
 
+    ragni = MI.ragni(miniere, seed=53) if miniere else []
+    if ragni:
+        note.append(f"ragni nelle miniere: {len(ragni)}")
+        abitanti = abitanti + ragni
+
     nemici = (AP.nemici(avamposti, seed=63, modelli_cimitero=modelli_cim, biomi=a.biomi)
               if avamposti else [])
     if nemici:
@@ -1318,6 +1323,7 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
 
     if biomi_c is not None:
         PI.mesa(out, scrittore, h_c, cls_c, biomi_c, nuda_c, y0)
+        PI.palude(out, scrittore, h_c, cls_c, biomi_c, ox, oz, y0)
 
     # --- fronti dei gradoni -----------------------------------------------
     # Dove la citta' e' terrazzata, il salto fra un ripiano e l'altro si veste
@@ -2094,6 +2100,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # accampamento (vedi `bauli.trova`)
         campi_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CAMPO + 1)
                    for av in piano.avamposti if av.tipo == "campo"]
+        centri_g = [(c.x - meta, c.z - meta) for c in piano.citta]
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
         n = max(1, fino - da)
@@ -2201,7 +2208,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # perche' a lato=16 l'offset `meta` e' zero.
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
                                 campi=campi_g, minerali=minerali_g,
-                                cripte=cripte_g)
+                                cripte=cripte_g, centri=centri_g)
                       if tav_ba is not None else None)
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
             scritti += 1

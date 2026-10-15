@@ -264,7 +264,7 @@ class TestLegno(unittest.TestCase):
     def test_ogni_legno_e_un_materiale_vero(self):
         for nome, mat in B.LEGNO_BIOMA.items():
             self.assertIn(nome, B.BIOMI)
-            self.assertIn(mat, ("acacia", "spruce", "jungle", "cherry", "birch", "dark_oak"))
+            self.assertIn(mat, ("acacia", "spruce", "jungle", "cherry", "birch", "dark_oak", "mangrove"))
 
 
 if __name__ == "__main__":
