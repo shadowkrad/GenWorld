@@ -224,6 +224,7 @@ class _Decorazioni:
         self.basalto = s.blocco("smooth_basalt")
         self.cristallo_su = s.blocco("amethyst_cluster", facing="up")
         self.cristallo_giu = s.blocco("amethyst_cluster", facing="down")
+        self.acqua = s.blocco("water")
 
 
 def grumo(out, gx, gz, gy, y0, h_c, blocco, quanti, solo_pietra,
@@ -525,6 +526,23 @@ def decora_caverne(out, tav, scavato, ox, oz, y0, seed) -> int:
     metti(sof_l & (dado > 0.80) & (dado < 0.90), d.radici)
     metti(sof_l & (dado >= 0.90) & (dado < 0.95), d.liana)
     metti(sof_l & (dado >= 0.95), d.liana_nuda)
+
+    # -- pozze nelle grotte lussureggianti ------------------------------------
+    # Una cella di pavimento diventa acqua ferma solo se e' chiusa da roccia su
+    # quattro lati e sotto: niente flussi, niente cascate che svuotano la grotta.
+    # Si guarda `solido` com'era prima del muschio. Fuori dal bordo del chunk
+    # non si sa cosa c'e' accanto, quindi le pozze stanno nei 14 blocchi interni.
+    interno = np.zeros(out.shape, bool)
+    interno[1:15, :, 1:15] = True
+    roccia_p = roccia_sotto(pav_l & (dado > 0.965) & interno)
+    chiusa = roccia_p.copy()
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        vicina = np.roll(solido, (dx, dz), axis=(0, 2))
+        chiusa &= vicina
+    sotto_p = np.zeros_like(solido)
+    sotto_p[:, 1:, :] = solido[:, :-1, :]
+    chiusa &= sotto_p
+    metti(chiusa, d.acqua)
 
     # -- sculk nelle caverne profonde ----------------------------------------
     pav_s, sof_s = pavimento & sculk, soffitto & sculk
