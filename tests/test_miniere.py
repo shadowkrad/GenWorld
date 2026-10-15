@@ -210,6 +210,81 @@ class TestIndicePerChunk(unittest.TestCase):
         self.assertIn(0, idx.get((0, 1), []), "manca il chunk (0, 1)")
 
 
+class TestCameraFinale(unittest.TestCase):
+    Y0 = -64
+    SOLIDO = 9999
+
+    def scena(self, seed=1, base=-20):
+        out = np.zeros((16, 284, 16), np.uint32)
+        ys = np.arange(self.Y0, self.Y0 + 284)[None, :, None]
+        out[np.broadcast_to(ys < 100, out.shape)] = self.SOLIDO
+        h_c = np.full((16, 16), 100, np.int32)
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        g = MI.Giacimento(x=8, z=8, y=base, minerale="diamond_ore", camera=True)
+        mn = MI.Miniera(x=0, z=0, y_superficie=100, y_fondo=base, giacimenti=[g])
+        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,), seed=seed)
+        return out, tav, g
+
+    def test_la_camera_e_una_caverna_con_il_pavimento_piano(self):
+        out, tav, g = self.scena()
+        yb = g.y - self.Y0
+        self.assertEqual(out[8, yb + 2, 8], tav.aria)
+        self.assertEqual(out[8, yb + 6, 8], tav.aria)         # cupola alta
+        self.assertEqual(out[8, yb - 2, 8], self.SOLIDO)      # sotto il pavimento, roccia
+        self.assertEqual(out[8, yb + 9, 8], self.SOLIDO)      # sopra la cupola, roccia
+
+    def test_la_pozza_e_incassata_e_non_ha_aria_accanto_allo_stesso_livello(self):
+        liquidi = 0
+        for seed in range(12):
+            out, tav, g = self.scena(seed=seed)
+            yb = g.y - self.Y0
+            for liq in (tav.lava, tav.acqua):
+                for lx, lz in zip(*np.nonzero(out[:, yb - 1, :] == liq)):
+                    liquidi += 1
+                    for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                        vicino = int(out[lx + a, yb - 1, lz + b])
+                        self.assertTrue(vicino in (liq, self.SOLIDO) or vicino > 0,
+                                        "liquido a contatto con aria")
+                        self.assertNotEqual(vicino, tav.aria)
+                    self.assertEqual(out[lx, yb - 2, lz], self.SOLIDO)
+        self.assertGreater(liquidi, 20)
+
+    def test_c_e_un_forziere_e_il_filone_ricco(self):
+        out, tav, g = self.scena()
+        self.assertEqual(len(tav.bauli), 1)
+        x, y, z = tav.bauli[0]
+        self.assertEqual(out[x, y - self.Y0, z], tav.forziere["east"])
+        ricchi = tav.minerale[("diamond_ore", True)]
+        self.assertGreater(int((out == ricchi).sum()), 10)
+
+    def test_un_giacimento_normale_non_ha_ne_pozza_ne_forziere(self):
+        out = np.zeros((16, 284, 16), np.uint32)
+        ys = np.arange(self.Y0, self.Y0 + 284)[None, :, None]
+        out[np.broadcast_to(ys < 100, out.shape)] = self.SOLIDO
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        g = MI.Giacimento(x=8, z=8, y=-20, minerale="iron_ore")
+        MI.posa(out, tav, np.full((16, 16), 100, np.int32), 0, 0, self.Y0,
+                [MI.Miniera(x=0, z=0, y_superficie=100, y_fondo=-20, giacimenti=[g])],
+                [0], (self.SOLIDO,), seed=1)
+        self.assertEqual(tav.bauli, [])
+        self.assertFalse((out == tav.lava).any())
+
+    def test_la_pianificazione_segna_una_camera_nell_ultimo_piano(self):
+        h = np.full((300, 300), 120, np.int32)
+        mare = np.zeros((300, 300), bool)
+        trovate = 0
+        for seed in range(6):
+            for mn in MI.pianifica(h, mare, seed=seed, celle_per=20_000):
+                cam = [g for g in mn.giacimenti if g.camera]
+                if cam:
+                    trovate += 1
+                    self.assertEqual(len(cam), 1)
+                    self.assertEqual(cam[0].y, mn.y_fondo)
+        self.assertGreater(trovate, 0)
+
+
 class TestRagni(unittest.TestCase):
 
     def miniera(self):
