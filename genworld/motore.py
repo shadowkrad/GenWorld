@@ -2078,6 +2078,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # accampamento (vedi `bauli.trova`)
         campi_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CAMPO + 1)
                    for av in piano.avamposti if av.tipo == "campo"]
+        cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
+                    for av in piano.avamposti if av.tipo == "cimitero"]
         n = max(1, fino - da)
         for i, (cx, cz) in enumerate(tutti[da:fino]):
             if ferma is not None and ferma():
@@ -2180,7 +2182,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # vuoto, e il controllo con un mondo di un solo chunk non lo vedeva
             # perche' a lato=16 l'offset `meta` e' zero.
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
-                                campi=campi_g, minerali=minerali_g)
+                                campi=campi_g, minerali=minerali_g,
+                                cripte=cripte_g)
                       if tav_ba is not None else None)
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
             scritti += 1

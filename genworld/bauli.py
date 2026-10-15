@@ -48,17 +48,41 @@ OGGETTI: tuple[tuple[str, int, int], ...] = (
     ("flint", 1, 6),
     ("white_wool", 1, 4),
     ("paper", 1, 6),
+    ("book", 1, 3),
+    ("candle", 1, 4),
+    ("clock", 1, 1),
+    ("compass", 1, 1),
+    ("honey_bottle", 1, 2),
+    ("cookie", 2, 8),
+    ("pumpkin_pie", 1, 2),
+    ("bone_meal", 1, 6),
+    ("music_disc_13", 1, 1),
+    ("spyglass", 1, 1),
 )
 
 
 # Il bottino di un accampamento: sempre almeno un diamante e un'arma, poi
 # provviste e un po' di refurtiva.
 ARMI: tuple[str, ...] = ("iron_sword", "iron_axe", "bow", "crossbow", "stone_sword",
-                         "stone_axe", "golden_sword", "iron_pickaxe")
+                         "stone_axe", "golden_sword", "iron_pickaxe", "diamond_sword",
+                         "iron_chestplate", "iron_helmet", "iron_leggings",
+                         "iron_boots", "shield", "chainmail_chestplate")
 EXTRA_CAMPO: tuple[tuple[str, int, int], ...] = (
     ("arrow", 8, 24), ("cooked_beef", 1, 4), ("bread", 1, 4), ("emerald", 1, 3),
     ("gold_ingot", 1, 5), ("iron_ingot", 1, 5), ("golden_apple", 1, 1),
     ("leather", 1, 4), ("string", 1, 6), ("flint", 1, 6),
+    ("saddle", 1, 1), ("ender_pearl", 1, 3), ("spyglass", 1, 1), ("compass", 1, 1),
+    ("name_tag", 1, 2), ("lead", 1, 2), ("cooked_porkchop", 1, 4),
+)
+# Il bottino di una cripta (cimitero): ossa, refurtiva dei morti, qualche
+# oggetto raro.
+BOTTINO_CRIPTA: tuple[tuple[str, int, int], ...] = (
+    ("bone", 2, 12), ("rotten_flesh", 2, 10), ("gold_ingot", 1, 5),
+    ("gold_nugget", 3, 14), ("emerald", 1, 3), ("diamond", 1, 2),
+    ("iron_sword", 1, 1), ("golden_apple", 1, 1), ("name_tag", 1, 1),
+    ("saddle", 1, 1), ("music_disc_cat", 1, 1), ("book", 1, 3),
+    ("candle", 2, 6), ("amethyst_shard", 1, 4), ("ender_pearl", 1, 2),
+    ("spider_eye", 1, 4), ("skeleton_skull", 1, 1),
 )
 # Il bottino di una miniera: minerale grezzo, gemme e qualche attrezzo.
 BOTTINO_MINIERA: tuple[tuple[str, int, int], ...] = (
@@ -66,6 +90,9 @@ BOTTINO_MINIERA: tuple[tuple[str, int, int], ...] = (
     ("lapis_lazuli", 2, 9), ("redstone", 3, 12), ("amethyst_shard", 1, 5),
     ("emerald", 1, 3), ("diamond", 1, 3), ("iron_pickaxe", 1, 1),
     ("stone_pickaxe", 1, 1), ("torch", 4, 12), ("bread", 1, 3), ("iron_ingot", 1, 5),
+    ("diamond_pickaxe", 1, 1), ("lantern", 1, 2), ("bucket", 1, 1), ("rail", 4, 16),
+    ("powered_rail", 2, 6), ("tnt", 1, 3), ("golden_apple", 1, 1),
+    ("glow_berries", 2, 8), ("raw_copper", 2, 8), ("music_disc_5", 1, 1),
 )
 
 
@@ -114,6 +141,16 @@ def _oggetti_miniera(rng: np.random.Generator) -> list[tuple[int, str, int]]:
             for s, t in zip(slot, tipi)]
 
 
+def _oggetti_cripta(rng: np.random.Generator) -> list[tuple[int, str, int]]:
+    """3-6 pile di ossa, refurtiva e ogni tanto un oggetto raro."""
+    n = int(rng.integers(3, 7))
+    slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
+    tipi = rng.choice(len(BOTTINO_CRIPTA), size=n, replace=False)
+    return [(s, BOTTINO_CRIPTA[int(t)][0],
+             int(rng.integers(BOTTINO_CRIPTA[int(t)][1], BOTTINO_CRIPTA[int(t)][2] + 1)))
+            for s, t in zip(slot, tipi)]
+
+
 def _seme(x: int, y: int, z: int, seed: int) -> int:
     """Deterministico sulla posizione: lo stesso forziere ha sempre lo
     stesso contenuto, anche rigenerando lo stesso lotto. Mascherato per le
@@ -124,7 +161,8 @@ def _seme(x: int, y: int, z: int, seed: int) -> int:
 
 
 def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
-         seed: int = 0, campi: list | None = None, minerali: set | None = None) -> list:
+         seed: int = 0, campi: list | None = None, minerali: set | None = None,
+         cripte: list | None = None) -> list:
     """Cerca i forzieri singoli gia' scritti in un chunk (16, H, 16) e
     ritorna la lista di `amulet.api.block_entity.BlockEntity` col bottino.
 
@@ -147,6 +185,8 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
         # gemme, in un accampamento un diamante e un'arma, in casa la dispensa
         if minerali and (gx, gy, gz) in minerali:
             contenuto = _oggetti_miniera(rng)
+        elif cripte and any((gx - cx) ** 2 + (gz - cz) ** 2 <= r * r for cx, cz, r in cripte):
+            contenuto = _oggetti_cripta(rng)
         elif campi and any((gx - cx) ** 2 + (gz - cz) ** 2 <= r * r for cx, cz, r in campi):
             contenuto = _oggetti_campo(rng)
         else:

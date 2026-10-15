@@ -88,6 +88,15 @@ class TestTrova(unittest.TestCase):
             bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, minerali={(5, 10, 6)})
             self.assertTrue(set(self.nomi(bauli[0])) & minerale)
 
+    def test_il_forziere_di_una_cripta_ha_ossa_o_refurtiva(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        cripta = {n for n, _, _ in BA.BOTTINO_CRIPTA}
+        for seed in range(15):
+            bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, cripte=[(5, 6, 3)])
+            nomi = set(self.nomi(bauli[0]))
+            self.assertTrue(nomi <= cripta, nomi - cripta)
+            self.assertGreaterEqual(len(nomi), 3)
+
     def test_un_forziere_fuori_dal_campo_resta_una_dispensa(self):
         out, s, tav, idf = self.chunk_con_forziere()
         bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=2, campi=[(100, 100, 3)])
