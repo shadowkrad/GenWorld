@@ -115,6 +115,14 @@ class TestDisegni(unittest.TestCase):
         m = self.modello(A.piazzetta(9, 9, 0, np.random.default_rng(1)))
         self.assertIn("candle", self.nomi(m))
 
+    def test_il_braciere_ha_un_fuoco_acceso_su_un_basamento(self):
+        m = self.modello(A.braciere())
+        self.assertEqual(m.celle.shape, (1, 2, 1))
+        self.assertEqual(m.tavolozza[int(m.celle[0, 0, 0])][0], "stone_bricks")
+        n, p = m.tavolozza[int(m.celle[0, 1, 0])]
+        self.assertEqual(n, "campfire")
+        self.assertEqual(dict(p).get("lit"), "true")
+
     def test_la_campana_c_e(self):
         self.assertIn("bell", self.nomi(self.modello(A.campana())))
 
@@ -266,6 +274,7 @@ class TestPianificazione(unittest.TestCase):
         ris, _ = self.piano()
         stendardi = [a for a in ris.arredi if a.tipo == "stendardo"]
         self.assertGreaterEqual(len(stendardi), 1)
+        self.assertGreaterEqual(sum(a.tipo == "braciere" for a in ris.arredi), 1)
         campana = next(a for a in ris.arredi if a.tipo == "campana")
         for st in stendardi:
             self.assertFalse(st.x < campana.x + campana.larghezza and st.x + st.larghezza > campana.x

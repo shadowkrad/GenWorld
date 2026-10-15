@@ -149,6 +149,58 @@ class TestCartelli(unittest.TestCase):
         self.assertEqual([str(x) for x in ut["front_text"]["java_nbt"]][0], "Riga uno")
 
 
+class TestBivi(unittest.TestCase):
+    def croce(self, lato=300):
+        s = np.zeros((lato, lato), bool)
+        s[148:152, 20:280] = True          # est-ovest, larga 4
+        s[20:280, 148:152] = True          # nord-sud
+        return s
+
+    def test_un_incrocio_e_un_bivio_e_una_strada_dritta_no(self):
+        self.assertEqual(len(LU.trova_bivi(self.croce())), 1)
+        dritta = np.zeros((300, 300), bool)
+        dritta[148:152, 20:280] = True
+        self.assertEqual(LU.trova_bivi(dritta), [])
+
+    def test_una_t_ha_tre_rami(self):
+        t = np.zeros((300, 300), bool)
+        t[148:152, 20:280] = True
+        t[150:280, 148:152] = True
+        bivi = LU.trova_bivi(t)
+        self.assertEqual(len(bivi), 1)
+        self.assertLess(abs(bivi[0][0] - 150) + abs(bivi[0][1] - 150), 12)
+
+    def test_i_bivi_sono_distanziati(self):
+        s = np.zeros((600, 600), bool)
+        s[300:304, 20:580] = True
+        for x in (100, 130, 400):
+            s[20:580, x:x + 4] = True
+        bivi = LU.trova_bivi(s)
+        for i, a in enumerate(bivi):
+            for b in bivi[i + 1:]:
+                self.assertGreaterEqual((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2,
+                                        LU.DISTANZA_FRA_BIVI ** 2)
+
+    def test_il_cartello_del_bivio_indica_i_due_luoghi_piu_vicini(self):
+        luoghi = [LU.Luogo("Monteverde", "citta", 120, -100),     # a nord-est
+                  LU.Luogo("Miniera del Corvo", "miniera", -150, 20),
+                  LU.Luogo("Lontanissima", "citta", 900, 900)]
+        cart = LU.cartelli_bivi(self.croce(), luoghi, 150)
+        self.assertEqual(len(cart), 1)
+        r = cart[0].righe
+        self.assertEqual(r[0], "Miniera del Cor")      # il piu' vicino, tagliato a 15
+        self.assertTrue(r[1].startswith("ovest"), r[1])
+        self.assertEqual(r[2], "Monteverde")
+        self.assertTrue(r[3].startswith("nord-est"), r[3])
+
+    def test_il_cartello_sta_fuori_dalla_strada_e_non_ci_sono_cartelli_senza_luoghi(self):
+        strada = self.croce()
+        cart = LU.cartelli_bivi(strada, [LU.Luogo("A", "citta", 50, 50)], 150)
+        for c in cart:
+            self.assertFalse(strada[c.z, c.x])
+        self.assertEqual(LU.cartelli_bivi(strada, [], 150), [])
+
+
 class TestLibriNeiForzieri(unittest.TestCase):
     def chunk(self):
         class F:

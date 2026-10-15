@@ -1281,6 +1281,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     meta_l = op.lato // 2
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed)
     cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l)
+    if tipo_strada is not None:
+        cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
     ind = LU.indizi(luoghi)
     libri: dict = {}
     for d in dungeon:

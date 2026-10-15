@@ -265,3 +265,79 @@ def entita_cartello(c: Cartello, y: int, meta: int):
     })
     return BlockEntity("universal_minecraft", "sign", c.x - meta, y, c.z - meta,
                        NamedTag(CompoundTag({"utags": utags})))
+
+
+# --------------------------------------------------------------------------
+# Cartelli ai bivi (#10)
+# --------------------------------------------------------------------------
+
+RAGGIO_BIVIO = 5
+DISTANZA_FRA_BIVI = 70
+
+
+def _rami(strada: np.ndarray, x: int, z: int, r: int = RAGGIO_BIVIO) -> int:
+    """Quante strade partono da (x, z): gli archi di strada su un anello di
+    raggio r. Una strada dritta ne ha 2, un bivio 3, un incrocio 4."""
+    H, W = strada.shape
+    n = 32
+    valori = []
+    for k in range(n):
+        a = 2 * math.pi * k / n
+        px, pz = int(round(x + r * math.cos(a))), int(round(z + r * math.sin(a)))
+        valori.append(bool(0 <= px < W and 0 <= pz < H and strada[pz, px]))
+    return sum(1 for k in range(n) if valori[k] and not valori[k - 1])
+
+
+def trova_bivi(strada: np.ndarray, passo: int = 4) -> list[tuple[int, int]]:
+    """Centri dei bivi (3 o piu' rami), distanti fra loro almeno
+    `DISTANZA_FRA_BIVI` celle. `strada` e' una maschera booleana (z, x)."""
+    H, W = strada.shape
+    candidati = []
+    zz, xx = np.nonzero(strada[::passo, ::passo])
+    for z, x in zip((zz * passo).tolist(), (xx * passo).tolist()):
+        if RAGGIO_BIVIO < x < W - RAGGIO_BIVIO and RAGGIO_BIVIO < z < H - RAGGIO_BIVIO                 and _rami(strada, x, z) >= 3:
+            candidati.append((x, z))
+    scelti: list[tuple[int, int]] = []
+    for x, z in candidati:
+        if all((x - a) ** 2 + (z - b) ** 2 >= DISTANZA_FRA_BIVI ** 2 for a, b in scelti):
+            scelti.append((x, z))
+    return scelti
+
+
+def cartelli_bivi(strada: np.ndarray, luoghi: list[Luogo], meta: int,
+                  massimo: int = 40) -> list[Cartello]:
+    """Un cartello accanto a ogni bivio con i due luoghi piu' vicini (che non
+    siano a portata di mano): nome e direzione."""
+    if not luoghi:
+        return []
+    H, W = strada.shape
+    fuori: list[Cartello] = []
+    for x, z in trova_bivi(strada)[:massimo]:
+        gx, gz = x - meta, z - meta
+        qui = Luogo("", "", gx, gz)
+        vicini = sorted((l for l in luoghi if 25 < distanza(qui, l) < 600),
+                        key=lambda l: distanza(qui, l))[:2]
+        if not vicini:
+            continue
+        # la cella libera piu' vicina accanto alla strada
+        posto = None
+        for r in range(2, 7):
+            for dx, dz in ((r, 0), (-r, 0), (0, r), (0, -r), (r, r), (-r, -r), (r, -r), (-r, r)):
+                px, pz = x + dx, z + dz
+                if 0 <= px < W and 0 <= pz < H and not strada[pz, px]:
+                    posto = (px, pz, dx, dz)
+                    break
+            if posto:
+                break
+        if posto is None:
+            continue
+        px, pz, dx, dz = posto
+        # guarda verso il bivio
+        vx, vz = (-dx, -dz)
+        ver = (int(np.sign(vx)), 0) if abs(vx) >= abs(vz) else (0, int(np.sign(vz)))
+        righe = []
+        for l in vicini:
+            righe.append(l.nome[:15])
+            righe.append(f"{direzione(l.x - gx, l.z - gz)} {distanza(qui, l)}")
+        fuori.append(Cartello(px, pz, ROTAZIONE[ver], _righe(*righe)))
+    return fuori

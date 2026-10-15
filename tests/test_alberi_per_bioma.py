@@ -22,6 +22,11 @@ class Finta:
         self.azalea, self.azalea_fiorita, self.radici = 35, 36, 37
         self.liana = {f: 700 + i for i, f in enumerate(('north', 'south', 'east', 'west'))}
         self.bambu = {'none': 800, 'small': 801, 'large': 802}
+        self.sasso = (900, 901, 902, 903)
+        self.tronco_a_terra = {(m, a): 950 + i for i, (m, a) in enumerate(
+            (m, a) for m in ('oak', 'birch', 'spruce') for a in ('x', 'z'))}
+        self.tappeto_muschio = 960
+        self.fungo = {V.FUNGO_MARRONE: 961, V.FUNGO_ROSSO: 962}
         self.doppio = {sp: (300 + sp, 400 + sp) for sp in V.DOPPI}
         self.gambo = 500
         self.cappello = {sp: 600 + sp for sp in V.FUNGHI_GIGANTI}
@@ -127,7 +132,7 @@ class TestPianteNuove(unittest.TestCase):
             self.assertIn(attese, set(a["specie"].tolist()), nome)
 
     def test_ogni_specie_ha_altezza_e_nome(self):
-        for sp in range(33):
+        for sp in range(35):
             self.assertIn(sp, V.ALTEZZA)
             self.assertIn(sp, V.NOMI_SPECIE)
 
@@ -194,6 +199,45 @@ class TestBambuELiane(unittest.TestCase):
         self.assertIn(V.BAMBU, set(a["specie"].tolist()))
 
 
+class TestSassiETronchi(unittest.TestCase):
+    def test_il_sasso_e_un_grumo_appoggiato_con_i_buchi_sotto_riempiti(self):
+        out = disegnato(V.SASSO, 4)
+        sassi = (out >= 900) & (out <= 903)
+        self.assertGreaterEqual(int(sassi.sum()), 6)
+        self.assertTrue((out[8, 70:72, 8] >= 900).any())
+        # nessun blocco di sasso e' piu' alto di due sopra la base
+        ys = np.nonzero(sassi.any(axis=(0, 2)))[0]
+        self.assertLessEqual(int(ys.max() - ys.min()), 2)
+
+    def test_il_tronco_caduto_e_orizzontale_lungo_alt_con_muschio_o_funghi(self):
+        out = np.zeros((16, 140, 16), np.uint32)
+        V.disegna(out, 0, 0, 0, albero(V.TRONCO_CADUTO, 5), [0], Finta())
+        tronchi = (out >= 950) & (out <= 955)
+        xs, ys, zs = np.nonzero(tronchi)
+        self.assertEqual(len(xs), 5)
+        self.assertEqual(len(set(ys.tolist())), 1)                 # tutto alla stessa quota
+        self.assertTrue(len(set(xs.tolist())) == 5 or len(set(zs.tolist())) == 5)
+
+    def test_nei_boschi_si_seminano_sassi_e_tronchi_ma_non_in_pianura(self):
+        cls = np.full((250, 250), M.FORESTA, np.uint8)
+        h = np.full((250, 250), 80, np.int32)
+        a = V.semina(cls, h, livello_mare=62, seed=3, scala_densita=2.0)
+        sp = a["specie"].tolist()
+        self.assertGreater(sp.count(V.SASSO), 5)
+        self.assertGreater(sp.count(V.TRONCO_CADUTO), 3)
+        cls[:] = M.PIANURA
+        b = V.semina(cls, h, livello_mare=62, seed=3, scala_densita=2.0)
+        self.assertNotIn(V.SASSO, b["specie"].tolist())
+        self.assertNotIn(V.TRONCO_CADUTO, b["specie"].tolist())
+
+    def test_i_sassi_stanno_anche_in_montagna_i_tronchi_solo_nel_bosco(self):
+        cls = np.full((250, 250), M.MONTAGNA, np.uint8)
+        h = np.full((250, 250), 100, np.int32)
+        a = V.semina(cls, h, livello_mare=62, seed=3, scala_densita=3.0)
+        self.assertIn(V.SASSO, a["specie"].tolist())
+        self.assertNotIn(V.TRONCO_CADUTO, a["specie"].tolist())
+
+
 class TestTraduzioni(unittest.TestCase):
     def test_i_blocchi_nuovi_si_traducono(self):
         import PyMCTranslate
@@ -208,6 +252,9 @@ class TestTraduzioni(unittest.TestCase):
                 ("double_plant", {"plant_type": "rose_bush", "half": "lower"}, "rose_bush"),
                 ("double_plant", {"plant_type": "peony", "half": "lower"}, "peony"),
                 ("torchflower", {}, "torchflower"),
+                ("moss_carpet", {}, "moss_carpet"),
+                ("log", {"axis": "x", "material": "birch", "stripped": "false"}, "birch_log"),
+                ("andesite", {"polished": "false"}, "andesite"),
                 ("bamboo", {"stage": "0", "leaves": "large", "thickness": "thick"}, "bamboo"),
                 ("vine", {"north": "true", "south": "false", "east": "false",
                           "west": "false", "up": "false"}, "vine"),
