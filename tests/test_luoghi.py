@@ -57,6 +57,14 @@ class TestNomi(unittest.TestCase):
         self.assertEqual(len(nomi), len(set(nomi)))
 
 
+class TestNomiMiniere(unittest.TestCase):
+    def test_una_ventina_di_miniere_non_hanno_numeri_nel_nome(self):
+        ms = [NS(x=100 + i * 10, z=100, y_superficie=70, rampa=None) for i in range(22)]
+        nomi = [l.nome for l in LU.raccogli([], ms, [], [], [], 0, seed=7)]
+        self.assertEqual(len(nomi), len(set(nomi)))
+        self.assertFalse(any(any(ch.isdigit() for ch in n) for n in nomi), nomi)
+
+
 class TestDirezioni(unittest.TestCase):
     def test_punti_cardinali(self):
         self.assertEqual(LU.direzione(10, 0), "est")

@@ -28,7 +28,15 @@ CITTA = ("Monteverde", "Valdargento", "Pontealto", "Portobruno", "Roccaserena",
 MINIERE = ("Miniera del Corvo", "Miniera dell'Eco", "Miniera della Lanterna",
            "Miniera di Ferrovecchio", "Miniera del Nano Muto", "Miniera Profonda",
            "Miniera dei Tre Pozzi", "Miniera di Pietrabuia", "Miniera del Rame Verde",
-           "Miniera dell'Ultima Vena")
+           "Miniera dell'Ultima Vena", "Miniera del Lupo", "Miniera del Re Cieco",
+           "Miniera del Fumo", "Miniera dell'Argento Nero", "Miniera del Carbone",
+           "Miniera del Cristallo", "Miniera del Vento", "Miniera del Gufo",
+           "Miniera della Pioggia", "Miniera del Sale", "Miniera del Sole Spento",
+           "Miniera di Roccaforte", "Miniera dei Ciottoli", "Miniera dell'Orso",
+           "Miniera della Volpe Rossa", "Miniera dei Sospiri", "Miniera del Falco",
+           "Miniera della Luna Cava", "Miniera del Ghiaccio", "Miniera di Valpiombo",
+           "Miniera del Cinghiale", "Miniera dello Stagno", "Miniera della Brace",
+           "Miniera dell'Eremita", "Miniera dei Due Fratelli", "Miniera del Salice")
 ROVINE = ("Cripta di Mortelia", "Cripta dei Sussurri", "Cripta di Orrenda",
           "Tomba del Re Smarrito", "Cripta della Veglia", "Rovine di Altomuro",
           "Cripta dell'Osso", "Sepolcro dei Cento", "Cripta di Valdoscura")
