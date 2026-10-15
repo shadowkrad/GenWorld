@@ -78,6 +78,11 @@ class Citta:
     murata: bool = False
     edifici: int = 0
     lato: int = 0
+    # la pianta: quadrato (predefinito), rettangolo, ovale o tondo. `lato` e' la
+    # mezza estensione piu' lunga; `lz` e `lx` le due mezze estensioni (0 = lato)
+    forma: str = "quadrato"
+    lz: int = 0
+    lx: int = 0
 
     @property
     def raggio_piazza(self) -> int:
@@ -135,6 +140,78 @@ MIN_LOTTI_CITTA = 4
 
 LATI_VILLAGGIO = (38, 30, 24, 20)
 LATI_CITTA = (46, 38, 30)
+
+
+# --------------------------------------------------------------------------
+# Forme della pianta
+# --------------------------------------------------------------------------
+#
+# La pianta resta sempre la stessa (due assi che si incrociano nella piazza, una
+# circonvallazione dentro la cinta, i lotti negli isolati); cambia solo il
+# CONTORNO. Una forma e' fissata per ogni citta' al momento della scelta, mai
+# deformata dopo - le prime piante organiche venivano tutte scombussolate.
+#
+# `_metrica` da' la distanza dal contorno IN BLOCCHI, rimessa nella scala di
+# `lato`: D <= lato e' l'interno, D in lato+1..lato+3 la cinta, e cosi' via,
+# esattamente come con il quadrato (per cui coincide con la distanza di
+# Chebyshev di prima). Cosi' piana, raccordo, fosso, cinta e strade fuori porta
+# funzionano per ogni forma senza saperlo.
+
+FORME = ("quadrato", "rettangolo", "ovale", "tondo")
+PESI_FORME_MISTE = (0.40, 0.20, 0.20, 0.20)
+RAPPORTI_ALLUNGAMENTO = (0.65, 0.75)
+LATO_MIN_ALLUNGATA = 36          # sotto, un rettangolo o un ovale non ha posto per i lotti
+
+
+@dataclass(frozen=True)
+class Forma:
+    tipo: str = "quadrato"
+    lz: int = 0          # mezza estensione lungo z (nord-sud)
+    lx: int = 0          # mezza estensione lungo x (est-ovest)
+
+
+def forma_quadrata(lato: int) -> Forma:
+    return Forma("quadrato", lato, lato)
+
+
+def scegli_forma(forme: str, lato: int, murata: bool, rng: np.random.Generator) -> Forma:
+    """La forma di una citta'. `forme` e' "quadrato" (sempre), "miste" (a sorte) o
+    il nome di una forma. Solo le citta' murate cambiano forma: un villaggio senza
+    cinta e' gia' un quadrato di case. Rettangolo e ovale servono lato >= 36."""
+    if forme == "quadrato" or not murata:
+        return forma_quadrata(lato)
+    if forme == "miste":
+        tipo = FORME[int(rng.choice(len(FORME), p=PESI_FORME_MISTE))]
+    elif forme in FORME:
+        tipo = forme
+    else:
+        raise ValueError(f"forma sconosciuta: {forme!r}")
+    if tipo in ("rettangolo", "ovale") and lato < LATO_MIN_ALLUNGATA:
+        tipo = "quadrato" if tipo == "rettangolo" else "tondo"
+    if tipo in ("quadrato", "tondo"):
+        return Forma(tipo, lato, lato)
+    corta = int(round(lato * RAPPORTI_ALLUNGAMENTO[int(rng.integers(0, len(RAPPORTI_ALLUNGAMENTO)))]))
+    return Forma(tipo, corta, lato) if rng.random() < 0.5 else Forma(tipo, lato, corta)
+
+
+def _metrica(forma: Forma, lato: int, dz: np.ndarray, dx: np.ndarray) -> np.ndarray:
+    """Distanza (intera) dal centro nella scala di `lato`, secondo la forma."""
+    az, ax = np.abs(dz), np.abs(dx)
+    if forma.tipo in ("quadrato", "rettangolo"):
+        return (lato + np.maximum(az - forma.lz, ax - forma.lx)).astype(np.int64)
+    azf, axf = az.astype(np.float64), ax.astype(np.float64)
+    if forma.tipo == "tondo":
+        return np.rint(np.hypot(azf, axf)).astype(np.int64)
+    # ovale: distanza LUNGO IL RAGGIO dall'ellisse, |v| - R(theta). Cresce sempre
+    # allontanandosi dal centro (le curve di livello sono ellissi concentriche); su
+    # un contorno ripido la misura e' un po' piu' lunga della normale, per i
+    # rapporti usati (>= 0,65) di poco. Spessore di cinta e fosso restano 3.
+    e = np.sqrt((azf / forma.lz) ** 2 + (axf / forma.lx) ** 2)
+    modulo = np.hypot(azf, axf)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        raggio_ell = np.where(e > 1e-9, modulo / np.where(e > 1e-9, e, 1.0),
+                              float(min(forma.lz, forma.lx)))
+    return np.rint(lato + modulo - raggio_ell).astype(np.int64)
 
 
 def piante_possibili(raggio: int) -> list[tuple[int, bool]]:
@@ -312,9 +389,12 @@ def _spiana(h, cls, livello, cls_originale, D, lato, murata, base, livello_mare,
     return fosso
 
 
-def _strade(D, dz, dx, lato, murata) -> tuple[np.ndarray, np.ndarray]:
+def _strade(D, dz, dx, lato, murata, C=None) -> tuple[np.ndarray, np.ndarray]:
     """Le vie dell'abitato (rango per cella) e il prolungamento degli assi fuori
-    dalla cinta, che passa il fosso e arriva alla campagna."""
+    dalla cinta, che passa il fosso e arriva alla campagna. `C` e' la distanza di
+    Chebyshev dal centro (la piazza e' sempre un quadrato); senza, vale `D`."""
+    if C is None:
+        C = D
     rango = np.zeros(D.shape, np.uint8)
     dentro = D <= lato - 1
     asse = (np.abs(dz) <= 1) | (np.abs(dx) <= 1)
@@ -322,22 +402,34 @@ def _strade(D, dz, dx, lato, murata) -> tuple[np.ndarray, np.ndarray]:
     if murata:
         giro = ((D == lato - 3) | (D == lato - 4)) & (rango == 0)
         rango[giro] = SECONDARIA
-    rango[D <= PIAZZA] = ASSE
+    rango[C <= PIAZZA] = ASSE
     fuori = lato + (10 if murata else 2)
     esterno = asse & (D > lato - 1) & (D <= fuori)
     return rango, esterno
 
 
-def _mura(D, dz, dx, lato) -> np.ndarray:
-    """Cinta quadrata: 1 muro, 2 porta, 3 torre."""
+def _mura(D, dz, dx, lato, forma: Forma | None = None) -> np.ndarray:
+    """La cinta: 1 muro, 2 porta, 3 torre. Quattro porte sugli assi; torri accanto
+    alle porte e, secondo la forma, agli angoli e a meta' lato (quadrato e
+    rettangolo) o ogni 22,5 gradi (ovale e tondo)."""
+    forma = forma or forma_quadrata(lato)
     anello = (D >= lato + 1) & (D <= lato + SPESSORE_MURA)
     muro = np.zeros(D.shape, np.uint8)
     muro[anello] = 1
-    porta = anello & ((np.abs(dz) <= SEMILARGHEZZA_PORTA) | (np.abs(dx) <= SEMILARGHEZZA_PORTA))
-    lungo = np.minimum(np.abs(dz), np.abs(dx))        # posizione lungo il lato
-    torre = (np.abs(dz) >= lato - 1) & (np.abs(dx) >= lato - 1)        # angoli
-    torre |= (lungo > SEMILARGHEZZA_PORTA) & (lungo <= SEMILARGHEZZA_PORTA + 3)   # accanto alle porte
-    torre |= np.abs(lungo - lato // 2) <= 1                             # a meta' lato
+    az, ax = np.abs(dz), np.abs(dx)
+    porta = anello & ((az <= SEMILARGHEZZA_PORTA) | (ax <= SEMILARGHEZZA_PORTA))
+    lungo = np.minimum(az, ax)
+    torre = (lungo > SEMILARGHEZZA_PORTA) & (lungo <= SEMILARGHEZZA_PORTA + 3)   # accanto alle porte
+    if forma.tipo in ("quadrato", "rettangolo"):
+        torre |= (az >= forma.lz - 1) & (ax >= forma.lx - 1)                  # angoli
+        sul_z = (az - forma.lz) >= (ax - forma.lx)       # lato nord o sud
+        lungo_lato = np.where(sul_z, ax, az)             # posizione lungo il lato
+        meta = np.where(sul_z, forma.lx, forma.lz) // 2
+        torre |= np.abs(lungo_lato - meta) <= 1                               # a meta' lato
+    else:
+        theta = np.arctan2(az / forma.lz, ax / forma.lx)         # 0 .. pi/2
+        for k in (1, 2, 3):
+            torre |= np.abs(theta - k * np.pi / 8) * lato <= 1.5
     muro[anello & torre] = 3
     muro[porta] = 2
     return muro
@@ -349,7 +441,8 @@ _NORMALI = ((-1, 0), (0, 1), (1, 0), (0, -1))        # nord, est, sud, ovest (dz
 
 
 def _scale(centro: tuple[int, int], lato: int, forma: tuple[int, int],
-           muro: np.ndarray, edifici: list) -> list[tuple[int, int, int]]:
+           muro: np.ndarray, edifici: list,
+           contorno: Forma | None = None) -> list[tuple[int, int, int]]:
     """Le scalinate che salgono dall'interno sul cammino di ronda: una per lato,
     a meta' fra la torre accanto alla porta e quella di mezzo, addossata alla
     faccia interna della cinta e in salita lungo di essa.
@@ -361,15 +454,20 @@ def _scale(centro: tuple[int, int], lato: int, forma: tuple[int, int],
     """
     cz, cx = centro
     fuori: list[tuple[int, int, int]] = []
+    contorno = contorno or forma_quadrata(lato)
+    if contorno.tipo in ("ovale", "tondo"):
+        return fuori             # su una cinta curva le scalinate dritte non si addossano
     primo = SEMILARGHEZZA_PORTA + 4                      # oltre la torre accanto alla porta
-    ultimo = lato // 2 - 2                               # prima della torre di mezzo
-    if ultimo - primo + 1 < LUNGHEZZA_SCALA:
-        return fuori
-    inizio = primo + (ultimo - primo + 1 - LUNGHEZZA_SCALA) // 2
     for lato_i, (nz, nx) in enumerate(_NORMALI):
+        semi = contorno.lz if nz else contorno.lx        # distanza della cinta dal centro
+        tang = contorno.lx if nz else contorno.lz        # semi-lunghezza di questo lato
+        ultimo = tang // 2 - 2                           # prima della torre di mezzo
+        if ultimo - primo + 1 < LUNGHEZZA_SCALA:
+            continue
+        inizio = primo + (ultimo - primo + 1 - LUNGHEZZA_SCALA) // 2
         salita = (lato_i + 1) % 4                       # si sale girando in senso orario
         tz, tx = _NORMALI[salita]
-        celle = [(cz + nz * lato + tz * (inizio + k), cx + nx * lato + tx * (inizio + k), k)
+        celle = [(cz + nz * semi + tz * (inizio + k), cx + nx * semi + tx * (inizio + k), k)
                  for k in range(LUNGHEZZA_SCALA)]
         if any(not (0 <= z < forma[0] and 0 <= x < forma[1]) or muro[z, x] for z, x, _ in celle):
             continue
@@ -387,10 +485,13 @@ def _scale(centro: tuple[int, int], lato: int, forma: tuple[int, int],
 
 
 def _porte_esterne(z: int, x: int, lato: int, murata: bool,
-                   forma: tuple[int, int]) -> list[tuple[int, int]]:
+                   forma: tuple[int, int],
+                   contorno: Forma | None = None) -> list[tuple[int, int]]:
     """I quattro punti, in campagna, da cui partono le strade fra gli abitati."""
-    d = lato + (10 if murata else 2)
-    punti = [(z - d, x), (z + d, x), (z, x - d), (z, x + d)]
+    contorno = contorno or forma_quadrata(lato)
+    extra = 10 if murata else 2
+    dz_, dx_ = contorno.lz + extra, contorno.lx + extra
+    punti = [(z - dz_, x), (z + dz_, x), (z, x - dx_), (z, x + dx_)]
     return [(pz, px) for pz, px in punti if 0 <= pz < forma[0] and 0 <= px < forma[1]]
 
 
@@ -428,29 +529,51 @@ LOTTO_MINIMO = 11      # sotto questa misura l'isolato non si divide
 
 def lotti(cls: np.ndarray, h: np.ndarray, livello: np.ndarray,
           centro: tuple[int, int], lato: int, murata: bool, livello_mare: int,
-          rng: np.random.Generator) -> list[E.Edificio]:
+          rng: np.random.Generator, forma: Forma | None = None) -> list[E.Edificio]:
     """Quattro lotti per quadrante (tre in un villaggio: l'ultimo non
-    toccherebbe nessuna strada), con la facciata verso la strada vicina."""
+    toccherebbe nessuna strada), con la facciata verso la strada vicina.
+
+    Con una forma diversa dal quadrato i quadranti hanno due misure (est-ovest e
+    nord-sud) e, in un ovale o in un cerchio, un lotto il cui angolo esterno
+    sbordasse dalla circonvallazione si rimpicciolisce verso il centro, o
+    sparisce se non resta una casa."""
     cz, cx = centro
-    w = (lato - 9 - STACCO) // 2
-    # un isolato troppo piccolo per quattro case ne regge una sola
-    if w < LOTTO_MINIMO:
-        w, divisioni = lato - 9, (0,)
-    else:
-        divisioni = (0, 1)
+    forma = forma or forma_quadrata(lato)
+
+    def misure(semi: int) -> tuple[int, tuple[int, ...]]:
+        w = (semi - 9 - STACCO) // 2
+        # un isolato troppo piccolo per quattro case ne regge una sola
+        if w < LOTTO_MINIMO:
+            return semi - 9, (0,)
+        return w, (0, 1)
+
+    wu, div_a = misure(forma.lx)         # lungo x
+    wv, div_b = misure(forma.lz)         # lungo z
+    curva = forma.tipo in ("ovale", "tondo")
     fuori: list[E.Edificio] = []
     for sv in (1, -1):
         for su in (1, -1):
-            for b in divisioni:
-                for a in divisioni:
+            for b in div_b:
+                for a in div_a:
                     if a == 1 and b == 1 and not murata:
                         continue
-                    u0 = MARCIAPIEDE + a * (w + STACCO)
-                    v0 = MARCIAPIEDE + b * (w + STACCO)
-                    ul = vl = w
+                    u0 = MARCIAPIEDE + a * (wu + STACCO)
+                    v0 = MARCIAPIEDE + b * (wv + STACCO)
+                    ul, vl = wu, wv
                     if a == 0 and b == 0:
                         sgombro = dati_piazza(lato, murata)[1]
-                        u0, ul = sgombro, w - (sgombro - MARCIAPIEDE)
+                        u0, ul = sgombro, wu - (sgombro - MARCIAPIEDE)
+                    if curva:
+                        # l'angolo esterno deve stare dentro la circonvallazione
+                        while ul >= 9 and vl >= 9 and int(_metrica(
+                                forma, lato, np.array(v0 + vl - 1),
+                                np.array(u0 + ul - 1))) > lato - 5:
+                            if ul >= vl:
+                                ul -= 1
+                            else:
+                                vl -= 1
+                        if ul < 9 or vl < 9:
+                            continue
                     if a == 1 and b == 1:
                         verso = E.EST if su > 0 else E.OVEST
                     elif b == 0:
@@ -560,6 +683,7 @@ def pianifica(
     siti: list[tuple[int, int, int]],
     livello_mare: int = 62,
     seed: int = 0,
+    forme: str = "quadrato",
 ) -> tuple[list[E.Edificio], np.ndarray, np.ndarray, np.ndarray,
            list[Citta], list[E.Banco], np.ndarray, np.ndarray, np.ndarray]:
     """Progetta gli insediamenti.
@@ -597,15 +721,23 @@ def pianifica(
         else:
             continue
         sz, sx, base = posto
-        D, dz, dx = _distanza((H, W), sz, sx)
-
-        # tutto si prova su copie: se il sito non da' abbastanza lotti non
-        # deve lasciare traccia (una piana spianata e un fosso senza citta')
-        h_t, cls_t, liv_t = h.copy(), cls.copy(), livello.copy()
-        _spiana(h_t, cls_t, liv_t, cls, D, lato, murata, base, livello_mare, fissa)
-        rango, esterno = _strade(D, dz, dx, lato, murata)
-        ed = lotti(cls_t, h_t, liv_t, (sz, sx), lato, murata, livello_mare, rng)
-        if len(ed) < (MIN_LOTTI_CITTA if murata else MIN_LOTTI_VILLAGGIO):
+        C, dz, dx = _distanza((H, W), sz, sx)
+        # la forma si sceglie per prima e non cambia piu'; se non produce
+        # abbastanza lotti si ripiega sul quadrato, che sul sito ci sta di sicuro
+        candidate = [scegli_forma(forme, lato, murata, rng)]
+        if candidate[0].tipo != "quadrato":
+            candidate.append(forma_quadrata(lato))
+        for contorno in candidate:
+            D = _metrica(contorno, lato, dz, dx)
+            # tutto si prova su copie: se il sito non da' abbastanza lotti non
+            # deve lasciare traccia (una piana spianata e un fosso senza citta')
+            h_t, cls_t, liv_t = h.copy(), cls.copy(), livello.copy()
+            _spiana(h_t, cls_t, liv_t, cls, D, lato, murata, base, livello_mare, fissa)
+            rango, esterno = _strade(D, dz, dx, lato, murata, C)
+            ed = lotti(cls_t, h_t, liv_t, (sz, sx), lato, murata, livello_mare, rng, contorno)
+            if len(ed) >= (MIN_LOTTI_CITTA if murata else MIN_LOTTI_VILLAGGIO):
+                break
+        else:
             continue
         for e in ed:
             e.villaggio = n
@@ -622,14 +754,15 @@ def pianifica(
         fuori.extend(ed)
         banchi.extend(b)
         if murata:
-            m = _mura(D, dz, dx, lato)
+            m = _mura(D, dz, dx, lato, contorno)
             muro[m > 0] = m[m > 0]
-            for z, x, v in _scale((sz, sx), lato, (H, W), muro, ed):
+            for z, x, v in _scale((sz, sx), lato, (H, W), muro, ed, contorno):
                 muro[z, x] = v
         citta.append(Citta(
             z=sz, x=sx, raggio=_raggio_piana(lato, murata), piazza=(sz, sx),
-            porte=_porte_esterne(sz, sx, lato, murata, (H, W)),
-            murata=murata, edifici=len(ed), lato=lato))
+            porte=_porte_esterne(sz, sx, lato, murata, (H, W), contorno),
+            murata=murata, edifici=len(ed), lato=lato,
+            forma=contorno.tipo, lz=contorno.lz, lx=contorno.lx))
 
     return fuori, h, vie, muro, citta, banchi, urbano, cls, livello
 

@@ -138,6 +138,10 @@ def main() -> None:
                     help="versione Java di riferimento (DataVersion di "
                          "level.dat e traduzione dei blocchi dei template), "
                          "es. 1.21.9. Dalla 1.21.4 in poi")
+    ap.add_argument("--forme-citta", default="miste",
+                    choices=("miste", "quadrato", "rettangolo", "ovale", "tondo"),
+                    help="forma delle citta' murate: 'miste' (a sorte, fissata per ogni "
+                         "citta'), 'quadrato' o una forma sola")
     ap.add_argument("--fuori-mappa", choices=("naturale", "vuoto"), default="naturale",
                     help="cosa c'e' oltre la mappa: 'naturale' (terreno normale di "
                          "Minecraft generato al volo, nessun bordo) o 'vuoto' (aria)")
@@ -172,7 +176,7 @@ def main() -> None:
                  fauna=a.fauna, arredi=a.arredi, isolate=a.isolate, laghi=a.laghi,
                  miniere=a.miniere, accampamenti=a.accampamenti,
                  cimiteri=a.cimiteri, portali=a.portali, versione=versione,
-                 fuori_mappa=a.fuori_mappa)
+                 fuori_mappa=a.fuori_mappa, forme_citta=a.forme_citta)
 
     from genworld import template as TM
     if a.villaggi > 0 and TM.conta_file(a.templates) == 0:
