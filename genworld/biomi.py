@@ -176,6 +176,10 @@ def assegna(cls: np.ndarray, altezze: np.ndarray, livello_mare: int = 62,
 
     # -- terreno aperto -------------------------------------------------
     posa(cls == DESERTO, "desert")
+    # i deserti alti e a chiazze sono mesa: `badlands` (sabbia rossa e fasce di
+    # terracotta, vedi `pietre.mesa`); lo stesso nome vale per il vulcano, che
+    # si distingue dalla classe.
+    posa((cls == DESERTO) & (h > livello_mare + 14) & (var < 0.5), "badlands")
 
     aperto = np.isin(cls, (PIANURA, PRATERIA))
     posa(aperto, "plains")
