@@ -217,7 +217,9 @@ class TestSpawnerEntity(unittest.TestCase):
         be = DG.entita_blocco([d], (sx // 16) * 16, (sz // 16) * 16, 0)
         self.assertEqual(len(be), 1)
         self.assertEqual((be[0].x, be[0].y, be[0].z), (sx, sy, sz))
-        self.assertEqual(str(be[0].nbt.compound["utags"]["SpawnData"]["id"]),
+        ut = be[0].nbt.compound["utags"]
+        self.assertEqual(str(ut["SpawnData"]["entity"]["id"]), "minecraft:skeleton")
+        self.assertEqual(str(ut["SpawnPotentials"][0]["data"]["entity"]["id"]),
                          "minecraft:skeleton")
         self.assertEqual(DG.entita_blocco([d], 0, 0, 0), [])
 
@@ -256,6 +258,32 @@ class TestPersistenza(unittest.TestCase):
                                    biomi=np.full((16, 16), m.bioma("plains"), np.uint32),
                                    bauli=be)
             tipi_attesi = {"spawner"}
+            # il file region, letto a mano: e' quello che legge il gioco
+            import glob
+            import struct
+            import zlib
+
+            import amulet_nbt as nbt
+            trovati = []
+            for f in glob.glob(os.path.join(percorso, "**", "*.mca"), recursive=True):
+                dati = open(f, "rb").read()
+                for i in range(1024):
+                    off = struct.unpack(">I", b"\x00" + dati[i * 4:i * 4 + 3])[0]
+                    if not off:
+                        continue
+                    pos = off * 4096
+                    ln = struct.unpack(">I", dati[pos:pos + 4])[0]
+                    tag = nbt.load(zlib.decompress(dati[pos + 5:pos + 4 + ln]),
+                                   compressed=False, little_endian=False)
+                    for be in tag.compound["block_entities"]:
+                        if "spawner" in str(be["id"]):
+                            trovati.append(be)
+            self.assertEqual(len(trovati), 1)
+            be = trovati[0]
+            self.assertEqual(str(be["SpawnData"]["entity"]["id"]), "minecraft:zombie")
+            self.assertEqual(len(be["SpawnPotentials"]), 1)
+            self.assertEqual(str(be["SpawnPotentials"][0]["data"]["entity"]["id"]),
+                             "minecraft:zombie")
             lv = amulet.load_level(percorso)
             try:
                 ch = lv.get_chunk(dentro[0], dentro[1], "minecraft:overworld")

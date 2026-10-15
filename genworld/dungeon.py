@@ -389,8 +389,8 @@ def entita_blocco(dungeons: list[Dungeon], ox: int, oz: int, meta: int) -> list:
     """I `BlockEntity` degli spawner che cadono nel chunk di angolo (ox, oz),
     coordinate di GIOCO."""
     from amulet.api.block_entity import BlockEntity
-    from amulet_nbt import (ByteTag, CompoundTag, FloatTag, NamedTag, ShortTag,
-                            StringTag)
+    from amulet_nbt import (ByteTag, CompoundTag, FloatTag, IntTag, ListTag,
+                            NamedTag, ShortTag, StringTag)
     fuori = []
     for d in dungeons:
         x, y, z = d.spawner()
@@ -402,7 +402,14 @@ def entita_blocco(dungeons: list[Dungeon], ox: int, oz: int, meta: int) -> list:
             "MaxNearbyEntities": ShortTag(6),
             "RequiredPlayerRange": ShortTag(16),
             "SpawnCount": ShortTag(4),
-            "SpawnData": CompoundTag({"id": StringTag(f"minecraft:{d.mob}")}),
+            # formato del gioco recente (1.21.5+): `entity` dentro SpawnData e
+            # `data`/`weight` in SpawnPotentials. Senza SpawnPotentials amulet
+            # ne aggiunge uno di maiali nel vecchio formato, e dopo il primo
+            # giro lo spawner farebbe maiali.
+            "SpawnData": CompoundTag({"entity": CompoundTag({"id": StringTag(f"minecraft:{d.mob}")})}),
+            "SpawnPotentials": ListTag([CompoundTag({
+                "data": CompoundTag({"entity": CompoundTag({"id": StringTag(f"minecraft:{d.mob}")})}),
+                "weight": IntTag(1)})]),
             "EntityIdentifier": StringTag(""),
             "MaxSpawnDelay": ShortTag(800),
             "Delay": ShortTag(20),
