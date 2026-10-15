@@ -128,6 +128,29 @@ class TestTrova(unittest.TestCase):
                 if chiave in ("enchantments", "stored_enchantments"):
                     self.assertTrue(all(isinstance(x, int) and x >= 1 for x in valore.values()))
 
+    def test_il_tesoro_del_dungeon_ha_incantati_e_dipende_dalla_distanza(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        pos = {(5, 10, 6): "tesoro"}
+        def incantati(centri):
+            n = 0
+            for seed in range(25):
+                b = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, dungeon=pos, centri=centri)
+                n += sum("components" in v for v in b[0].nbt.compound["utags"]["Items"])
+            return n
+        vicino, lontano = incantati([(10, 10)]), incantati([(5000, 5000)])
+        self.assertGreaterEqual(vicino, 25)          # almeno uno per forziere
+        self.assertGreater(lontano, vicino * 2)
+
+    def test_la_sala_dello_spawner_ha_provviste_e_tesori_solo_lontano(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        pos = {(5, 10, 6): "stanza"}
+        validi = {n for n, _, _ in BA.BOTTINO_DUNGEON} | {t for t, _ in BA.TESORI}
+        for seed in range(15):
+            b = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, dungeon=pos, centri=[(10, 10)])
+            nomi = self.nomi(b[0])
+            self.assertTrue(set(nomi) <= validi, set(nomi) - validi)
+            self.assertFalse(any("components" in v for v in b[0].nbt.compound["utags"]["Items"]))
+
     def test_un_forziere_fuori_dal_campo_resta_una_dispensa(self):
         out, s, tav, idf = self.chunk_con_forziere()
         bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=2, campi=[(100, 100, 3)])

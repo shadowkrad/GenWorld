@@ -31,6 +31,7 @@ from . import biomi as B
 from . import bauli as BA
 from . import citta as CT
 from . import edifici as E
+from . import dungeon as DG
 from . import entita as EN
 from . import fauna as FA
 from . import fiumi as R
@@ -125,6 +126,9 @@ class Opzioni:
     # il terreno, quindi non entra in `firma_analisi` - stessa idea di
     # `caverne`.
     miniere: float = 1.0
+    # Moltiplicatore di densita' delle rovine con cripta (vedi `dungeon.py`).
+    # Non cambia il terreno, quindi fuori da `firma_analisi`.
+    dungeon: float = 1.0
     # Moltiplicatore di densita' di accampamenti di nemici e cimiteri (vedi
     # `avamposti.py`). 0 spegne l'uno o l'altro. Non toccano il terreno
     # (solo cio' che ci sta sopra), quindi fuori da `firma_analisi` come
@@ -209,6 +213,8 @@ class Analisi:
     colata: np.ndarray
     biomi: np.ndarray | None = None
     note: list[str] = field(default_factory=list)
+    # celle riservate a rovine e cripte: le altre fasi le tengono libere
+    riservato: np.ndarray | None = None
 
 
 Avanzamento = Callable[[float, str], None]
@@ -483,6 +489,8 @@ class Piano:
     indice_caverne: dict = field(default_factory=dict)
     miniere: list = field(default_factory=list)
     indice_miniere: dict = field(default_factory=dict)
+    dungeon: list = field(default_factory=list)
+    indice_dungeon: dict = field(default_factory=dict)
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
     # {indice edificio: (indice modello, rotazione)}: quale casa da template va
@@ -516,12 +524,15 @@ def zona_vulcanica(a: Analisi, margine: int) -> np.ndarray:
 
 
 def _costruito(forma: tuple[int, int], edifici: list, muro, tipo_strada,
-               banchi: list = (), campi=None, margine_banchi: int = 1) -> np.ndarray:
+               banchi: list = (), campi=None, margine_banchi: int = 1,
+               riservato=None) -> np.ndarray:
     """La maschera di cio' che e' gia' costruito: cinta, strade, tetti (col loro
     margine di una cella), e se date i banchi e i campi. Quattro fasi
     (miniere, avamposti, arredi, case isolate) la ricostruivano ognuna a modo
     suo: ora e' una sola."""
     occ = np.zeros(forma, bool)
+    if riservato is not None:
+        occ |= riservato
     if muro is not None and muro.any():
         occ |= muro > 0
     if tipo_strada is not None:
@@ -543,7 +554,7 @@ def _pianifica_miniere(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     le mura o vicino al vulcano."""
     if op.miniere <= 0:
         return []
-    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi)
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi, riservato=a.riservato)
     # il portale, la piazzola e la trincea d'ingresso stanno fuori dal vulcano
     evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + MI.BINARIO_FUORI + 4)
     mare_m = np.isin(a.cls, M.MARINO)
@@ -556,6 +567,24 @@ def _pianifica_miniere(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
                     f"gallerie, {st['lunghezza']} blocchi di percorso, "
                     f"fondo medio y={st['quota_media_fondo']:.0f}")
     return miniere
+
+
+def _pianifica_dungeon(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                       muro, tipo_strada, miniere: list, campi, note: list[str]) -> list:
+    """Rovine con cripta: lontane da case, strade, miniere e vulcano."""
+    if op.dungeon <= 0:
+        return []
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi, riservato=a.riservato)
+    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 8)
+    if miniere:
+        evita |= MI.maschera_ingresso(miniere, a.cls.shape, margine=12)
+    acqua = np.isin(a.cls, M.ACQUA)
+    dungeon = DG.pianifica(h, acqua, evita=evita, densita=op.dungeon, seed=op.seed)
+    if dungeon:
+        a.riservato = DG.maschera(dungeon, a.cls.shape, margine=3)
+        st = DG.statistiche(dungeon)
+        note.append(f"rovine con cripta: {st['rovine']} ({st['mob']})")
+    return dungeon
 
 
 def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
@@ -571,7 +600,7 @@ def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     """
     if not (op.accampamenti > 0 or op.cimiteri > 0 or op.portali > 0):
         return [], []
-    evita_av = _costruito(a.cls.shape, edifici, muro, tipo_strada)
+    evita_av = _costruito(a.cls.shape, edifici, muro, tipo_strada, riservato=a.riservato)
     mare_av = np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME)
     # Il cimitero e il portale da template (vedi avamposti.py): caricati qui
     # per le loro dimensioni, cosi' la spaziatura fra avamposti e la maschera
@@ -592,7 +621,7 @@ def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     # (anche sopra il fossato). Si tiene fuori tutto cio' che sta entro l'ingombro
     # piu' grande + un margine da edifici e mura.
     from scipy.ndimage import distance_transform_edt as _edt
-    strutture = _costruito(a.cls.shape, edifici, muro, None)
+    strutture = _costruito(a.cls.shape, edifici, muro, None, riservato=a.riservato)
     if strutture.any():
         evita_av |= _edt(~strutture) <= raggio_av + DISTANZA_AVAMPOSTI_DA_ABITATI
     avamposti = AP.pianifica(h, mare_av, evita=evita_av,
@@ -624,7 +653,8 @@ def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     arredi_r = AR.pianifica(
         edifici, scelte, citta, h, a.cls, vie, tipo_strada, muro, campi,
         banchi, seed=71, densita=op.arredi, versione=op.versione,
-        evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO),
+        evita=zona_vulcanica(a, DISTANZA_MIN_VULCANO) | (
+            a.riservato if a.riservato is not None else False),
         legno=((lambda x, z: B.legno_di(a.biomi[z, x]))
                if a.biomi is not None else None))
     if arredi_r.arredi:
@@ -650,7 +680,7 @@ def _pianifica_isolate(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     if not (op.isolate > 0 and modelli_case):
         return []
     from scipy.ndimage import binary_dilation as _dil
-    evita_is = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi)
+    evita_is = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi, riservato=a.riservato)
     if urbano.any():
         evita_is |= _dil(urbano, iterations=8)
     evita_is |= _dil(np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME), iterations=4)
@@ -701,7 +731,7 @@ def _pianifica_monumenti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     from scipy.ndimage import binary_dilation as _dil
     fuori: list = []
     if castelli:
-        evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi)
+        evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi, riservato=a.riservato)
         if urbano.any():
             evita |= _dil(urbano, iterations=10)
         evita |= _dil(np.isin(a.cls, M.MARINO) | (a.cls == M.FIUME), iterations=4)
@@ -746,7 +776,7 @@ def _pianifica_porti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
     in coda al catalogo, dopo case, castelli e navi."""
     if op.porti <= 0 or not citta:
         return [], []
-    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi)
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, banchi, campi, riservato=a.riservato)
     if avamposti:
         evita |= AP.maschera(avamposti, a.cls.shape, margine=3)
     if arredi_r.arredi:
@@ -856,6 +886,11 @@ def _semina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list, muro,
         # salotto, poche righe sopra.
         dentro_av = AP.maschera(avamposti, a.cls.shape)
         tieni = ~dentro_av[alberi["z"], alberi["x"]]
+        if not tieni.all():
+            alberi = {k: v[tieni] for k, v in alberi.items()}
+    if alberi is not None and a.riservato is not None:
+        # niente albero sopra le rovine
+        tieni = ~a.riservato[alberi["z"], alberi["x"]]
         if not tieni.all():
             alberi = {k: v[tieni] for k, v in alberi.items()}
     if alberi is not None and miniere:
@@ -1125,6 +1160,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 
     # ACCAMPAMENTI E CIMITERI. Stessa idea, ma con un ingombro vero in
     # superficie: entrano anche in `protetto` (vedi `_pianifica_avamposti`).
+    avanza(0.70, "rovine con cripta")
+    dungeon = _pianifica_dungeon(op, a, h, edifici, muro, tipo_strada, miniere, campi, note)
+    if dungeon:
+        protetto |= DG.maschera(dungeon, a.cls.shape, margine=1)
+
     avanza(0.71, "accampamenti, cimiteri e portali")
     avamposti, modelli_cim = _pianifica_avamposti(op, a, h, edifici, muro,
                                                   tipo_strada, protetto, note)
@@ -1202,6 +1242,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  indice_caverne=SS.indice_per_chunk(caverne) if caverne["x"].size else {},
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
+                 dungeon=dungeon,
+                 indice_dungeon=DG.indice_per_chunk(dungeon) if dungeon else {},
                  avamposti=avamposti,
                  indice_avamposti=AP.indice_per_chunk(avamposti) if avamposti else {},
                  scelte=scelte,
@@ -2007,6 +2049,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
     with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, crea=primo) as m:
         tav_ss = SS.Tavolozza(m)
         tav_mi = MI.Tavolozza(m) if piano.miniere else None
+        tav_dg = DG.Tavolozza(m) if piano.dungeon else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2163,6 +2206,13 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         tav_ss.scavabile, seed=53, protetto_c=protetto_c)
                 # i forzieri delle gallerie, in coordinate di GIOCO per `bauli.trova`
                 minerali_g = {(x - meta, y, z - meta) for x, y, z in tav_mi.bauli}
+            # Rovine con cripta, dopo caverne e miniere: scavano anche loro
+            dungeon_g: dict = {}
+            if tav_dg is not None:
+                tav_dg.bauli.clear()
+                DG.posa(blocchi, tav_dg, fetta(piano.h, sx, sz), ox, oz, -64,
+                        piano.dungeon, _dal_chunk(piano.indice_dungeon, sx, sz), meta=meta)
+                dungeon_g = {(x - meta, y, z - meta): tipo for x, y, z, tipo in tav_dg.bauli}
             # Accampamenti e cimiteri: SENZA `protetto_c` - a differenza
             # dello scavo delle caverne e delle miniere, qui non c'e' niente
             # da proteggere da questo disegno, ed e' proprio il loro stesso
@@ -2208,8 +2258,12 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             # perche' a lato=16 l'offset `meta` e' zero.
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
                                 campi=campi_g, minerali=minerali_g,
-                                cripte=cripte_g, centri=centri_g)
+                                cripte=cripte_g, centri=centri_g, dungeon=dungeon_g)
                       if tav_ba is not None else None)
+            if piano.dungeon:
+                spawner = DG.entita_blocco(piano.dungeon, ox, oz, meta)
+                if spawner:
+                    bauli_c = (bauli_c or []) + spawner
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
             scritti += 1
             if i % 25 == 0 or i == n - 1:
