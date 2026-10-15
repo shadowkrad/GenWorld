@@ -56,6 +56,24 @@ class TestDisegni(unittest.TestCase):
         n, _ = m.tavolozza[int(m.celle[0, 3, 0])]
         self.assertEqual(n, "lantern")
 
+    def test_i_lampioni_di_rame_si_traducono_in_tutte_le_ossidazioni(self):
+        visti = set()
+        for liv in range(4):
+            visti |= self.nomi(self.modello(A.lampione_a_braccio("+x", liv)))
+        self.assertGreaterEqual(visti & {"copper_bulb", "exposed_copper_bulb",
+                                         "weathered_copper_bulb",
+                                         "oxidized_copper_bulb"},
+                                {"copper_bulb", "exposed_copper_bulb",
+                                 "weathered_copper_bulb", "oxidized_copper_bulb"})
+
+    def test_il_lampione_senza_rame_resta_di_ferro(self):
+        self.assertIn("lantern", self.nomi(self.modello(A.lampione_a_braccio("+x"))))
+
+    def test_la_fontana_ha_il_parafulmine_in_cima(self):
+        m = self.modello(A.fontana())
+        n, p = m.tavolozza[int(m.celle[4, 8, 4])]
+        self.assertEqual(n, "lightning_rod")
+
     def test_la_campana_c_e(self):
         self.assertIn("bell", self.nomi(self.modello(A.campana())))
 
