@@ -57,6 +57,16 @@ class TestNomi(unittest.TestCase):
         self.assertEqual(len(nomi), len(set(nomi)))
 
 
+class TestFormaNelleNote(unittest.TestCase):
+    def test_una_citta_non_quadrata_dichiara_la_forma_nell_elenco(self):
+        c = NS(x=100, z=100, raggio=54, murata=True, forma="ovale")
+        q = NS(x=300, z=300, raggio=54, murata=True, forma="quadrato")
+        luoghi = LU.raccogli([c, q], [], [], [], [], 0, seed=1)
+        note = {l.x: l.nota for l in luoghi}
+        self.assertTrue(note[100].endswith(", ovale"))
+        self.assertNotIn("quadrato", note[300])
+
+
 class TestNomiMiniere(unittest.TestCase):
     def test_una_ventina_di_miniere_non_hanno_numeri_nel_nome(self):
         ms = [NS(x=100 + i * 10, z=100, y_superficie=70, rampa=None) for i in range(22)]

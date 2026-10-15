@@ -101,7 +101,8 @@ def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: 
     fuori: list[Luogo] = []
     for c in citta:
         fuori.append(Luogo(_scegli(rng, CITTA, usati), "citta", c.x - meta, c.z - meta,
-                           nota=f"raggio {c.raggio}" + (", murata" if c.murata else "")))
+                           nota=f"raggio {c.raggio}" + (", murata" if c.murata else "")
+                           + (f", {c.forma}" if getattr(c, "forma", "quadrato") != "quadrato" else "")))
     for mn in miniere:
         fuori.append(Luogo(_scegli(rng, MINIERE, usati), "miniera", mn.x - meta, mn.z - meta,
                            mn.y_superficie))
