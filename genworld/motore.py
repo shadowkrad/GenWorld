@@ -23,6 +23,7 @@ from typing import Callable
 import numpy as np
 
 from . import agricoltura as AG
+from . import acque as AC
 from . import arredi as AR
 from . import avamposti as AP
 from . import batimetria as BAT
@@ -1274,7 +1275,7 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
                   manto_c=None, scarpata_c=None, sponda_c=None,
                   campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
-                  piazze=None, piede_c=None):
+                  piazze=None, piede_c=None, biomi_c=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -1378,6 +1379,9 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         m = np.asarray(lava_c)[:, None, :]
         out[liquido & m] = scrittore.blocco("lava", falling="false",
                                             flowing="false", level="0")
+    if biomi_c is not None:
+        AC.decora(out, scrittore, h_c, liv_c if liv_c is not None
+                  else np.full((16, 16), LIVELLO_MARE), cls_c, biomi_c, ox, oz, y0)
     # --- manto del cono ---------------------------------------------------
     # Prima il cono era basalto e basta, dalla base all'orlo. Un vulcano vero
     # e' fatto di colate sovrapposte di eta' diverse, e si vede.
@@ -2094,6 +2098,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 nuda_c=fetta(nuda_m, sx, sz), neve_c=fetta(neve_m, sx, sz),
                 manto_c=fetta(manto_m, sx, sz),
                 piede_c=fetta(piede_m, sx, sz),
+                biomi_c=(fetta(a.biomi, sx, sz) if a.biomi is not None else None),
                 scarpata_c=(fetta(piano.scarpata, sx, sz)
                             if piano.scarpata is not None else None),
                 sponda_c=fetta(sponda_m, sx, sz),
