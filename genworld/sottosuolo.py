@@ -183,6 +183,7 @@ class Tavolozza:
         self.roccia = {n: s.blocco(n, **p) for n, _, _, p in ROCCE}
         # Tutto cio' che vale "pietra" per chi scava e per chi mette i filoni.
         self.scavabile = (self.pietra, self.ardesia)
+        self.deco = _Decorazioni(s)
 
     def aggiungi_rocce(self, ids) -> None:
         """Gli strati di `stratigrafia` sono roccia a tutti gli effetti.
@@ -193,6 +194,36 @@ class Tavolozza:
         di quello che fa una vena vera.
         """
         self.scavabile = tuple(dict.fromkeys(self.scavabile + tuple(ids)))
+
+
+class _Decorazioni:
+    """Blocchi di caverne e geodi: gocciolatoi, grotta lussureggiante, ametista,
+    sculk. Stanno in un attributo a parte perche' i test della posa usano una
+    tavolozza finta senza: senza `deco` la decorazione semplicemente non c'e'."""
+
+    def __init__(self, s):
+        self.dripstone = s.blocco("dripstone_block")
+        self.punta_giu = s.blocco("pointed_dripstone", thickness="tip",
+                                  vertical_direction="down")
+        self.punta_su = s.blocco("pointed_dripstone", thickness="tip",
+                                 vertical_direction="up")
+        self.muschio = s.blocco("moss_block")
+        self.tappeto = s.blocco("moss_carpet")
+        self.radici = s.blocco("hanging_roots")
+        self.liana = s.blocco("cave_vines", age="5", berries="true")
+        self.liana_nuda = s.blocco("cave_vines", age="5", berries="false")
+        self.foglia = s.blocco("big_dripleaf", facing="north", tilt="none")
+        self.azalea = s.blocco("azalea")
+        self.azalea_fiorita = s.blocco("flowering_azalea")
+        self.sculk = s.blocco("sculk")
+        self.sensore = s.blocco("sculk_sensor", power="0",
+                                sculk_sensor_phase="inactive")
+        self.ametista = s.blocco("amethyst_block")
+        self.ametista_viva = s.blocco("budding_amethyst")
+        self.calcite = s.blocco("calcite")
+        self.basalto = s.blocco("smooth_basalt")
+        self.cristallo_su = s.blocco("amethyst_cluster", facing="up")
+        self.cristallo_giu = s.blocco("amethyst_cluster", facing="down")
 
 
 def grumo(out, gx, gz, gy, y0, h_c, blocco, quanti, solo_pietra,
@@ -303,7 +334,21 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
                            int(rng.integers(m.grumo[0], m.grumo[1] + 1)),
                            y, y, solo_pietra)
 
+    # --- geodi di ametista ------------------------------------------------
+    deco = getattr(tav, "deco", None)
+    if deco is not None:
+        for dcx in (-1, 0, 1):
+            for dcz in (-1, 0, 1):
+                vx, vz = ox + dcx * 16, oz + dcz * 16
+                rng = np.random.default_rng(_seme(vx, vz, seed + 77))
+                if rng.random() < GEODI_PER_CHUNK:
+                    geode(out, deco, tav.aria, int(rng.integers(0, 16)) + dcx * 16,
+                          int(rng.integers(0, 16)) + dcz * 16,
+                          int(rng.integers(-50, -8)), y0, h_c,
+                          float(rng.uniform(3.6, 5.4)), solo_pietra, protetto_c)
+
     # --- caverne ---------------------------------------------------------
+    scavato = np.zeros(out.shape, bool)
     for i in quali:
         cx, cy, cz = (int(caverne["x"][i]), int(caverne["y"][i]),
                       int(caverne["z"][i]))
@@ -335,6 +380,7 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
                     ly = gy - y0
                     if 1 <= ly < H:
                         out[lx, ly, lz] = tav.aria
+                        scavato[lx, ly, lz] = True
 
         # --- minerali lungo la caverna ------------------------------------
         # Senza questo, il campo ambientale di minerali (sopra) e i cunicoli
@@ -360,6 +406,132 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
                 quanti = int(rng_f.integers(scelto.grumo[0], scelto.grumo[1] + 1))
                 grumo(out, gx, gz, gy, y0, h_c,
                      tav.minerale[(scelto.nome, profondo)], quanti, solo_pietra)
+
+
+    if deco is not None and scavato.any():
+        decora_caverne(out, tav, scavato, ox, oz, y0, seed)
+
+
+GEODI_PER_CHUNK = 0.10
+
+
+def geode(out, deco, aria, gx, gz, gy, y0, h_c, r, solo_pietra,
+          protetto=None) -> None:
+    """Un geode: guscio di basalto liscio, calcite, ametista, e dentro un
+    vuoto con ametista viva e i cristalli che ne crescono. Come `grumo`,
+    gx/gz sono locali al chunk e possono uscire da 0..16."""
+    H = out.shape[1]
+    ir = int(np.ceil(r)) + 1
+    dentro = []
+    for dx in range(-ir, ir + 1):
+        for dz in range(-ir, ir + 1):
+            lx, lz = gx + dx, gz + dz
+            if not (0 <= lx < 16 and 0 <= lz < 16):
+                continue
+            if protetto is not None and protetto[lx, lz]:
+                continue
+            for dy in range(-ir, ir + 1):
+                ly = gy + dy - y0
+                if not (1 <= ly < H) or gy + dy > int(h_c[lx, lz]) - 8:
+                    continue
+                d = (dx * dx + dy * dy * 1.15 + dz * dz) ** 0.5
+                if d > r + 1.0 or out[lx, ly, lz] not in solo_pietra:
+                    continue
+                if d > r:
+                    out[lx, ly, lz] = deco.basalto
+                elif d > r - 1.0:
+                    out[lx, ly, lz] = deco.calcite
+                elif d > r - 2.2:
+                    viva = (lx * 7 + ly * 13 + lz * 5) % 6 == 0
+                    out[lx, ly, lz] = deco.ametista_viva if viva else deco.ametista
+                else:
+                    out[lx, ly, lz] = aria
+                    dentro.append((lx, ly, lz))
+    for lx, ly, lz in dentro:
+        if out[lx, ly - 1, lz] == deco.ametista_viva and (lx + lz + ly) % 3 == 0:
+            out[lx, ly, lz] = deco.cristallo_su
+        elif (ly + 1 < H and out[lx, ly + 1, lz] == deco.ametista_viva
+              and (lx * 3 + lz) % 4 == 0):
+            out[lx, ly, lz] = deco.cristallo_giu
+
+
+def decora_caverne(out, tav, scavato, ox, oz, y0, seed) -> int:
+    """Gocciolatoi, grotta lussureggiante e sculk SOLO nelle caverne naturali
+    (`scavato`): le gallerie delle miniere sono aria anche loro, ma non devono
+    riempirsi di muschio. Ritorna quante celle ha cambiato."""
+    d = tav.deco
+    H = out.shape[1]
+    aria = tav.aria
+    solido = np.isin(out, tav.scavabile)
+    libera = scavato & (out == aria)
+    pavimento = np.zeros_like(libera)     # cella libera con roccia sotto
+    soffitto = np.zeros_like(libera)      # cella libera con roccia sopra
+    pavimento[:, 1:, :] = libera[:, 1:, :] & solido[:, :-1, :]
+    soffitto[:, :-1, :] = libera[:, :-1, :] & solido[:, 1:, :]
+    if not (pavimento.any() or soffitto.any()):
+        return 0
+
+    gx = ox + np.arange(16)[:, None]
+    gz = oz + np.arange(16)[None, :]
+    ys = (y0 + np.arange(H))[None, :, None]
+
+    def campo(sale, lato):
+        # chiazze larghe `lato` celle, uguali in ogni chunk (coordinate di mondo)
+        x, z = gx // lato, gz // lato
+        h = (x.astype(np.int64) * 73856093) ^ (z.astype(np.int64) * 19349663) \
+            ^ (np.int64(sale) * 83492791)
+        h = (h ^ (h >> 13)) * 1274126177
+        return (((h ^ (h >> 16)) & 0xFFFF) / 65535.0)[:, None, :]
+
+    gocciolato = campo(seed + 1, 22) > 0.60
+    lussureggiante = (campo(seed + 2, 26) > 0.62) & (ys > -24)
+    sculk = (campo(seed + 3, 20) > 0.80) & (ys < -34)
+    dado = np.random.default_rng(_seme(ox, oz, seed + 5)).random(out.shape)
+    cambiate = 0
+
+    def metti(maschera, blocco):
+        nonlocal cambiate
+        out[maschera] = blocco
+        cambiate += int(maschera.sum())
+
+    def roccia_sotto(m):   # la roccia che fa da pavimento alle celle di `m`
+        r = np.zeros_like(m)
+        r[:, :-1, :] = m[:, 1:, :]
+        return r
+
+    def roccia_sopra(m):   # la roccia che fa da soffitto alle celle di `m`
+        r = np.zeros_like(m)
+        r[:, 1:, :] = m[:, :-1, :]
+        return r
+
+    # `pavimento` e `soffitto` sono celle LIBERE: la pianta o la punta va in
+    # quella cella, la roccia che cambia e' il blocco sotto o sopra.
+
+    # -- gocciolatoi: la roccia diventa dripstone, poi le punte ------------
+    pav_g, sof_g = pavimento & gocciolato, soffitto & gocciolato
+    metti(roccia_sotto(pav_g & (dado < 0.55)), d.dripstone)
+    metti(roccia_sopra(sof_g & (dado < 0.55)), d.dripstone)
+    metti(pav_g & (dado > 0.78), d.punta_su)
+    metti(sof_g & (dado < 0.22), d.punta_giu)
+
+    # -- grotta lussureggiante ------------------------------------------------
+    pav_l, sof_l = pavimento & lussureggiante, soffitto & lussureggiante
+    metti(roccia_sotto(pav_l & (dado < 0.70)), d.muschio)
+    metti(roccia_sopra(sof_l & (dado < 0.45)), d.muschio)
+    metti(pav_l & (dado > 0.50) & (dado < 0.85), d.tappeto)
+    metti(pav_l & (dado >= 0.93) & (dado < 0.96), d.azalea)
+    metti(pav_l & (dado >= 0.96) & (dado < 0.985), d.azalea_fiorita)
+    metti(pav_l & (dado >= 0.985), d.foglia)
+    metti(sof_l & (dado > 0.80) & (dado < 0.90), d.radici)
+    metti(sof_l & (dado >= 0.90) & (dado < 0.95), d.liana)
+    metti(sof_l & (dado >= 0.95), d.liana_nuda)
+
+    # -- sculk nelle caverne profonde ----------------------------------------
+    pav_s, sof_s = pavimento & sculk, soffitto & sculk
+    metti(roccia_sotto(pav_s & (dado < 0.80)), d.sculk)
+    metti(pav_s & (dado > 0.97), d.sensore)
+    metti(roccia_sopra(sof_s & (dado < 0.30)), d.sculk)
+    return cambiate
 
 
 def _seme(x: int, z: int, seed: int) -> int:
