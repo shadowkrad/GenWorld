@@ -197,7 +197,7 @@ class Opzioni:
         """
         return (int(self.lato), self.modo(), float(self.erosione),
                 float(self.fiumi), int(self.vulcani), float(self.laghi),
-                float(self.ritaglio), os.path.abspath(self.immagine))
+                float(self.ritaglio), os.path.abspath(self.immagine), B.firma())
 
 
 @dataclass

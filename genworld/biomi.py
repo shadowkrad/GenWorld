@@ -245,6 +245,17 @@ def assegna(cls: np.ndarray, altezze: np.ndarray, livello_mare: int = 62,
     return out
 
 
+def firma() -> str:
+    """Impronta dei biomi: l'elenco `BIOMI` (gli indici nella cache dipendono
+    dall'ordine) e il codice che li assegna. Entra nella firma della cache
+    dell'analisi: senza, una cache scritta prima di una modifica ai biomi
+    restituisce indici di un'altra epoca - biomi sbagliati senza un errore."""
+    import hashlib
+    import inspect
+    testo = repr(BIOMI) + inspect.getsource(assegna) + inspect.getsource(freddo)
+    return hashlib.md5(testo.encode("utf-8")).hexdigest()[:12]
+
+
 def statistiche(biomi: np.ndarray) -> dict[str, int]:
     v, n = np.unique(biomi, return_counts=True)
     ordine = np.argsort(-n)
