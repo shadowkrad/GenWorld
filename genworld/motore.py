@@ -138,6 +138,10 @@ class Opzioni:
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
     fuori_mappa: str = "naturale"
+    # La pianta delle citta' murate: "quadrato" (sempre), "miste" (a sorte fra
+    # quadrato, rettangolo, ovale e tondo, fissata per ogni citta') o il nome di
+    # una forma. I villaggi senza cinta restano quadrati. Non tocca l'analisi.
+    forme_citta: str = "miste"
     # Moltiplicatore di densita' di accampamenti di nemici e cimiteri (vedi
     # `avamposti.py`). 0 spegne l'uno o l'altro. Non toccano il terreno
     # (solo cio' che ci sta sopra), quindi fuori da `firma_analisi` come
@@ -1028,7 +1032,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                           celle_per_villaggio=int(45_000 / max(op.villaggi, 1e-3)),
                           seed=31) if op.villaggi > 0 else [])
     edifici, h, vie, muro, citta, banchi, urbano, cls_c, livello_c = CT.pianifica(
-        a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31)
+        a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31,
+        forme=op.forme_citta)
     # Le citta' cambiano la mappa (il terreno si adatta a loro: fiumi interrati,
     # fossi scavati): da qui in poi, e in `scrivi()`, vale la mappa cambiata.
     a = replace(a, cls=cls_c, livello=livello_c)
