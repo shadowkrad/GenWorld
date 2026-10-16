@@ -65,19 +65,56 @@ def main() -> None:
     sezione("Torri con un capo", "torre",
             "Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, "
             "due forzieri; cartello davanti.")
-    sezione("Cascate", "citta",
-            "Dove un fiume scende di 3+ blocchi in una cella (vedi `genworld/cascate.py`): una colonna "
-            "d'acqua in caduta fino alla pozza, con pareti di roccia (anche muschiosa) ai lati. "
-            "Controllare che l'acqua cada senza spargersi sul prato, che la pozza non si svuoti e che "
-            "a valle il fiume prosegua. Gli spawner delle cripte ora fanno uscire ogni tanto un mob diverso.")
-    sezione("Incarichi", "citta",
-            "In ogni citta' un abitante con un nome sopra la testa, su una strada vicino alla piazza "
-            "(l'elenco e' in luoghi.md, sezione Incarichi). Comprare il libro (1 smeraldo) dice dove "
-            "andare. Il capo della torre/fortezza/castello lascia cadere un oggetto con nome e "
-            "descrizione (lingotto d'oro); la reliquia (scheggia di ametista) sta nel forziere del "
-            "tesoro della rovina; la lettera (carta) nella cella del castello. Riportandolo al "
-            "committente lo scambio e' attivo solo con QUELL'oggetto (un lingotto qualunque non vale) "
-            "e paga smeraldi o diamanti. Controllare che il committente non perda la professione.")
+    # Incarichi: dal `luoghi.md` scritto dalla generazione
+    md = os.path.join(a.mondo, "luoghi.md")
+    if os.path.exists(md):
+        import re
+        testo_md = open(md, encoding="utf-8").read()
+        voci = re.findall(r"- \*\*(.+?)\*\* \((.+?), (-?\d+), (-?\d+)\): (\w+) a (.+?) "
+                          r"\((-?\d+), (-?\d+)\) - oggetto «(.+?)», ricompensa (.+)", testo_md)
+        if voci:
+            righe.extend([
+                "## Incarichi", "",
+                "Un abitante con il nome sopra la testa, su una strada vicino alla piazza. Per 1 smeraldo "
+                "vende un libro con l'incarico. Il capo (uccidi) lascia cadere l'oggetto, la reliquia "
+                "(recupera) sta nel forziere del tesoro, la lettera (salva) nella cella del castello. "
+                "Lo scambio di consegna vale solo con QUELL'oggetto (un lingotto qualunque no) e paga "
+                "smeraldi o diamanti. Controlla che il committente non perda la professione.", ""])
+            for nome, citta_n, x, z, tipo, meta_n, mx, mz, ogg, ric in voci:
+                righe.append(f"- [ ] **{nome}** ({citta_n}) - `/tp @s {x} 100 {z}` - {tipo} a {meta_n} "
+                             f"(`/tp @s {mx} 100 {mz}`), oggetto «{ogg}», ricompensa {ric}")
+            righe.append("")
+
+    # Cascate: dai salti dell'analisi (approssimati: la citta' puo' ritoccare i fiumi)
+    cache_c = os.path.splitext(a.mondo.rstrip("/\\"))[0] + "_cache.npz"
+    if os.path.exists(cache_c):
+        from genworld import cascate as CAS
+        dc = np.load(cache_c, allow_pickle=True)
+        caduta, _ = CAS.trova(dc["livello"], dc["cls"], 62, dc["lava"])
+        zz, xx = np.nonzero(caduta)
+        if len(zz):
+            m0 = dc["h"].shape[0] // 2
+            salto = caduta[zz, xx] - np.maximum(np.floor(dc["livello"][zz, xx]), 62)
+            scelti = []
+            for i in np.argsort(-salto):
+                if all(abs(int(xx[i]) - sx) + abs(int(zz[i]) - sz) > 60 for sx, sz in scelti):
+                    scelti.append((int(xx[i]), int(zz[i])))
+                if len(scelti) == 5:
+                    break
+            righe.extend([
+                "## Cascate", "",
+                "Dove un fiume scende di 3+ blocchi: colonna d'acqua in caduta con pareti di roccia "
+                "ai lati. Controlla che l'acqua cada senza spargersi sul prato, che la pozza non si "
+                "svuoti e che a valle il fiume prosegua. Cinque dei salti piu' alti e distanti fra loro.", ""])
+            for sx, sz in scelti:
+                y = int(caduta[sz, sx]) + 8
+                righe.append(f"- [ ] salto di {int(caduta[sz, sx] - max(np.floor(dc['livello'][sz, sx]), 62))}"
+                             f" blocchi - `/tp @s {sx - m0} {y} {sz - m0}`")
+            righe.append("")
+    righe.extend([
+        "## Altro da controllare", "",
+        "- [ ] Gli spawner delle cripte fanno uscire ogni tanto un mob diverso (zombie con scheletro, ragno...).",
+        "- [ ] Nel log all'apertura del mondo non devono comparire 'Failed to load chunk'.", ""])
     sezione("Castelli in rovina", "castello",
             "Cinta con brecce e torri spezzate, portale sfondato, cortile invaso da erba, macerie, ossa, "
             "alberi morti e tombe; il maschio sventrato con trono (il capo siede li'), tavola rotta, "

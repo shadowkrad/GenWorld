@@ -153,7 +153,7 @@ def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "",
         righe.append("")
     md = os.path.join(cartella, "luoghi.md")
     with open(md, "w", encoding="utf-8") as f:
-        f.write("\n".join(righe))
+        f.write("\n".join(righe) + extra_md)
     js = os.path.join(cartella, "luoghi.json")
     with open(js, "w", encoding="utf-8") as f:
         json.dump([l.__dict__ for l in luoghi], f, ensure_ascii=False, indent=1)

@@ -108,3 +108,11 @@ def test_sezione_elenco():
     md = IC.sezione_elenco(inc)
     assert "## Incarichi" in md and inc[0].committente in md
     assert IC.sezione_elenco([]) == ""
+
+
+def test_elenco_dei_luoghi_include_gli_incarichi(tmp_path):
+    citta, luoghi, strutture = _mondo()
+    inc = IC.pianifica(citta, luoghi, strutture, META, seed=1)
+    md, _ = LU.scrivi_elenco(luoghi, str(tmp_path), "Prova", extra_md=IC.sezione_elenco(inc))
+    testo = open(md, encoding="utf-8").read()
+    assert "## Incarichi" in testo and inc[0].committente in testo
