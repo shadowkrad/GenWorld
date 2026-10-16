@@ -286,16 +286,9 @@ def _nulla(frazione: float, testo: str) -> None:
 # Analisi
 # --------------------------------------------------------------------------
 
-def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
-             usa_cache: bool = True) -> Analisi:
-    """Immagine -> (classi, quote, acque). Risultato messo in cache."""
-    if usa_cache:
-        cached = _leggi_cache(op)
-        if cached is not None:
-            avanza(1.0, "analisi ripresa dalla cache")
-            return cached
-
-    note: list[str] = []
+def _carica_e_classifica(op: Opzioni, note: list[str], avanza: Avanzamento):
+    """Immagine -> (classi, rugosita', profilo). La mappa si porta a `op.lato`
+    (centrata se non e' quadrata) e il decoro diventa oceano."""
     avanza(0.02, "lettura dell'immagine")
 
     prof = Profilo.carica(op.profilo) if op.profilo else None
@@ -356,7 +349,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
     if deco.any():
         note.append(f"decoro escluso: {deco.mean() * 100:.1f}% dell'area")
         cls[deco] = M.OCEANO
+    return cls, rug, prof
 
+
+def _terreno(op: Opzioni, cls: np.ndarray, rug: np.ndarray, prof,
+             note: list[str], avanza: Avanzamento) -> np.ndarray:
+    """Classi e rugosita' -> quote (altimetria, erosione, dettaglio, fondale)."""
     avanza(0.34, "altimetria dedotta")
     h = M.altimetria(cls, rug, prof.quote_effettive() if prof else None)
 
@@ -393,7 +391,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             f"distinte, la piu' diffusa copre il "
             f"{st['quota_piu_diffusa'] * 100:.0f}% dell'acqua, "
             f"{st['scalini']} scalini oltre 8 blocchi")
+    return h
 
+
+def _vulcani(op: Opzioni, cls: np.ndarray, h: np.ndarray, note: list[str],
+             avanza: Avanzamento):
+    """Coni, crateri, laghi di lava e colate. Ritorna (cls, h, lava, colata, q_lava)."""
     # VULCANI. Vanno prima dei fiumi: sono l'unico elemento che si SOVRAPPONE
     # al terreno invece di dedurlo, e il deflusso deve poter scendere dai loro
     # fianchi. Calcolarli dopo darebbe coni senza torrenti.
@@ -413,7 +416,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
                         f"{st['lago_di_lava']}, colate {st['colate']} "
                         f"(di cui {st['colate_incandescenti']} incandescenti), "
                         f"cima a quota {st['quota_massima']}")
+    return cls, h, lava, colata, q_lava
 
+
+def _fiumi(op: Opzioni, cls: np.ndarray, h: np.ndarray, lava: np.ndarray,
+           q_lava: np.ndarray, note: list[str], avanza: Avanzamento):
+    """Reticolo idrografico dal terreno. Ritorna (cls, h, livello, marino)."""
     # Fiumi. NON estratti dal disegno: calcolati dal terreno. Tre tentativi di
     # estrazione sono falliti perche' a questa risoluzione un fiume disegnato
     # e' largo un pixel e il suo colore si confonde con le ombre del rilievo.
@@ -450,7 +458,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             note.append(f"fiumi: {st['celle']} celle in {st['corsi']} corsi, "
                         f"quota massima {st['quota_max']:.0f} "
                         f"(bacino maggiore {int(acc[~marino].max())} celle)")
+    return cls, h, livello, marino
 
+
+def _laghi(op: Opzioni, cls: np.ndarray, h: np.ndarray, livello: np.ndarray,
+           marino: np.ndarray, note: list[str], avanza: Avanzamento):
+    """Bacini chiusi. Ritorna (cls, h, livello)."""
     # LAGHI. Dopo i fiumi apposta: un bacino che i fiumi hanno gia' riempito
     # (`cls == FIUME`) va escluso, altrimenti una conca attraversata da un
     # corso d'acqua verrebbe ritrovata come lago e il suo pelo, calcolato con
@@ -468,6 +481,27 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             st = LG.statistiche(maschera_l, livello_l)
             note.append(f"laghi: {st['celle']} celle in {st['bacini']} bacini, "
                         f"quota media {st['quota_media']:.0f}")
+    return cls, h, livello
+
+
+def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
+             usa_cache: bool = True) -> Analisi:
+    """Immagine -> (classi, quote, acque). Risultato messo in cache.
+
+    Le fasi sono funzioni a parte, nell'ordine: lettura e classificazione,
+    terreno, vulcani, fiumi, laghi, biomi. L'ordine conta (vedi i commenti)."""
+    if usa_cache:
+        cached = _leggi_cache(op)
+        if cached is not None:
+            avanza(1.0, "analisi ripresa dalla cache")
+            return cached
+
+    note: list[str] = []
+    cls, rug, prof = _carica_e_classifica(op, note, avanza)
+    h = _terreno(op, cls, rug, prof, note, avanza)
+    cls, h, lava, colata, q_lava = _vulcani(op, cls, h, note, avanza)
+    cls, h, livello, marino = _fiumi(op, cls, h, lava, q_lava, note, avanza)
+    cls, h, livello = _laghi(op, cls, h, livello, marino, note, avanza)
 
     # I biomi per ultimi: dipendono dalle classi, e i fiumi le cambiano.
     # Calcolati prima, un corso d'acqua sarebbe rimasto pianura.
@@ -1603,47 +1637,8 @@ def fetta_orlo(a: np.ndarray, sx: int, sz: int, margine: int = 1) -> np.ndarray:
     return fuori.T
 
 
-def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
-                  quota_c=None, lava_c=None, colata_c=None, muro_c=None,
-                  campi_c=None, ox=0, oz=0, y0=-64, y1=ALTEZZA_MONDO,
-                  roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
-                  manto_c=None, scarpata_c=None, sponda_c=None,
-                  campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
-                  piazze=None, piede_c=None, biomi_c=None, caduta_c=None,
-                  parete_acqua_c=None):
-    """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
-    hh = h_c.astype(np.int32)[:, None, :]
-    ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
-
-    out = np.full((16, y1 - y0, 16), scrittore.id_aria, dtype=np.uint32)
-    solido = ys < hh
-    out[solido] = scrittore.blocco("stone")
-    out[:, 0, :] = scrittore.blocco("bedrock")
-
-    # --- strati di roccia -------------------------------------------------
-    # PRIMA della superficie: gli strati stanno dentro la montagna, l'erba
-    # sopra. L'ordine inverso darebbe banchi di tufo in mezzo a un prato.
-    if roccia is not None:
-        scarto = (np.zeros((16, 16), np.int32) if scarto_c is None
-                  else np.asarray(scarto_c).astype(np.int32))[:, None, :]
-        SG.applica(out, roccia, ys, solido, scarto)
-
-    cima = ys == hh - 1
-    sotto = solido & (ys >= hh - 4) & ~cima
-    # Dove il pendio e' una parete non cresce niente: la superficie resta lo
-    # strato di roccia che c'e' sotto. E' cosi' che si ottengono le pareti,
-    # senza generarle: basta non coprirle di erba.
-    nuda = (np.zeros((16, 16), bool) if nuda_c is None
-            else np.asarray(nuda_c).astype(bool))[:, None, :]
-    for k, (sup, sub) in SUPERFICIE.items():
-        m = (cls_c == k)[:, None, :] & ~nuda
-        out[cima & m] = scrittore.blocco(sup)
-        out[sotto & m] = scrittore.blocco(sub)
-
-    if biomi_c is not None:
-        PI.mesa(out, scrittore, h_c, cls_c, biomi_c, nuda_c, y0)
-        PI.palude(out, scrittore, h_c, cls_c, biomi_c, ox, oz, y0)
-
+def _scarpate_e_sponde(out, scrittore, h_c, cls_c, scarpata_c, sponda_c, ox, oz, y0):
+    """Gradoni urbani vestiti di pietra e sponde dei fiumi."""
     # --- fronti dei gradoni -----------------------------------------------
     # Dove la citta' e' terrazzata, il salto fra un ripiano e l'altro si veste
     # di pietra: un muro di sostegno si legge come una cosa costruita, un
@@ -1687,6 +1682,9 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                 nome = SUPERFICIE.get(int(cls_c[lx, lz]), ("grass_block", "dirt"))[0]
                 out[lx, cima_y, lz] = scrittore.blocco(nome)
 
+
+def _neve(out, scrittore, roccia, neve_c, cima, h_c, y0):
+    """Linea delle nevi: manto a chiazze e blocco pieno."""
     # --- neve -------------------------------------------------------------
     # Non una quota netta ma una fascia: prima il manto sottile a chiazze,
     # poi il blocco pieno. Una linea delle nevi disegnata col righello si
@@ -1701,6 +1699,10 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
             if 0 <= ly < out.shape[1] and out[lx, ly, lz] == scrittore.id_aria:
                 out[lx, ly, lz] = roccia.manto
 
+
+def _acqua(out, scrittore, h_c, cls_c, liv_c, solido, ys, lava_c, biomi_c, caduta_c,
+           parete_acqua_c, ox, oz, y0):
+    """Acqua e lava fino al loro pelo, decori dell'acqua e cascate."""
     # Il livello dell'acqua NON e' globale: un fiume scorre in quota, e
     # riempirlo fino al livello del mare lo trasformerebbe in un canyon
     # asciutto o in un braccio di mare.
@@ -1724,6 +1726,10 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
     if caduta_c is not None:
         CAS.posa(out, scrittore, h_c, liv[:, 0, :], caduta_c, parete_acqua_c, ox, oz, y0,
                  mare=LIVELLO_MARE)
+
+
+def _cono(out, scrittore, cls_c, manto_c, piede_c, cima, sotto):
+    """Manto a colate del cono e striature del piede del vulcano."""
     # --- manto del cono ---------------------------------------------------
     # Prima il cono era basalto e basta, dalla base all'orlo. Un vulcano vero
     # e' fatto di colate sovrapposte di eta' diverse, e si vede.
@@ -1745,8 +1751,9 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         for k, blocco in enumerate(_blocchi_piede(scrittore), start=1):
             out[cima & (pc == k)[:, None, :]] = blocco
 
-    PI.vulcano(out, scrittore, h_c, cls_c, lava_c, ox, oz, y0)
 
+def _colate(out, scrittore, hh, colata_c, y0):
+    """Le colate di lava sul pendio dei vulcani."""
     if colata_c is not None and np.any(colata_c):
         cima_i = (hh - 1 - y0)
         magma = scrittore.blocco("magma_block")
@@ -1773,6 +1780,60 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                     out[lx, yy, lz] = magma
                 else:
                     out[lx, yy, lz] = basalto
+
+
+def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
+                  quota_c=None, lava_c=None, colata_c=None, muro_c=None,
+                  campi_c=None, ox=0, oz=0, y0=-64, y1=ALTEZZA_MONDO,
+                  roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
+                  manto_c=None, scarpata_c=None, sponda_c=None,
+                  campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
+                  piazze=None, piede_c=None, biomi_c=None, caduta_c=None,
+                  parete_acqua_c=None):
+    """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
+    hh = h_c.astype(np.int32)[:, None, :]
+    ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
+
+    out = np.full((16, y1 - y0, 16), scrittore.id_aria, dtype=np.uint32)
+    solido = ys < hh
+    out[solido] = scrittore.blocco("stone")
+    out[:, 0, :] = scrittore.blocco("bedrock")
+
+    # --- strati di roccia -------------------------------------------------
+    # PRIMA della superficie: gli strati stanno dentro la montagna, l'erba
+    # sopra. L'ordine inverso darebbe banchi di tufo in mezzo a un prato.
+    if roccia is not None:
+        scarto = (np.zeros((16, 16), np.int32) if scarto_c is None
+                  else np.asarray(scarto_c).astype(np.int32))[:, None, :]
+        SG.applica(out, roccia, ys, solido, scarto)
+
+    cima = ys == hh - 1
+    sotto = solido & (ys >= hh - 4) & ~cima
+    # Dove il pendio e' una parete non cresce niente: la superficie resta lo
+    # strato di roccia che c'e' sotto. E' cosi' che si ottengono le pareti,
+    # senza generarle: basta non coprirle di erba.
+    nuda = (np.zeros((16, 16), bool) if nuda_c is None
+            else np.asarray(nuda_c).astype(bool))[:, None, :]
+    for k, (sup, sub) in SUPERFICIE.items():
+        m = (cls_c == k)[:, None, :] & ~nuda
+        out[cima & m] = scrittore.blocco(sup)
+        out[sotto & m] = scrittore.blocco(sub)
+
+    if biomi_c is not None:
+        PI.mesa(out, scrittore, h_c, cls_c, biomi_c, nuda_c, y0)
+        PI.palude(out, scrittore, h_c, cls_c, biomi_c, ox, oz, y0)
+
+    _scarpate_e_sponde(out, scrittore, h_c, cls_c, scarpata_c, sponda_c, ox, oz, y0)
+
+    _neve(out, scrittore, roccia, neve_c, cima, h_c, y0)
+
+    _acqua(out, scrittore, h_c, cls_c, liv_c, solido, ys, lava_c, biomi_c, caduta_c,
+           parete_acqua_c, ox, oz, y0)
+    _cono(out, scrittore, cls_c, manto_c, piede_c, cima, sotto)
+
+    PI.vulcano(out, scrittore, h_c, cls_c, lava_c, ox, oz, y0)
+
+    _colate(out, scrittore, hh, colata_c, y0)
 
     if tipo_c is not None:
         tipo_orlo = (np.asarray(tipo_orlo_c) if tipo_orlo_c is not None

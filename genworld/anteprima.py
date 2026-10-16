@@ -90,9 +90,38 @@ COLORI = {
     "obsidian": (28, 20, 40),
     "gravel": (150, 145, 140),
     "snow": (245, 245, 250),
+    # sottosuolo e fondali: geodi, caverne con stalattiti, alghe, fango
+    "amethyst_block": (134, 98, 190), "budding_amethyst": (124, 92, 178),
+    "dripstone_block": (134, 107, 92), "pointed_dripstone": (140, 112, 96),
+    "kelp": (62, 110, 56), "kelp_plant": (62, 110, 56),
+    "seagrass": (58, 118, 84), "tall_seagrass": (58, 118, 84),
+    "mud": (60, 56, 60),
     "air": (24, 26, 30),
 }
 COLORE_IGNOTO = (255, 0, 255)
+
+
+def ombreggia(rgb: np.ndarray, altezze: np.ndarray, forza: float) -> np.ndarray:
+    """Rilievo sull'immagine: ombra locale piu' tinta per quota. `forza` 0 = nessuna."""
+    # Due contributi, perche' la sola pendenza non basta a far vedere un
+    # rilievo dolce: l'ombreggiatura da' la forma locale, la tinta altimetrica
+    # da' la quota assoluta.
+    if forza > 0:
+        gz, gx = np.gradient(altezze)
+        luce = np.clip(1.0 + forza * (gx + gz) / 3.0, 0.45, 1.55)
+
+        valide = altezze > 0
+        if valide.any():
+            hmin, hmax = altezze[valide].min(), altezze.max()
+            norm = np.clip((altezze - hmin) / max(1.0, hmax - hmin), 0, 1)
+        else:
+            norm = np.zeros_like(altezze)
+        quota = 0.72 + 0.56 * norm
+
+        rgb = np.clip(
+            rgb.astype(np.float32) * (luce * quota)[:, :, None], 0, 255
+        ).astype(np.uint8)
+    return rgb
 
 
 def rendi(
@@ -162,24 +191,7 @@ def rendi(
                 rgb[oz + lz, ox + lx] = colore_per_id[bid]
                 altezze[oz + lz, ox + lx] = y_cima[lx, lz] + y0
 
-    # Due contributi, perche' la sola pendenza non basta a far vedere un
-    # rilievo dolce: l'ombreggiatura da' la forma locale, la tinta altimetrica
-    # da' la quota assoluta.
-    if ombreggiatura > 0:
-        gz, gx = np.gradient(altezze)
-        luce = np.clip(1.0 + ombreggiatura * (gx + gz) / 3.0, 0.45, 1.55)
-
-        valide = altezze > 0
-        if valide.any():
-            hmin, hmax = altezze[valide].min(), altezze.max()
-            norm = np.clip((altezze - hmin) / max(1.0, hmax - hmin), 0, 1)
-        else:
-            norm = np.zeros_like(altezze)
-        quota = 0.72 + 0.56 * norm
-
-        rgb = np.clip(
-            rgb.astype(np.float32) * (luce * quota)[:, :, None], 0, 255
-        ).astype(np.uint8)
+    rgb = ombreggia(rgb, altezze, ombreggiatura)
 
     Image.fromarray(rgb, "RGB").save(percorso_png)
     livello.close()
