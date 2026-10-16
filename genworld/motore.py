@@ -2391,17 +2391,54 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
                           ar.x, ar.z, ar.base)
 
 
+def _modelli_di(op: Opzioni, piano: Piano) -> list:
+    """Case, castelli, navi, moli, fari e modelli del piano, nell'ordine di
+    `pianifica()`: gli indici di `piano.scelte` e `piano.isolate` si riferiscono
+    a questa lista."""
+    cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
+    modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
+               if cartelle_t else [])
+    if piano.isolate:
+        if op.templates_castello or op.templates_nave:
+            castelli_m, navi_m = _modelli_monumenti(op)
+            modelli = modelli + castelli_m + navi_m
+        moli_m, fari_m = _modelli_porti(op)
+        modelli = modelli + moli_m + fari_m + list(piano.modelli_extra)
+    return modelli
+
+
+def carica_modelli(op: Opzioni, piano: Piano) -> dict:
+    """Tutti i template che `scrivi` usa: {"modelli", "cimiteri", "portali"}.
+    Per `parallelo.py`, che li legge una volta sola e li passa ai lavoratori."""
+    cartelle_cim = [c.strip() for c in op.templates_cimitero.split(";") if c.strip()]
+    cartelle_portale = [c.strip() for c in op.templates_portale.split(";") if c.strip()]
+    return {
+        "modelli": _modelli_di(op, piano),
+        "cimiteri": (AP.carica_cimiteri(cartelle_cim, versione=op.versione)
+                     if cartelle_cim and piano.avamposti else []),
+        "portali": (AP.carica_portali(cartelle_portale, versione=op.versione)
+                    if cartelle_portale and piano.avamposti else []),
+    }
+
+
 def scrivi(op: Opzioni, a: Analisi, piano: Piano,
            avanza: Avanzamento = _nulla,
            da: int = 0, quanti: int = 0,
            ferma: Callable[[], bool] | None = None,
-           indici: list[int] | None = None, lavoratore: bool = False) -> dict:
+           indici: list[int] | None = None, lavoratore: bool = False,
+           precaricati: dict | None = None) -> dict:
     """Scrive i chunk. `da`/`quanti` servono alla CLI a lavorare a lotti.
 
     `indici` (posizioni nella lista dei chunk) e `lavoratore` servono a
     `parallelo.py`: un processo scrive solo quei chunk in un mondo di lavoro e
     NON fa i passaggi finali (abitanti, bordo, elenco), che toccano al
     processo principale quando tutti hanno finito.
+
+    `precaricati` ({"modelli", "cimiteri", "portali"}, vedi `carica_modelli`)
+    evita di rileggere i template: i lavoratori li ricevono dal processo
+    principale. Riletti da piu' processi insieme, quelli che si leggono da un
+    mondo (i fari) a volte uscivano vuoti e gli indici dei modelli non
+    coincidevano piu' con il piano.
 
     `ferma` e' interrogato a ogni chunk: la finestra deve poter annullare una
     generazione lunga senza chiudere il programma.
@@ -2438,13 +2475,15 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # perche' sono un'altra cartella e un'altra scelta (una struttura
         # sola, non una per lotto).
         cartelle_cim = [c.strip() for c in op.templates_cimitero.split(";") if c.strip()]
-        modelli_cim = (AP.carica_cimiteri(cartelle_cim, versione=op.versione)
-                      if cartelle_cim and piano.avamposti else [])
+        modelli_cim = (precaricati["cimiteri"] if precaricati is not None else
+                       AP.carica_cimiteri(cartelle_cim, versione=op.versione)
+                       if cartelle_cim and piano.avamposti else [])
         cat_cim = TM.Catalogo(modelli_cim, m) if modelli_cim else None
         aria_cim = m.id_aria if cat_cim is not None else 0
         basamento_cim = m.blocco("cobblestone") if cat_cim is not None else 0
         cartelle_portale = [c.strip() for c in op.templates_portale.split(";") if c.strip()]
-        modelli_portale = (AP.carica_portali(cartelle_portale, versione=op.versione)
+        modelli_portale = (precaricati["portali"] if precaricati is not None else
+                           AP.carica_portali(cartelle_portale, versione=op.versione)
                            if cartelle_portale and piano.avamposti else [])
         cat_portale = TM.Catalogo(modelli_portale, m) if modelli_portale else None
         aria_portale = m.id_aria if cat_portale is not None else 0
@@ -2491,17 +2530,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # Il modello di ogni lotto lo ha deciso `pianifica()` (`piano.scelte`),
         # senza ripetizioni nel villaggio: qui si carica solo il catalogo, con
         # lo stesso ordine, perche' gli indici coincidano.
-        cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
-        modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
-                  if cartelle_t else [])
-        if piano.isolate:
-            # dopo le case, nello stesso ordine di `pianifica()`: castelli, navi,
-            # poi i modelli che il pianificatore ha costruito (molo, faro)
-            if op.templates_castello or op.templates_nave:
-                castelli_m, navi_m = _modelli_monumenti(op)
-                modelli = modelli + castelli_m + navi_m
-            moli_m, fari_m = _modelli_porti(op)
-            modelli = modelli + moli_m + fari_m + list(piano.modelli_extra)
+        modelli = (precaricati["modelli"] if precaricati is not None
+                   else _modelli_di(op, piano))
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:

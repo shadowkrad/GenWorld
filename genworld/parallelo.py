@@ -59,7 +59,7 @@ def _avvia(percorso: str, contatore) -> None:
 
 def _lavora(k: int, indici: list[int], cartella: str) -> dict:
     from .motore import con_uscita, scrivi
-    op, a, piano = _dati
+    op, a, piano, precaricati = _dati
     sub = os.path.join(cartella, f"w{k}")
     visti = [0]
 
@@ -70,7 +70,7 @@ def _lavora(k: int, indici: list[int], cartella: str) -> dict:
         visti[0] = fatti
 
     st = scrivi(con_uscita(op, sub, op.nome), a, piano, avanza=avanza,
-                indici=indici, lavoratore=True)
+                indici=indici, lavoratore=True, precaricati=precaricati)
     with _contatore.get_lock():
         _contatore.value += len(indici) - visti[0]
     return {"k": k, "cartella": sub, "chunk": st["chunk"]}
@@ -101,7 +101,7 @@ def unisci(op, cartelle: list[str]) -> int:
 def scrivi_parallelo(op, a, piano, processi: int = 0, avanza=None, ferma=None) -> dict:
     """Come `motore.scrivi()` per tutto il mondo, con `processi` processi
     (0 = tanti quanti i core, al massimo 8). Ritorna lo stesso dizionario."""
-    from .motore import _nulla, scrivi
+    from .motore import _nulla, carica_modelli, scrivi
     avanza = avanza or _nulla
     n = processi or min(8, os.cpu_count() or 1)
     coords = coordinate_chunk(op.lato)
@@ -116,9 +116,13 @@ def scrivi_parallelo(op, a, piano, processi: int = 0, avanza=None, ferma=None) -
     t0 = time.time()
     base = tempfile.mkdtemp(prefix="genworld_", dir=os.path.dirname(os.path.abspath(op.uscita)) or None)
     try:
+        # i template si leggono UNA volta, qui: riletti da piu' processi insieme
+        # (i fari si leggono da un mondo) a volte uscivano vuoti, e gli indici
+        # dei modelli del piano non coincidevano piu'
+        precaricati = carica_modelli(op, piano)
         dati = os.path.join(base, "dati.pkl")
         with open(dati, "wb") as f:
-            pickle.dump((op, a, piano), f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump((op, a, piano, precaricati), f, protocol=pickle.HIGHEST_PROTOCOL)
         ctx = mp.get_context("spawn")
         contatore = ctx.Value("i", 0)
         totale = len(coords)
