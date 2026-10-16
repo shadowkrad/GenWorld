@@ -217,6 +217,40 @@ class Opzioni:
             return "profilo:" + os.path.basename(self.profilo)
         return "adattivo" if self.adattivo else "soglie"
 
+    @property
+    def cache_piano(self) -> str:
+        return self.uscita.rstrip("/\\") + "_piano.pkl"
+
+    def firma_piano(self) -> str:
+        """Impronta di tutto cio' che puo' cambiare il risultato di `pianifica`:
+        ogni opzione tranne dove si scrive e come si chiama il mondo, il
+        contenuto dei file template e il CODICE del programma (un piano
+        calcolato da una versione diversa non vale: meglio rifarlo che
+        scoprire a mondo scritto che manca un pezzo)."""
+        import dataclasses
+        import hashlib
+        h = hashlib.sha256()
+        for k, v in sorted(dataclasses.asdict(self).items()):
+            if k in ("uscita", "nome", "cache_piano"):
+                continue
+            h.update(f"{k}={v!r};".encode())
+        h.update(repr(self.firma_analisi()).encode())
+        for k in sorted(vars(self)):
+            if k.startswith("templates") and getattr(self, k):
+                for cartella in str(getattr(self, k)).split(";"):
+                    cartella = cartella.strip()
+                    for radice, _, files in sorted(os.walk(cartella)):
+                        for nome in sorted(files):
+                            f = os.path.join(radice, nome)
+                            st = os.stat(f)
+                            h.update(f"{f}:{st.st_size}:{st.st_mtime_ns};".encode())
+        qui = os.path.dirname(os.path.abspath(__file__))
+        for nome in sorted(os.listdir(qui)):
+            if nome.endswith(".py"):
+                with open(os.path.join(qui, nome), "rb") as f:
+                    h.update(nome.encode() + hashlib.sha256(f.read()).digest())
+        return h.hexdigest()
+
     def firma_analisi(self) -> tuple:
         """Solo i parametri che cambiano il risultato di `analizza`.
 
@@ -471,6 +505,33 @@ def _leggi_cache(op: Opzioni) -> Analisi | None:
                        note=[str(x) for x in d["note"]])
     except (KeyError, ValueError, OSError):
         return None
+
+
+def pianifica_con_cache(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla,
+                        usa: bool = True) -> tuple[Piano, bool]:
+    """`pianifica`, ma se esiste un piano gia' calcolato con le STESSE opzioni,
+    gli stessi template e lo stesso codice (vedi `Opzioni.firma_piano`) lo
+    rilegge dal disco. Ritorna (piano, dalla_cache). Una cache illeggibile o di
+    un'altra firma si ignora e si rifa il piano."""
+    import pickle
+    firma = op.firma_piano()
+    if usa and os.path.exists(op.cache_piano):
+        try:
+            with open(op.cache_piano, "rb") as f:
+                salvata, piano = pickle.load(f)
+            if salvata == firma:
+                avanza(1.0, "piano dalla cache")
+                return piano, True
+        except Exception:
+            pass
+    piano = pianifica(op, a, avanza)
+    if usa:
+        os.makedirs(os.path.dirname(os.path.abspath(op.cache_piano)) or ".", exist_ok=True)
+        tmp = op.cache_piano + ".tmp"
+        with open(tmp, "wb") as f:
+            pickle.dump((firma, piano), f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, op.cache_piano)
+    return piano, False
 
 
 def _scrivi_cache(op: Opzioni, a: Analisi) -> None:
