@@ -32,7 +32,7 @@ from .rumore import fbm
  FUNGO_MARRONE, FUNGO_ROSSO, CANNA, ACACIA, ROVERE_SCURO, GIUNGLA,
  ABETE_ALTO, GIRASOLE, FELCE_GRANDE, LILLA, ROSAIO, PEONIA, FUNGO_GIGANTE_M,
  FUNGO_GIGANTE_R, TORCHFLOWER, MANGROVIA, AZALEA, BAMBU, SASSO,
- TRONCO_CADUTO) = range(35)
+ TRONCO_CADUTO, SECCA, SECCA_ALTA, LETTIERA) = range(38)
 
 # piante alte due blocchi (meta' bassa e meta' alta)
 DOPPI = {GIRASOLE: "sunflower", FELCE_GRANDE: "large_fern", LILLA: "lilac",
@@ -61,6 +61,7 @@ NOMI_SPECIE = {
     FUNGO_GIGANTE_M: "fungo_gigante_marrone", FUNGO_GIGANTE_R: "fungo_gigante_rosso",
     TORCHFLOWER: "torchflower", MANGROVIA: "mangrovia", AZALEA: "azalea",
     BAMBU: "bambu", SASSO: "sasso", TRONCO_CADUTO: "tronco_caduto",
+    SECCA: "erba_secca", SECCA_ALTA: "erba_secca_alta", LETTIERA: "lettiera",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -80,8 +81,9 @@ DENSITA = {
 # dappertutto si legge finto quanto un bosco tutto quercia - e restano fuori
 # da montagna, neve e deserto, dove in Minecraft non nascono naturalmente.
 MISCELA = {
-    FORESTA:  [(QUERCIA, 0.47), (AZALEA, 0.03), (BETULLA, 0.22), (ABETE, 0.18),
-               (GIGLIO_VALLE, 0.06), (FUNGO_MARRONE, 0.03), (FUNGO_ROSSO, 0.01)],
+    FORESTA:  [(QUERCIA, 0.40), (AZALEA, 0.03), (BETULLA, 0.19), (ABETE, 0.15),
+               (GIGLIO_VALLE, 0.06), (FUNGO_MARRONE, 0.03), (FUNGO_ROSSO, 0.01),
+               (LETTIERA, 0.13)],
     PRATERIA: [(QUERCIA, 0.55), (BETULLA, 0.15), (CESPUGLIO, 0.08),
                (DENTE_DI_LEONE, 0.08), (PAPAVERO, 0.06), (TULIPANO, 0.04),
                (FIORDALISO, 0.02), (ALLIUM, 0.02)],
@@ -89,7 +91,7 @@ MISCELA = {
                (PAPAVERO, 0.10)],
     MONTAGNA: [(ABETE, 0.85), (CESPUGLIO, 0.15)],
     NEVE:     [(ABETE, 1.0)],
-    DESERTO:  [(CACTUS, 0.55), (ARBUSTO, 0.45)],
+    DESERTO:  [(CACTUS, 0.40), (ARBUSTO, 0.30), (SECCA, 0.20), (SECCA_ALTA, 0.10)],
     SPIAGGIA: [(ARBUSTO, 1.0)],
 }
 
@@ -108,7 +110,8 @@ ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            LILLA: (2, 3), ROSAIO: (2, 3), PEONIA: (2, 3),
            FUNGO_GIGANTE_M: (4, 7), FUNGO_GIGANTE_R: (4, 7), TORCHFLOWER: (1, 2),
            MANGROVIA: (5, 8), AZALEA: (1, 2), BAMBU: (5, 12),
-           SASSO: (1, 4), TRONCO_CADUTO: (3, 6)}
+           SASSO: (1, 4), TRONCO_CADUTO: (3, 6),
+           SECCA: (1, 2), SECCA_ALTA: (1, 2), LETTIERA: (1, 2)}
 
 # Rocce e tronchi caduti: una quota delle piante dei terreni boscosi e rocciosi
 # diventa un sasso (anche in montagna e sulla neve), e nei boschi un tronco a
@@ -123,9 +126,9 @@ QUOTA_TRONCHI = 0.035
 # la giungla alberi altissimi, il prato fresco i ciliegi, la taiga gigante gli
 # abeti piu' alti.
 MISCELA_BIOMA = {
-    "savanna": [(ACACIA, 0.52), (CESPUGLIO, 0.18), (ARBUSTO, 0.12), (QUERCIA, 0.10),
-                (TORCHFLOWER, 0.08)],
-    "dark_forest": [(ROVERE_SCURO, 0.55), (QUERCIA, 0.14), (FUNGO_GIGANTE_M, 0.07),
+    "savanna": [(ACACIA, 0.46), (CESPUGLIO, 0.14), (ARBUSTO, 0.08), (SECCA, 0.12),
+                (SECCA_ALTA, 0.08), (QUERCIA, 0.06), (TORCHFLOWER, 0.06)],
+    "dark_forest": [(ROVERE_SCURO, 0.45), (LETTIERA, 0.10), (QUERCIA, 0.14), (FUNGO_GIGANTE_M, 0.07),
                     (FUNGO_GIGANTE_R, 0.06), (FUNGO_MARRONE, 0.10),
                     (FUNGO_ROSSO, 0.08)],
     "sunflower_plains": [(GIRASOLE, 0.38), (QUERCIA, 0.10), (CESPUGLIO, 0.20),
@@ -391,6 +394,13 @@ class Tavolozza:
         self.erba_alta = s.blocco("plant", plant_type="grass")
         self.felce = s.blocco("plant", plant_type="fern")
         self.canna = s.blocco("sugar_cane", age="0")
+        # erba secca (savana, deserto, badlands) e lettiera di foglie (boschi)
+        self.secca = s.blocco("plant", plant_type="short_dry_grass")
+        self.secca_alta = s.blocco("plant", plant_type="tall_dry_grass")
+        self.lettiera = {
+            (f, n): s.blocco("leaf_litter", facing=f, segment_amount=str(n))
+            for f in ("north", "south", "east", "west") for n in (1, 2, 3, 4)
+        }
         self.fiore = {
             DENTE_DI_LEONE: s.blocco("plant", plant_type="dandelion"),
             PAPAVERO: s.blocco("plant", plant_type="poppy"),
@@ -568,6 +578,20 @@ def disegna(
             continue
         if sp == CESPUGLIO:
             posa(x, base, z, tav.erba_alta if rng.random() < 0.7 else tav.felce)
+            messi += 1
+            continue
+        if sp in (SECCA, SECCA_ALTA):
+            posa(x, base, z, tav.secca if sp == SECCA else tav.secca_alta)
+            messi += 1
+            continue
+        if sp == LETTIERA:
+            # un mucchietto di foglie secche: la cella e un paio di vicine
+            for dx, dz in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
+                if (dx, dz) != (0, 0) and rng.random() < 0.6:
+                    continue
+                posa(x + dx, base, z + dz,
+                     tav.lettiera[(("north", "south", "east", "west")[int(rng.integers(0, 4))],
+                                   int(rng.integers(1, 5)))])
             messi += 1
             continue
         if sp == BACCHE:

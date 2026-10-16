@@ -39,6 +39,7 @@ from . import entita as EN
 from . import incarichi as IC
 from . import fortezze as FZ
 from . import luoghi as LU
+from . import mappe as MP
 from . import fauna as FA
 from . import fiumi as R
 from . import insediamenti as I
@@ -622,6 +623,7 @@ class Piano:
     libri: dict = field(default_factory=dict)
     incarichi: list = field(default_factory=list)
     oggetti_incarico: dict = field(default_factory=dict)
+    mappe: list = field(default_factory=list)
     libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
@@ -994,7 +996,8 @@ def _pianifica_porti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
         primo_barche=n_case + len(castelli),
         primo_extra=primo_molo + len(moli) + len(fari),
         ver=ver, seed=op.seed + 97,
-        moli=moli, primo_molo=primo_molo, fari=fari, primo_faro=primo_molo + len(moli))
+        moli=moli, primo_molo=primo_molo, fari=fari, primo_faro=primo_molo + len(moli),
+        legno=((lambda x, z: B.legno_di(a.biomi[z, x])) if a.biomi is not None else None))
     if pezzi:
         protetto |= IS.maschera(pezzi, a.cls.shape)
         da_schema = len(moli) + len(fari)
@@ -1500,26 +1503,37 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
     ind = LU.indizi(luoghi)
     libri: dict = {}
+    sedi: dict = {}           # (tipo, x, z) del luogo -> forziere col libro, per le mappe
     for d in dungeon:
         libro = ind["tappe"].get(("rovina", d.x - meta_l, d.z - meta_l))
         x, y, z, _ = d.forzieri()[2]
+        sedi[("rovina", d.x - meta_l, d.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     for t in torri:
         libro = ind["tappe"].get(("torre", t.x - meta_l, t.z - meta_l))
         x, y, z, _ = t.forzieri()[1]
+        sedi[("torre", t.x - meta_l, t.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     for fz in fortezze:
         libro = ind["tappe"].get(("fortezza", fz.x - meta_l, fz.z - meta_l))
         x, y, z, _ = fz.maschio().forzieri()[1]
+        sedi[("fortezza", fz.x - meta_l, fz.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     for cs in castelli_rovina:
         libro = ind["tappe"].get(("castello", cs.x - meta_l, cs.z - meta_l))
         x, y, z, _ = cs.forzieri()[6]
+        sedi[("castello", cs.x - meta_l, cs.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    mappe_tesoro = MP.pianifica(luoghi, sedi, meta_l)
+    oggetti_forzieri = IC.oggetti_forziere(incarichi)
+    for m in mappe_tesoro:
+        oggetti_forzieri.setdefault(m["chiave"], []).append(m["oggetto"])
+    if mappe_tesoro:
+        note.append(f"mappe del tesoro: {len(mappe_tesoro)}")
     libro_citta = None
     if ind["inizio"] is not None:
         c0, libro0 = ind["inizio"]
@@ -1544,7 +1558,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
-                 incarichi=incarichi, oggetti_incarico=IC.oggetti_forziere(incarichi),
+                 incarichi=incarichi, oggetti_incarico=oggetti_forzieri, mappe=mappe_tesoro,
                  castelli_rovina=castelli_rovina,
                  indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
                                          if castelli_rovina else {}),
@@ -2391,20 +2405,45 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
                           ar.x, ar.z, ar.base)
 
 
-def _modelli_di(op: Opzioni, piano: Piano) -> list:
+def _modelli_e_confini(op: Opzioni, piano: Piano) -> tuple[list, dict]:
     """Case, castelli, navi, moli, fari e modelli del piano, nell'ordine di
     `pianifica()`: gli indici di `piano.scelte` e `piano.isolate` si riferiscono
-    a questa lista."""
+    a questa lista. Con i confini: {genere: (primo indice, ultimo + 1)}."""
     cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
     modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
                if cartelle_t else [])
+    confini = {"case": (0, len(modelli))}
     if piano.isolate:
         if op.templates_castello or op.templates_nave:
             castelli_m, navi_m = _modelli_monumenti(op)
-            modelli = modelli + castelli_m + navi_m
+            confini["castelli"] = (len(modelli), len(modelli) + len(castelli_m))
+            modelli = modelli + castelli_m
+            confini["navi"] = (len(modelli), len(modelli) + len(navi_m))
+            modelli = modelli + navi_m
         moli_m, fari_m = _modelli_porti(op)
-        modelli = modelli + moli_m + fari_m + list(piano.modelli_extra)
-    return modelli
+        confini["moli"] = (len(modelli), len(modelli) + len(moli_m))
+        modelli = modelli + moli_m
+        confini["fari"] = (len(modelli), len(modelli) + len(fari_m))
+        modelli = modelli + fari_m + list(piano.modelli_extra)
+    return modelli, confini
+
+
+def _modelli_di(op: Opzioni, piano: Piano) -> list:
+    return _modelli_e_confini(op, piano)[0]
+
+
+def zone_bottino(piano: Piano, confini: dict, meta: int) -> list:
+    """Dove stanno le strutture da template che hanno un bottino loro (castello,
+    nave, faro): [(x0, z0, x1, z1, tipo)] in coordinate di GIOCO, per `bauli.trova`.
+    I forzieri dentro una di queste zone hanno il loro bottino, non la dispensa."""
+    zone = []
+    for ci in piano.isolate:
+        for tipo, genere in (("castello", "castelli"), ("nave", "navi"), ("faro", "fari")):
+            a, b = confini.get(genere, (0, 0))
+            if a <= ci.modello < b:
+                zone.append((ci.x - meta, ci.z - meta, ci.x - meta + ci.larghezza,
+                             ci.z - meta + ci.profondita, tipo))
+    return zone
 
 
 def carica_modelli(op: Opzioni, piano: Piano) -> dict:
@@ -2412,8 +2451,10 @@ def carica_modelli(op: Opzioni, piano: Piano) -> dict:
     Per `parallelo.py`, che li legge una volta sola e li passa ai lavoratori."""
     cartelle_cim = [c.strip() for c in op.templates_cimitero.split(";") if c.strip()]
     cartelle_portale = [c.strip() for c in op.templates_portale.split(";") if c.strip()]
+    modelli, confini = _modelli_e_confini(op, piano)
     return {
-        "modelli": _modelli_di(op, piano),
+        "confini": confini,
+        "modelli": modelli,
         "cimiteri": (AP.carica_cimiteri(cartelle_cim, versione=op.versione)
                      if cartelle_cim and piano.avamposti else []),
         "portali": (AP.carica_portali(cartelle_portale, versione=op.versione)
@@ -2530,8 +2571,11 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # Il modello di ogni lotto lo ha deciso `pianifica()` (`piano.scelte`),
         # senza ripetizioni nel villaggio: qui si carica solo il catalogo, con
         # lo stesso ordine, perche' gli indici coincidano.
-        modelli = (precaricati["modelli"] if precaricati is not None
-                   else _modelli_di(op, piano))
+        if precaricati is not None:
+            modelli, confini = precaricati["modelli"], precaricati["confini"]
+        else:
+            modelli, confini = _modelli_e_confini(op, piano)
+        zone_g = zone_bottino(piano, confini, op.lato // 2) if piano.isolate else []
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
@@ -2694,7 +2738,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                                 campi=campi_g, minerali=minerali_g,
                                 cripte=cripte_g, centri=centri_g, dungeon=dungeon_g,
                                 libri=piano.libri, libro_citta=piano.libro_citta,
-                                oggetti=piano.oggetti_incarico)
+                                oggetti=piano.oggetti_incarico, zone=zone_g)
                       if tav_ba is not None else None)
             if piano.cartelli:
                 for c in piano.cartelli:
@@ -2762,6 +2806,13 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
     if op.fuori_mappa == "naturale":
         # il terreno che il gioco genera oltre il bordo si raccorda al nostro
         fuori["sfumatura"] = SF.segna_bordo(op.uscita)
+
+    if piano.mappe:
+        from .livello_dat import ImpostazioniMondo
+        fuori["mappe"] = MP.scrivi_tutte(
+            op.uscita, piano.mappe, piano.cls, piano.h, piano.livello, op.lato // 2,
+            ImpostazioniMondo(versione=op.versione).data_version,
+            piano.edifici, piano.tipo_strada)
 
     if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",

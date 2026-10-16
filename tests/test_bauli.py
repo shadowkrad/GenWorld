@@ -151,6 +151,30 @@ class TestTrova(unittest.TestCase):
             self.assertTrue(set(nomi) <= validi, set(nomi) - validi)
             self.assertFalse(any("components" in v for v in b[0].nbt.compound["utags"]["Items"]))
 
+    def test_il_bottino_di_nave_faro_e_castello(self):
+        out, s, tav, idf = self.chunk_con_forziere()        # forziere in (5, 10, 6)
+        for tipo in ("nave", "faro", "castello"):
+            validi = {n for n, _, _ in BA.BOTTINO_ZONA[tipo]} | {t for t, _ in BA.TESORI}
+            zone = [(0, 0, 16, 16, tipo)]
+            for seed in range(12):
+                b = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, zone=zone, centri=[(10, 10)])
+                nomi = set(self.nomi(b[0]))
+                self.assertTrue(nomi <= validi, (tipo, nomi - validi))
+                self.assertGreaterEqual(len(nomi), 3)
+        # fuori dalla zona resta una dispensa
+        b = BA.trova(out, tav, 0, 0, self.Y0, seed=1, zone=[(100, 100, 120, 120, "nave")])
+        self.assertTrue(set(self.nomi(b[0])) - {n for n, _, _ in BA.BOTTINO_ZONA["nave"]})
+
+    def test_il_bottino_di_zona_lontano_ha_tesori(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        zone = [(0, 0, 16, 16, "castello")]
+        def incantati(centri):
+            return sum(sum("components" in v for v in BA.trova(
+                out, tav, 0, 0, self.Y0, seed=sd, zone=zone, centri=centri)[0].nbt.compound["utags"]["Items"])
+                for sd in range(25))
+        self.assertEqual(incantati([(10, 10)]), 0)
+        self.assertGreaterEqual(incantati([(5000, 5000)]), 25)
+
     def test_un_forziere_fuori_dal_campo_resta_una_dispensa(self):
         out, s, tav, idf = self.chunk_con_forziere()
         bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=2, campi=[(100, 100, 3)])

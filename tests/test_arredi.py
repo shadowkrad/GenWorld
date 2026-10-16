@@ -66,6 +66,20 @@ class TestDisegni(unittest.TestCase):
                                 {"copper_bulb", "exposed_copper_bulb",
                                  "weathered_copper_bulb", "oxidized_copper_bulb"})
 
+    def test_le_lanterne_di_rame_vere_nelle_versioni_recenti(self):
+        ver = TM.traduttore((26, 2, 0))
+        visti = set()
+        for liv in range(4):
+            m = A.lampione_a_braccio("+x", liv, True).modello(ver)
+            visti |= {n for n, _ in m.tavolozza}
+        # tradotte nel nome universale (`lantern` con il materiale), non perse
+        self.assertIn("lantern", visti)
+        d = A.lampione_a_braccio("+x", 2, True)
+        self.assertNotEqual(d.nome, A.lampione_a_braccio("+x", 2).nome)
+        mat = {p.get("material") for n, p in A.lampione_a_braccio("+x", 3, True).modello(ver).tavolozza
+               if n == "lantern"}
+        self.assertIn("oxidized_copper", mat)
+
     def test_il_lampione_senza_rame_resta_di_ferro(self):
         self.assertIn("lantern", self.nomi(self.modello(A.lampione_a_braccio("+x"))))
 

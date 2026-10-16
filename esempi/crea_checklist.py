@@ -113,8 +113,25 @@ def main() -> None:
             righe.append("")
     righe.extend([
         "## Altro da controllare", "",
+        "- [ ] Erba secca (savana, deserto) e lettiera di foglie sotto gli alberi dei boschi e del bosco scuro.",
+        "- [ ] Lampioni di rame veri (non bulbi) nelle citta', di ossidazione diversa da uno all'altro.",
+        "- [ ] I moli di legno procedurali (se ci sono) hanno il legno del bioma, non sempre abete.",
+        "- [ ] Il tetto delle torri ha un parafulmine di rame al centro.",
+        "- [ ] I forzieri di nave, faro e castello da template hanno il loro bottino (oro e provviste di bordo; "
+        "carbone, torce, canna da pesca; armi, libri, mele d'oro), non la dispensa di una casa.",
+        "- [ ] Le costruzioni di arenaria (se ce n'e') hanno blocchi lisci, tagliati e scolpiti mescolati.",
         "- [ ] Gli spawner delle cripte fanno uscire ogni tanto un mob diverso (zombie con scheletro, ragno...).",
         "- [ ] Nel log all'apertura del mondo non devono comparire 'Failed to load chunk'.", ""])
+    righe.extend([
+        "## Mappe del tesoro", "",
+        "Nel forziere del tesoro di ogni rovina, torre, fortezza e castello, accanto al libro, c'e' una "
+        "mappa (`Mappa: <luogo>`) del paesaggio attorno alla tappa successiva, con una croce rossa sul "
+        "posto e un puntino bianco dov'e' il forziere. Dopo aver aperto il forziere:", "",
+        "- [ ] la mappa si vede (non e' bianca) e mostra terra, mare, montagne e la croce rossa al centro;",
+        "- [ ] aprendola nel mondo la croce cade sul luogo giusto (la descrizione dice quale);",
+        "- [ ] il nome e la descrizione dell'oggetto si leggono e non si aggiorna camminando (e' bloccata);",
+        "- [ ] se e' bianca o dice 'mappa sconosciuta': scrivimelo, il formato del file di mappa in 26.x "
+        "non e' stato provato (`data/minecraft/maps/<n>.dat`).", ""])
     sezione("Castelli in rovina", "castello",
             "Cinta con brecce e torri spezzate, portale sfondato, cortile invaso da erba, macerie, ossa, "
             "alberi morti e tombe; il maschio sventrato con trono (il capo siede li'), tavola rotta, "

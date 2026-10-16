@@ -149,6 +149,11 @@ class TestPosa(unittest.TestCase):
         for v in (-4, -3, -2, 2, 3, 4):
             self.assertEqual(self.blocco(R + 1, v, t.ys), "stairs")
 
+    def test_il_tetto_ha_il_parafulmine_di_rame(self):
+        t = self.t
+        self.assertEqual(self.blocco(0, 0, t.piano(TR.PIANI)), "lightning_rod")
+        self.assertEqual(self.proprieta(0, 0, t.piano(TR.PIANI))["material"], "copper")
+
     def test_la_scala_interna_sale_di_un_blocco_a_cella_con_posto_per_la_testa(self):
         t = self.t
         for k, ((u0, v0), (du, dv)) in TR.RAMPE.items():

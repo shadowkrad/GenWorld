@@ -44,6 +44,16 @@ class TestDisegni(unittest.TestCase):
         self.assertTrue((deck >= 0).all(), "tavolato con buchi")
         self.assertTrue((m.celle[0, :PO.PALI, 0] >= 0).all(), "palo all'imbocco")
 
+    def test_il_molo_ha_il_legno_del_posto(self):
+        for legno in ("acacia", "jungle", "mangrove", "dark_oak", "cherry", "birch"):
+            m = PO.molo(8, legno).modello(VER)
+            nomi = {n for n, _ in m.tavolozza}
+            self.assertIn(f"{legno}_planks" if False else "planks", nomi, legno)
+            mat = {p.get("material") for n, p in m.tavolozza if n in ("planks", "log", "fence")}
+            self.assertEqual(mat, {legno}, legno)
+            self.assertTrue((m.celle[:, PO.PALI, :] >= 0).all(), legno)
+        self.assertNotEqual(PO.molo(8, "acacia").nome, PO.molo(8).nome)
+
     def test_il_molo_ruotato_guarda_dalla_parte_giusta(self):
         m = PO.molo(10).modello(VER)
         cat = TM.Catalogo([m], None)
