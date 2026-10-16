@@ -351,8 +351,6 @@ class Tavolozza:
         self.vite = {f: s.blocco("vine", north=str(f == "north").lower(),
                                  south=str(f == "south").lower(), east=str(f == "east").lower(),
                                  west=str(f == "west").lower(), up="false") for f in facce}
-        self.stendardo = {(c, f): s.blocco("wall_banner", color=c, facing=f)
-                          for c in ("red", "black", "gray") for f in facce}
         self.tappeto = s.blocco("carpet", color="red")
         self.forziere = {f: s.blocco("chest", facing=f, connection="none", material="wood")
                          for f in facce}
@@ -678,12 +676,13 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
         for vv in (3, 4, 5):
             alza(mc + 6, vv, ys, tav.libreria)
             alza(mc + 6, vv, ys + 1, tav.libreria)
-        # stendardi strappati sulle pareti rimaste (la parete dietro deve esserci ancora)
+        # ragnatele al posto degli stendardi: in un castello infestato i colori
+        # non dicono niente, le ragnatele si'
         for (uu, vv, (du, dv)) in ((mc - 3, 6, (0, -1)), (mc + 2, -6, (0, 1)),
                                    (mc - 3, -6, (0, 1)), (mc - 6, 3, (1, 0))):
             bx, bz = P(uu - du, vv - dv)
             if leggi(bx, ys + 4, bz) not in (-1, tav.aria):
-                alza(uu, vv, ys + 4, tav.stendardo[("black" if (uu + vv) % 2 else "gray", faccia(du, dv))])
+                alza(uu, vv, ys + 4, tav.ragnatela)
         # i forzieri del maschio
         for (uu, vv, yy, tipo) in c.forzieri_locali()[:2]:
             x, z = P(uu, vv)

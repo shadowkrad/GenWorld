@@ -57,7 +57,8 @@ class Torre:
         return self.ys + ALTEZZA_PIANO * k
 
     def bbox(self) -> tuple[int, int, int, int]:
-        pts = [self.punto(u, v) for u in (-R - 2, R + 2) for v in (-R - 2, R + 2)]
+        # u arriva a R + 5: il vialetto d'ingresso scende fino a quattro blocchi dalla porta
+        pts = [self.punto(u, v) for u in (-R - 2, R + 5) for v in (-R - 2, R + 2)]
         return (min(p[0] for p in pts), min(p[1] for p in pts),
                 max(p[0] for p in pts), max(p[1] for p in pts))
 
@@ -459,12 +460,26 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
                 alza(R, v, y, tav.scolpiti)                    # gli stipiti
             alza(R + 1, v, ys + 2, tav.torcia[fuori])
         alza(R, 0, ys + 2, tav.scolpiti)                       # l'architrave
-        x, z = P(R + 1, 0)
-        lx, lz = x - meta - ox, z - meta - oz
-        if 0 <= lx < 16 and 0 <= lz < 16:
-            for y in range(int(h_c[lx, lz]) - 1, ys):
-                metti(x, y, z, tav.mattoni)
-        alza(R + 1, 0, ys, tav.scala_pietra[faccia(-1, 0)])   # un gradino davanti alla porta
+        # il vialetto: la soglia a livello della porta (nessun gradino davanti, che
+        # la tapperebbe), poi scende a gradini fino al terreno, largo tre blocchi
+        for v in (-1, 0, 1):
+            for i in range(4):
+                x, z = P(R + 1 + i, v)
+                lx, lz = x - meta - ox, z - meta - oz
+                if not (0 <= lx < 16 and 0 <= lz < 16):
+                    continue
+                suolo = int(h_c[lx, lz])                    # dove si cammina sul terreno
+                y_s = ys - i                                 # quota del piano del vialetto qui
+                if i == 0 or suolo <= y_s:
+                    for y in range(suolo - 1, y_s):
+                        metti(x, y, z, tav.mattoni)
+                    for y in range(y_s + (0 if i == 0 else 1), ys + 2):
+                        metti(x, y, z, tav.aria)             # due blocchi di aria per la testa
+                    if i > 0:
+                        metti(x, y_s, z, tav.scala_pietra[faccia(-1, 0)])
+                else:
+                    for y in range(suolo, ys + 2):           # il terreno qui e' piu' alto: si cammina sopra
+                        metti(x, y, z, tav.aria)
         for v in (-3, 3):
             alza(R + 1, v, ys + 3, tav.stendardo[(colore, fuori)])
 
@@ -487,7 +502,9 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
             for j in range(5):
                 u, v = u0 + du * j, v0 + dv * j
                 # il solaio sopra si buca dove c'e' lo spazio per la testa
-                if j in (2, 3):
+                # (da j=1: salendo, la testa arriva a un blocco dal solaio prima che
+                # i piedi siano nella cella col buco, e il corpo e' largo 0,6)
+                if j in (1, 2, 3):
                     alza(u, v, y_k + 4, tav.aria)
                 alza(u, v, y_k + j, tav.scala_pietra[sale])
 
@@ -547,7 +564,6 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
             alza(-3, v, y, tav.libreria)
             alza(-3, v, y + 1, tav.libreria)
         alza(-3, 2, y, tav.leggio[faccia(1, 0)])
-        alza(-2, 0, y, tav.scala_legno[faccia(-1, 0)])     # il trono, con lo schienale al muro
         for u in range(-1, 4):
             alza(u, 0, y, tav.tappeto)
         alza(-3, 0, y + 2, tav.candela)

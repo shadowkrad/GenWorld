@@ -167,7 +167,7 @@ class TestSuperficie(unittest.TestCase):
                 for y in range(c.ys, c.ys + 8):
                     visti.add(self.blocco(u, v, y))
         for atteso in ("slab", "stairs", "carpet", "candle", "barrel", "bookshelf", "campfire",
-                       "cobweb", "wall_banner", "chest"):
+                       "cobweb", "chest"):
             self.assertIn(atteso, visti, atteso)
 
     def test_il_cortile_e_invaso_da_erba_macerie_ossa_alberi_morti_e_tombe(self):

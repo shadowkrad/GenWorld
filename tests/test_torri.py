@@ -132,7 +132,10 @@ class TestPosa(unittest.TestCase):
             for y in range(t.ys, t.ys + 3):
                 self.assertEqual(self.blocco(R, v, y), "stone_bricks")
             self.assertEqual(self.blocco(R + 1, v, t.ys + 2), "torch")
-        self.assertEqual(self.blocco(R + 1, 0, t.ys), "stairs")
+        # davanti alla porta niente gradino: la soglia e' a livello, con due blocchi d'aria
+        for v in (-1, 0, 1):
+            self.assertEqual(self.blocco(R + 1, v, t.ys), "air")
+            self.assertEqual(self.blocco(R + 1, v, t.ys + 1), "air")
         for v in (-3, 3):
             self.assertEqual(self.blocco(R + 1, v, t.ys + 3), "wall_banner")
 
@@ -159,9 +162,9 @@ class TestPosa(unittest.TestCase):
         t = self.t
         for k, ((u0, v0), (du, dv)) in TR.RAMPE.items():
             y = t.piano(k) + 4
-            for j in (2, 3):
+            for j in (1, 2, 3):
                 self.assertEqual(self.blocco(u0 + du * j, v0 + dv * j, y), "air", (k, j))
-            for j in (0, 1):
+            for j in (0,):
                 self.assertNotEqual(self.blocco(u0 + du * j, v0 + dv * j, y), "air", (k, j))
             self.assertIn(self.blocco(1, 2, y), ("planks", "stone_bricks"))
 
@@ -277,6 +280,48 @@ class TestPosa(unittest.TestCase):
         prima = out.copy()
         TR.posa(out, tav, np.full((16, 16), 90, np.int32), 0, 0, Y0, [self.t], [], meta=0)
         self.assertTrue((out == prima).all())
+
+
+class TestVialetto(unittest.TestCase):
+    """L'ingresso non deve mai essere tappato: la soglia e' a livello, e se il
+    terreno e' piu' basso si scende a gradini con due blocchi d'aria sopra."""
+
+    def prova(self, quota, direzione=(1, 0)):
+        t = una_torre(direzione=direzione, ys=90)
+        s, tav, b = posa_su_regione(t, quota=quota)
+        p = lambda u, v: t.punto(u, v)
+        return t, b, p
+
+    def test_terreno_piano_si_entra_dritti(self):
+        t, b, p = self.prova(90)
+        for u in range(TR.R + 1, TR.R + 5):
+            for v in (-1, 0, 1):
+                x, z = p(u, v)
+                self.assertEqual(b(x, t.ys, z), "air", (u, v))
+                self.assertEqual(b(x, t.ys + 1, z), "air", (u, v))
+                self.assertNotEqual(b(x, t.ys - 1, z), "air", (u, v))
+
+    def test_terreno_piu_basso_scende_a_gradini_con_la_testa_libera(self):
+        for direzione in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            t, b, p = self.prova(87, direzione)
+            R = TR.R
+            # la soglia e' piena fino a ys-1 e a livello della porta
+            for v in (-1, 0, 1):
+                x, z = p(R + 1, v)
+                self.assertNotEqual(b(x, t.ys - 1, z), "air")
+                self.assertEqual(b(x, t.ys, z), "air")
+            # i gradini: uno per blocco di dislivello, e sopra l'aria
+            for i in (1, 2, 3):
+                x, z = p(R + 1 + i, 0)
+                self.assertEqual(b(x, t.ys - i, z), "stairs", (direzione, i))
+                self.assertEqual(b(x, t.ys - i + 1, z), "air", (direzione, i))
+                self.assertEqual(b(x, t.ys + 1, z), "air", (direzione, i))
+                self.assertNotEqual(b(x, t.ys - i - 1, z), "air", (direzione, i))
+
+    def test_i_gradini_salgono_verso_la_porta(self):
+        t, b, p = self.prova(87)
+        x, z = p(TR.R + 2, 0)
+        self.assertEqual(b.proprieta(x, t.ys - 1, z)["facing"], TR.FACCIA[(-t.dx, -t.dz)])
 
 
 class TestNomi(unittest.TestCase):
