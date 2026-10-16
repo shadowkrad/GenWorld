@@ -237,7 +237,7 @@ def statistiche(castelli: list[Castello]) -> dict:
 # --------------------------------------------------------------------------
 
 def combattenti(castelli: list[Castello], centri: list | None = None,
-                seed: int = 0) -> list[TR.Combattente]:
+                seed: int = 0, trofei: dict | None = None) -> list[TR.Combattente]:
     """Il capo sul trono; sentinelle nella sala; zombie, scheletri e ragni nel
     cortile e nelle torri; guardie e prigionieri nella cripta."""
     fuori: list[TR.Combattente] = []
@@ -248,7 +248,7 @@ def combattenti(castelli: list[Castello], centri: list | None = None,
         x, z = c.punto(u, v)
         fuori.append(TR.Combattente(x=x + 0.5, y=float(y), z=z + 0.5, specie=c.specie,
                                     capo=True, nome=c.capo, livello=1 if lontano else 0,
-                                    seme=c.seme))
+                                    seme=c.seme, trofeo=(trofei or {}).get((c.x, c.z))))
         elenco = []                         # (u, v, y, specie)
         for k, (uu, vv) in enumerate(((5, 2), (5, -2), (-1, 4))):
             elenco.append((CENTRO_MASCHIO + uu, vv, c.ys, "scheletro" if k != 1 else "zombie"))

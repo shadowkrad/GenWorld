@@ -130,11 +130,13 @@ def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: 
 # Elenco
 # --------------------------------------------------------------------------
 
-def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "") -> tuple[str, str]:
+def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "",
+                  extra_md: str = "") -> tuple[str, str]:
     """Scrive `luoghi.md` e `luoghi.json` in `cartella`. Ritorna i due percorsi."""
     os.makedirs(cartella, exist_ok=True)
-    ordine = ("citta", "torre", "rovina", "miniera", "accampamento", "cimitero", "portale")
-    titoli = {"citta": "Citta'", "torre": "Torri con un capo", "rovina": "Rovine con cripta",
+    ordine = ("citta", "torre", "fortezza", "castello", "rovina", "miniera", "accampamento", "cimitero", "portale")
+    titoli = {"citta": "Citta'", "torre": "Torri con un capo", "fortezza": "Fortezze",
+              "castello": "Castelli in rovina", "rovina": "Rovine con cripta",
               "miniera": "Miniere", "accampamento": "Accampamenti", "cimitero": "Cimiteri",
               "portale": "Portali"}
     righe = [f"# Luoghi{(' di ' + nome_mondo) if nome_mondo else ''}", "",

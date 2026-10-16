@@ -35,6 +35,7 @@ from . import dungeon as DG
 from . import torri as TR
 from . import castello as CS
 from . import entita as EN
+from . import incarichi as IC
 from . import fortezze as FZ
 from . import luoghi as LU
 from . import fauna as FA
@@ -140,6 +141,9 @@ class Opzioni:
     fortezze: float = 1.0
     # Idem per i castelli in rovina con la cripta (vedi `castello.py`).
     castelli_rovina: float = 1.0
+    # Un committente per citta' con un incarico verso un luogo d'avventura
+    # (vedi `incarichi.py`). Serve almeno una citta' e un luogo.
+    incarichi: bool = True
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -520,6 +524,8 @@ class Piano:
     luoghi: list = field(default_factory=list)
     cartelli: list = field(default_factory=list)
     libri: dict = field(default_factory=dict)
+    incarichi: list = field(default_factory=list)
+    oggetti_incarico: dict = field(default_factory=dict)
     libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
@@ -1343,18 +1349,47 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"ragni nelle miniere: {len(ragni)}")
         abitanti = abitanti + ragni
 
+    # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
+    meta_l = op.lato // 2
+    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
+                         fortezze=fortezze, castelli=castelli_rovina)
+
+    # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
+    incarichi: list = []
+    if op.incarichi and citta:
+        strutture: dict = {}
+        for d in dungeon:
+            x, y, z, _ = d.forzieri()[2]
+            strutture[("rovina", d.x - meta_l, d.z - meta_l)] = (None, (x - meta_l, y, z - meta_l))
+        for t in torri:
+            strutture[("torre", t.x - meta_l, t.z - meta_l)] = ((t.x, t.z), None)
+        for fz in fortezze:
+            m = fz.maschio()
+            strutture[("fortezza", fz.x - meta_l, fz.z - meta_l)] = ((m.x, m.z), None)
+        for cs in castelli_rovina:
+            x, y, z, _ = cs.forzieri()[5]
+            strutture[("castello", cs.x - meta_l, cs.z - meta_l)] = (
+                (cs.x, cs.z), (x - meta_l, y, z - meta_l))
+        incarichi = IC.pianifica(citta, luoghi, strutture, meta_l, seed=op.seed)
+        if incarichi:
+            note.append(f"incarichi: {len(incarichi)} (" + ", ".join(
+                f"{i.committente} -> {i.meta}" for i in incarichi) + ")")
+    trofei = IC.trofei(incarichi)
+
     if torri:
-        capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed)
+        capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed, trofei=trofei)
         note.append(f"capi e guardie delle torri: {len(capi)}")
         abitanti = abitanti + capi
 
     if castelli_rovina:
-        mostri = CS.combattenti(castelli_rovina, [(c.x, c.z) for c in citta], seed=op.seed)
+        mostri = CS.combattenti(castelli_rovina, [(c.x, c.z) for c in citta], seed=op.seed,
+                                trofei=trofei)
         note.append(f"capo e mostri dei castelli in rovina: {len(mostri)}")
         abitanti = abitanti + mostri
 
     if fortezze:
-        soldati = FZ.combattenti(fortezze, [(c.x, c.z) for c in citta], seed=op.seed)
+        soldati = FZ.combattenti(fortezze, [(c.x, c.z) for c in citta], seed=op.seed,
+                                 trofei=trofei)
         note.append(f"capi e soldati delle fortezze: {len(soldati)}")
         abitanti = abitanti + soldati
 
@@ -1364,10 +1399,6 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"nemici: {len(nemici)} fra accampamenti e cimiteri")
         abitanti = abitanti + nemici
 
-    # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
-    meta_l = op.lato // 2
-    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
-                         fortezze=fortezze, castelli=castelli_rovina)
     cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l, fortezze, castelli_rovina)
     if tipo_strada is not None:
         cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
@@ -1399,6 +1430,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         raggio0 = next((c.raggio for c in citta if c.x - meta_l == c0.x and c.z - meta_l == c0.z), 30)
         libro_citta = (c0.x, c0.z, raggio0, libro0)
     abitanti = LU.offerte_bottega(abitanti, luoghi, meta_l)
+    if incarichi:
+        abitanti = abitanti + IC.abitanti(incarichi, tipo_strada, h, citta, meta_l, seed=op.seed)
     if luoghi:
         note.append(f"luoghi con nome: {len(luoghi)}, cartelli: {len(cartelli)}, "
                     f"libri di indizi: {len(libri) + (1 if libro_citta else 0)}")
@@ -1415,6 +1448,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
+                 incarichi=incarichi, oggetti_incarico=IC.oggetti_forziere(incarichi),
                  castelli_rovina=castelli_rovina,
                  indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
                                          if castelli_rovina else {}),
@@ -2492,7 +2526,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
                                 campi=campi_g, minerali=minerali_g,
                                 cripte=cripte_g, centri=centri_g, dungeon=dungeon_g,
-                                libri=piano.libri, libro_citta=piano.libro_citta)
+                                libri=piano.libri, libro_citta=piano.libro_citta,
+                                oggetti=piano.oggetti_incarico)
                       if tav_ba is not None else None)
             if piano.cartelli:
                 for c in piano.cartelli:
@@ -2549,7 +2584,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         fuori["sfumatura"] = SF.segna_bordo(op.uscita)
 
     if restano == 0 and not interrotto and piano.luoghi:
-        md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "")
+        md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
+                                 extra_md=IC.sezione_elenco(piano.incarichi))
         fuori["luoghi"] = md
 
     if restano == 0 and not interrotto:

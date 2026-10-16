@@ -65,6 +65,14 @@ def main() -> None:
     sezione("Torri con un capo", "torre",
             "Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, "
             "due forzieri; cartello davanti.")
+    sezione("Incarichi", "citta",
+            "In ogni citta' un abitante con un nome sopra la testa, su una strada vicino alla piazza "
+            "(l'elenco e' in luoghi.md, sezione Incarichi). Comprare il libro (1 smeraldo) dice dove "
+            "andare. Il capo della torre/fortezza/castello lascia cadere un oggetto con nome e "
+            "descrizione (lingotto d'oro); la reliquia (scheggia di ametista) sta nel forziere del "
+            "tesoro della rovina; la lettera (carta) nella cella del castello. Riportandolo al "
+            "committente lo scambio e' attivo solo con QUELL'oggetto (un lingotto qualunque non vale) "
+            "e paga smeraldi o diamanti. Controllare che il committente non perda la professione.")
     sezione("Castelli in rovina", "castello",
             "Cinta con brecce e torri spezzate, portale sfondato, cortile invaso da erba, macerie, ossa, "
             "alberi morti e tombe; il maschio sventrato con trono (il capo siede li'), tavola rotta, "

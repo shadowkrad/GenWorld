@@ -130,12 +130,12 @@ def indice_per_chunk(fortezze: list[Fortezza], passo: int = 16) -> dict:
 
 
 def combattenti(fortezze: list[Fortezza], centri: list | None = None,
-                seed: int = 0) -> list[TR.Combattente]:
+                seed: int = 0, trofei: dict | None = None) -> list[TR.Combattente]:
     """Il capo e due guardie nel maschio (come una torre), quattro soldati nel
     cortile e un arciere sul tetto di ogni torre d'angolo."""
     fuori: list[TR.Combattente] = []
     for i, f in enumerate(fortezze):
-        fuori.extend(TR.combattenti([f.maschio()], centri, seed=seed + i))
+        fuori.extend(TR.combattenti([f.maschio()], centri, seed=seed + i, trofei=trofei))
         rng = np.random.default_rng(f.seme + seed + 7)
         for k, (u, v) in enumerate(((6, -3), (6, 3), (-2, 8), (-2, -8))):
             x, z = f.punto(u, v)

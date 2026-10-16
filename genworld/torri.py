@@ -79,6 +79,9 @@ class Combattente:
     nome: str = ""
     livello: int = 0           # 0 vicino alle citta', 1 lontano
     seme: int = 0
+    # il trofeo che il capo lascia cadere (vedi `incarichi.py`): un oggetto con
+    # nome, descrizione ed etichetta, nella mano libera con probabilita' 1
+    trofeo: dict | None = None
 
     def nbt_tag(self):
         from amulet_nbt import (ByteTag, CompoundTag, DoubleTag, FloatTag, IntTag,
@@ -115,6 +118,14 @@ class Combattente:
         }
         if equip:
             base["equipment"] = CompoundTag(equip)
+        if self.trofeo:
+            from .bauli import _tag, componenti_oggetto
+            equip_tag = CompoundTag({
+                "id": StringTag(f"minecraft:{self.trofeo['id']}"), "count": IntTag(1),
+                "components": _tag({f"minecraft:{k}": v
+                                    for k, v in componenti_oggetto(self.trofeo).items()})})
+            base["equipment"] = CompoundTag({**dict(base.get("equipment", {})),
+                                             "offhand": equip_tag})
         if self.capo:
             base["CustomName"] = StringTag(self.nome)
             base["CustomNameVisible"] = ByteTag(1)
@@ -123,6 +134,8 @@ class Combattente:
             # il capo lascia cadere quasi sempre quello che porta
             base["drop_chances"] = CompoundTag({
                 s: FloatTag(0.6) for s in ("head", "chest", "legs", "feet", "mainhand")})
+            if self.trofeo:
+                base["drop_chances"]["offhand"] = FloatTag(1.0)
         return CompoundTag(base)
 
 
@@ -250,7 +263,8 @@ def indice_per_chunk(torri: list[Torre], passo: int = 16) -> dict:
     return fuori
 
 
-def combattenti(torri: list[Torre], centri: list | None = None, seed: int = 0) -> list[Combattente]:
+def combattenti(torri: list[Torre], centri: list | None = None, seed: int = 0,
+                trofei: dict | None = None) -> list[Combattente]:
     """Il capo in cima, un nemico al secondo e uno al terzo piano. `centri` sono
     le citta' (mappa): oltre `DISTANZA_TESORI` il capo e' di diamante."""
     fuori: list[Combattente] = []
@@ -259,7 +273,8 @@ def combattenti(torri: list[Torre], centri: list | None = None, seed: int = 0) -
                                        for cx, cz in centri) > DISTANZA_TESORI ** 2
         fuori.append(Combattente(x=t.x + 0.5, y=float(t.piano(PIANI - 1)), z=t.z + 0.5,
                                  specie=t.specie, capo=True, nome=t.nome,
-                                 livello=1 if lontano else 0, seme=t.seme))
+                                 livello=1 if lontano else 0, seme=t.seme,
+                                 trofeo=(trofei or {}).get((t.x, t.z))))
         rng = np.random.default_rng(t.seme + seed)
         for k in (1, 2):
             sp = "scheletro" if rng.random() < 0.4 else "zombie"
