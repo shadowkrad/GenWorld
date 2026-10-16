@@ -65,6 +65,11 @@ def main() -> None:
     sezione("Torri con un capo", "torre",
             "Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, "
             "due forzieri; cartello davanti.")
+    sezione("Cascate", "citta",
+            "Dove un fiume scende di 3+ blocchi in una cella (vedi `genworld/cascate.py`): una colonna "
+            "d'acqua in caduta fino alla pozza, con pareti di roccia (anche muschiosa) ai lati. "
+            "Controllare che l'acqua cada senza spargersi sul prato, che la pozza non si svuoti e che "
+            "a valle il fiume prosegua. Gli spawner delle cripte ora fanno uscire ogni tanto un mob diverso.")
     sezione("Incarichi", "citta",
             "In ogni citta' un abitante con un nome sopra la testa, su una strada vicino alla piazza "
             "(l'elenco e' in luoghi.md, sezione Incarichi). Comprare il libro (1 smeraldo) dice dove "

@@ -31,6 +31,16 @@ DISTANZA_FRA_RUINE = 160
 RILIEVO_MASSIMO = 3
 MOB = ("zombie", "skeleton", "spider")
 
+# Compagni occasionali di uno spawner: il mob principale pesa 4, ognuno dei
+# compagni 1, quindi su cinque comparse una e' diversa. Cosi' una cripta di
+# zombie ogni tanto lascia uscire anche uno scheletro o un ragno.
+COMPAGNI = {"zombie": ("skeleton", "spider", "husk"),
+            "skeleton": ("zombie", "cave_spider", "stray"),
+            "spider": ("cave_spider", "skeleton", "zombie"),
+            "cave_spider": ("spider", "skeleton"),
+            "skeleton_nero": ("skeleton", "zombie"),
+            "vindicatore": ("zombie", "skeleton")}
+
 # direzione (dx, dz) -> nome della faccia
 FACCIA = {(1, 0): "east", (-1, 0): "west", (0, 1): "south", (0, -1): "north"}
 
@@ -387,13 +397,19 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
             metti(cx, yf, cz, tav.scolpiti)
 
 
-def be_spawner(gx: int, y: int, gz: int, mob: str):
+def be_spawner(gx: int, y: int, gz: int, mob: str, misto: bool = False):
     """Il `BlockEntity` (formato universale di amulet) di uno spawner di `mob`.
     Coordinate di GIOCO."""
     from amulet.api.block_entity import BlockEntity
     from amulet_nbt import (ByteTag, CompoundTag, FloatTag, IntTag, ListTag,
                             NamedTag, ShortTag, StringTag)
-    entita = CompoundTag({"entity": CompoundTag({"id": StringTag(f"minecraft:{mob}")})})
+    def _ent(m):
+        return CompoundTag({"entity": CompoundTag({"id": StringTag(f"minecraft:{m}")})})
+    entita = _ent(mob)
+    potenziali = [CompoundTag({"data": entita, "weight": IntTag(4 if misto else 1)})]
+    if misto:
+        potenziali += [CompoundTag({"data": _ent(m), "weight": IntTag(1)})
+                       for m in COMPAGNI.get(mob, ())]
     utags = CompoundTag({
         "isMovable": ByteTag(1),
         "MaxNearbyEntities": ShortTag(6),
@@ -404,7 +420,7 @@ def be_spawner(gx: int, y: int, gz: int, mob: str):
         # ne aggiunge uno di maiali nel vecchio formato, e dopo il primo
         # giro lo spawner farebbe maiali.
         "SpawnData": entita,
-        "SpawnPotentials": ListTag([CompoundTag({"data": entita, "weight": IntTag(1)})]),
+        "SpawnPotentials": ListTag(potenziali),
         "EntityIdentifier": StringTag(""),
         "MaxSpawnDelay": ShortTag(800),
         "Delay": ShortTag(20),
@@ -440,5 +456,5 @@ def entita_blocco(dungeons: list[Dungeon], ox: int, oz: int, meta: int) -> list:
         gx, gz = x - meta, z - meta
         if not (ox <= gx < ox + 16 and oz <= gz < oz + 16):
             continue
-        fuori.append(be_spawner(gx, y, gz, d.mob))
+        fuori.append(be_spawner(gx, y, gz, d.mob, misto=True))
     return fuori
