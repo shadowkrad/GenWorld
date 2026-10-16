@@ -112,6 +112,44 @@ class TestPozze(unittest.TestCase):
         self.assertGreater(trovate, 0, "mai una pozza in 60 caverne")
 
 
+class TestRuscelli(unittest.TestCase):
+    def acqua_nei_chunk(self, ox, oz, seed):
+        s, tav, out, h = mondo()
+        SS.posa(out, tav, h, ox, oz, Y0, caverna(6, -10), [0], seed=seed)
+        return s, out, s.blocco("water")
+
+    def test_i_ruscelli_sono_acqua_ferma_chiusa_da_roccia(self):
+        celle = 0
+        for seed in range(40):
+            s, out, acqua = self.acqua_nei_chunk(0, 0, seed)
+            for lx, ly, lz in zip(*np.nonzero(out == acqua)):
+                celle += 1
+                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    self.assertNotEqual(out[lx + dx, ly, lz + dz], 0, "acqua con aria accanto")
+                self.assertNotIn(int(out[lx, ly - 1, lz]), (0, int(acqua)), "acqua sul vuoto")
+        self.assertGreater(celle, 0)
+
+    def test_ci_sono_tratti_lunghi_di_ruscello(self):
+        """Piu' celle d'acqua in fila (4 vicine fra loro) di quanto faccia una pozza."""
+        lunghi = 0
+        for seed in range(60):
+            s, out, acqua = self.acqua_nei_chunk(0, 0, seed)
+            m = out == acqua
+            for ly in np.unique(np.nonzero(m)[1]):
+                piano = m[:, ly, :]
+                zz, xx = np.nonzero(piano)
+                if len(zz) >= 6 and (np.ptp(zz) >= 5 or np.ptp(xx) >= 5):
+                    lunghi += 1
+        self.assertGreater(lunghi, 0, "mai un ruscello lungo in 60 caverne")
+
+    def test_la_fascia_e_la_stessa_attraverso_i_chunk(self):
+        """Stessa caverna sull'orlo fra due chunk: le coordinate di mondo decidono la fascia,
+        non il chunk (la funzione e' deterministica sul seme e sulla posizione)."""
+        a = self.acqua_nei_chunk(0, 0, 5)[1]
+        b = self.acqua_nei_chunk(0, 0, 5)[1]
+        self.assertTrue(np.array_equal(a, b))
+
+
 class TestGeodi(unittest.TestCase):
     def test_il_geode_ha_i_gusci_e_il_vuoto(self):
         s, tav, out, h = mondo()

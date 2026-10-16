@@ -27,6 +27,7 @@ class Finta:
             (m, a) for m in ('oak', 'birch', 'spruce') for a in ('x', 'z'))}
         self.tappeto_muschio = 960
         self.secca, self.secca_alta = 970, 971
+        self.brocca = (975, 976)
         self.lettiera = {(f, n): 980 + 10 * i + n for i, f in enumerate(('north', 'south', 'east', 'west')) for n in (1, 2, 3, 4)}
         self.fungo = {V.FUNGO_MARRONE: 961, V.FUNGO_ROSSO: 962}
         self.doppio = {sp: (300 + sp, 400 + sp) for sp in V.DOPPI}
@@ -134,7 +135,7 @@ class TestPianteNuove(unittest.TestCase):
             self.assertIn(attese, set(a["specie"].tolist()), nome)
 
     def test_ogni_specie_ha_altezza_e_nome(self):
-        for sp in range(38):
+        for sp in range(39):
             self.assertIn(sp, V.ALTEZZA)
             self.assertIn(sp, V.NOMI_SPECIE)
 
@@ -159,6 +160,16 @@ class TestSeccoELettiera(unittest.TestCase):
         biomi = np.full((200, 200), B.INDICE["dark_forest"], np.uint8)
         a = V.semina(cls, h, livello_mare=62, seed=3, biomi=biomi, scala_densita=3.0)
         self.assertIn(V.LETTIERA, set(a["specie"].tolist()))
+
+    def test_la_pianta_brocca_nella_giungla_e_alta_due(self):
+        biomi = np.full((200, 200), B.INDICE["jungle"], np.uint8)
+        cls = np.full((200, 200), M.FORESTA, np.uint8)
+        h = np.full((200, 200), 80, np.int32)
+        a = V.semina(cls, h, livello_mare=62, seed=3, biomi=biomi, scala_densita=3.0)
+        self.assertIn(V.BROCCA, set(a["specie"].tolist()))
+        out = disegnato(V.BROCCA, 2)
+        self.assertEqual(int((out == 975).sum()), 1)
+        self.assertEqual(int((out == 976).sum()), 1)
 
     def test_si_disegnano(self):
         self.assertEqual(int((disegnato(V.SECCA, 1) == 970).sum()), 1)
