@@ -33,7 +33,10 @@ from . import citta as CT
 from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
+from . import cascate as CAS
+from . import castello as CS
 from . import entita as EN
+from . import incarichi as IC
 from . import fortezze as FZ
 from . import luoghi as LU
 from . import fauna as FA
@@ -137,6 +140,11 @@ class Opzioni:
     torri: float = 1.0
     # Idem per le fortezze isolate (vedi `fortezze.py`).
     fortezze: float = 1.0
+    # Idem per i castelli in rovina con la cripta (vedi `castello.py`).
+    castelli_rovina: float = 1.0
+    # Un committente per citta' con un incarico verso un luogo d'avventura
+    # (vedi `incarichi.py`). Serve almeno una citta' e un luogo.
+    incarichi: bool = True
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -209,6 +217,40 @@ class Opzioni:
             return "profilo:" + os.path.basename(self.profilo)
         return "adattivo" if self.adattivo else "soglie"
 
+    @property
+    def cache_piano(self) -> str:
+        return self.uscita.rstrip("/\\") + "_piano.pkl"
+
+    def firma_piano(self) -> str:
+        """Impronta di tutto cio' che puo' cambiare il risultato di `pianifica`:
+        ogni opzione tranne dove si scrive e come si chiama il mondo, il
+        contenuto dei file template e il CODICE del programma (un piano
+        calcolato da una versione diversa non vale: meglio rifarlo che
+        scoprire a mondo scritto che manca un pezzo)."""
+        import dataclasses
+        import hashlib
+        h = hashlib.sha256()
+        for k, v in sorted(dataclasses.asdict(self).items()):
+            if k in ("uscita", "nome", "cache_piano"):
+                continue
+            h.update(f"{k}={v!r};".encode())
+        h.update(repr(self.firma_analisi()).encode())
+        for k in sorted(vars(self)):
+            if k.startswith("templates") and getattr(self, k):
+                for cartella in str(getattr(self, k)).split(";"):
+                    cartella = cartella.strip()
+                    for radice, _, files in sorted(os.walk(cartella)):
+                        for nome in sorted(files):
+                            f = os.path.join(radice, nome)
+                            st = os.stat(f)
+                            h.update(f"{f}:{st.st_size}:{st.st_mtime_ns};".encode())
+        qui = os.path.dirname(os.path.abspath(__file__))
+        for nome in sorted(os.listdir(qui)):
+            if nome.endswith(".py"):
+                with open(os.path.join(qui, nome), "rb") as f:
+                    h.update(nome.encode() + hashlib.sha256(f.read()).digest())
+        return h.hexdigest()
+
     def firma_analisi(self) -> tuple:
         """Solo i parametri che cambiano il risultato di `analizza`.
 
@@ -244,16 +286,9 @@ def _nulla(frazione: float, testo: str) -> None:
 # Analisi
 # --------------------------------------------------------------------------
 
-def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
-             usa_cache: bool = True) -> Analisi:
-    """Immagine -> (classi, quote, acque). Risultato messo in cache."""
-    if usa_cache:
-        cached = _leggi_cache(op)
-        if cached is not None:
-            avanza(1.0, "analisi ripresa dalla cache")
-            return cached
-
-    note: list[str] = []
+def _carica_e_classifica(op: Opzioni, note: list[str], avanza: Avanzamento):
+    """Immagine -> (classi, rugosita', profilo). La mappa si porta a `op.lato`
+    (centrata se non e' quadrata) e il decoro diventa oceano."""
     avanza(0.02, "lettura dell'immagine")
 
     prof = Profilo.carica(op.profilo) if op.profilo else None
@@ -314,7 +349,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
     if deco.any():
         note.append(f"decoro escluso: {deco.mean() * 100:.1f}% dell'area")
         cls[deco] = M.OCEANO
+    return cls, rug, prof
 
+
+def _terreno(op: Opzioni, cls: np.ndarray, rug: np.ndarray, prof,
+             note: list[str], avanza: Avanzamento) -> np.ndarray:
+    """Classi e rugosita' -> quote (altimetria, erosione, dettaglio, fondale)."""
     avanza(0.34, "altimetria dedotta")
     h = M.altimetria(cls, rug, prof.quote_effettive() if prof else None)
 
@@ -351,7 +391,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             f"distinte, la piu' diffusa copre il "
             f"{st['quota_piu_diffusa'] * 100:.0f}% dell'acqua, "
             f"{st['scalini']} scalini oltre 8 blocchi")
+    return h
 
+
+def _vulcani(op: Opzioni, cls: np.ndarray, h: np.ndarray, note: list[str],
+             avanza: Avanzamento):
+    """Coni, crateri, laghi di lava e colate. Ritorna (cls, h, lava, colata, q_lava)."""
     # VULCANI. Vanno prima dei fiumi: sono l'unico elemento che si SOVRAPPONE
     # al terreno invece di dedurlo, e il deflusso deve poter scendere dai loro
     # fianchi. Calcolarli dopo darebbe coni senza torrenti.
@@ -371,7 +416,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
                         f"{st['lago_di_lava']}, colate {st['colate']} "
                         f"(di cui {st['colate_incandescenti']} incandescenti), "
                         f"cima a quota {st['quota_massima']}")
+    return cls, h, lava, colata, q_lava
 
+
+def _fiumi(op: Opzioni, cls: np.ndarray, h: np.ndarray, lava: np.ndarray,
+           q_lava: np.ndarray, note: list[str], avanza: Avanzamento):
+    """Reticolo idrografico dal terreno. Ritorna (cls, h, livello, marino)."""
     # Fiumi. NON estratti dal disegno: calcolati dal terreno. Tre tentativi di
     # estrazione sono falliti perche' a questa risoluzione un fiume disegnato
     # e' largo un pixel e il suo colore si confonde con le ombre del rilievo.
@@ -408,7 +458,12 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             note.append(f"fiumi: {st['celle']} celle in {st['corsi']} corsi, "
                         f"quota massima {st['quota_max']:.0f} "
                         f"(bacino maggiore {int(acc[~marino].max())} celle)")
+    return cls, h, livello, marino
 
+
+def _laghi(op: Opzioni, cls: np.ndarray, h: np.ndarray, livello: np.ndarray,
+           marino: np.ndarray, note: list[str], avanza: Avanzamento):
+    """Bacini chiusi. Ritorna (cls, h, livello)."""
     # LAGHI. Dopo i fiumi apposta: un bacino che i fiumi hanno gia' riempito
     # (`cls == FIUME`) va escluso, altrimenti una conca attraversata da un
     # corso d'acqua verrebbe ritrovata come lago e il suo pelo, calcolato con
@@ -426,6 +481,27 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             st = LG.statistiche(maschera_l, livello_l)
             note.append(f"laghi: {st['celle']} celle in {st['bacini']} bacini, "
                         f"quota media {st['quota_media']:.0f}")
+    return cls, h, livello
+
+
+def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
+             usa_cache: bool = True) -> Analisi:
+    """Immagine -> (classi, quote, acque). Risultato messo in cache.
+
+    Le fasi sono funzioni a parte, nell'ordine: lettura e classificazione,
+    terreno, vulcani, fiumi, laghi, biomi. L'ordine conta (vedi i commenti)."""
+    if usa_cache:
+        cached = _leggi_cache(op)
+        if cached is not None:
+            avanza(1.0, "analisi ripresa dalla cache")
+            return cached
+
+    note: list[str] = []
+    cls, rug, prof = _carica_e_classifica(op, note, avanza)
+    h = _terreno(op, cls, rug, prof, note, avanza)
+    cls, h, lava, colata, q_lava = _vulcani(op, cls, h, note, avanza)
+    cls, h, livello, marino = _fiumi(op, cls, h, lava, q_lava, note, avanza)
+    cls, h, livello = _laghi(op, cls, h, livello, marino, note, avanza)
 
     # I biomi per ultimi: dipendono dalle classi, e i fiumi le cambiano.
     # Calcolati prima, un corso d'acqua sarebbe rimasto pianura.
@@ -463,6 +539,33 @@ def _leggi_cache(op: Opzioni) -> Analisi | None:
                        note=[str(x) for x in d["note"]])
     except (KeyError, ValueError, OSError):
         return None
+
+
+def pianifica_con_cache(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla,
+                        usa: bool = True) -> tuple[Piano, bool]:
+    """`pianifica`, ma se esiste un piano gia' calcolato con le STESSE opzioni,
+    gli stessi template e lo stesso codice (vedi `Opzioni.firma_piano`) lo
+    rilegge dal disco. Ritorna (piano, dalla_cache). Una cache illeggibile o di
+    un'altra firma si ignora e si rifa il piano."""
+    import pickle
+    firma = op.firma_piano()
+    if usa and os.path.exists(op.cache_piano):
+        try:
+            with open(op.cache_piano, "rb") as f:
+                salvata, piano = pickle.load(f)
+            if salvata == firma:
+                avanza(1.0, "piano dalla cache")
+                return piano, True
+        except Exception:
+            pass
+    piano = pianifica(op, a, avanza)
+    if usa:
+        os.makedirs(os.path.dirname(os.path.abspath(op.cache_piano)) or ".", exist_ok=True)
+        tmp = op.cache_piano + ".tmp"
+        with open(tmp, "wb") as f:
+            pickle.dump((firma, piano), f, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, op.cache_piano)
+    return piano, False
 
 
 def _scrivi_cache(op: Opzioni, a: Analisi) -> None:
@@ -511,10 +614,14 @@ class Piano:
     indice_torri: dict = field(default_factory=dict)
     fortezze: list = field(default_factory=list)
     indice_fortezze: dict = field(default_factory=dict)
+    castelli_rovina: list = field(default_factory=list)
+    indice_castelli_rovina: dict = field(default_factory=dict)
     # luoghi con nome, cartelli e indizi (vedi `luoghi.py`)
     luoghi: list = field(default_factory=list)
     cartelli: list = field(default_factory=list)
     libri: dict = field(default_factory=dict)
+    incarichi: list = field(default_factory=list)
+    oggetti_incarico: dict = field(default_factory=dict)
     libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
@@ -658,6 +765,29 @@ def _pianifica_fortezze(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
         note.append(f"fortezze: {len(fortezze)} a "
                     + ", ".join(f"({f.x - meta}, {f.z - meta})" for f in fortezze))
     return fortezze
+
+
+def _pianifica_castelli_rovina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                               muro, tipo_strada, miniere: list, campi, note: list[str]) -> list:
+    """Castelli in rovina: su un pianoro, lontani da tutto il resto."""
+    if op.castelli_rovina <= 0:
+        return []
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi,
+                       riservato=a.riservato)
+    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 8)
+    if miniere:
+        evita |= MI.maschera_ingresso(miniere, a.cls.shape, margine=12)
+    from scipy.ndimage import binary_dilation as _dil
+    evita |= _dil(evita, iterations=12)
+    acqua = np.isin(a.cls, M.ACQUA)
+    castelli = CS.pianifica(h, acqua, evita=evita, densita=op.castelli_rovina, seed=op.seed)
+    if castelli:
+        m = CS.maschera(castelli, a.cls.shape, margine=3)
+        a.riservato = m if a.riservato is None else (a.riservato | m)
+        meta = op.lato // 2
+        note.append(f"castelli in rovina: {len(castelli)} a "
+                    + ", ".join(f"({c.x - meta}, {c.z - meta})" for c in castelli))
+    return castelli
 
 
 def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
@@ -1239,6 +1369,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     if dungeon:
         protetto |= DG.maschera(dungeon, a.cls.shape, margine=1)
 
+    avanza(0.702, "castelli in rovina")
+    castelli_rovina = _pianifica_castelli_rovina(op, a, h, edifici, muro, tipo_strada, miniere,
+                                                 campi, note)
+    if castelli_rovina:
+        protetto |= CS.maschera(castelli_rovina, a.cls.shape, margine=1)
+
     avanza(0.703, "fortezze")
     fortezze = _pianifica_fortezze(op, a, h, edifici, muro, tipo_strada, miniere, campi, note)
     if fortezze:
@@ -1309,13 +1445,47 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"ragni nelle miniere: {len(ragni)}")
         abitanti = abitanti + ragni
 
+    # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
+    meta_l = op.lato // 2
+    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
+                         fortezze=fortezze, castelli=castelli_rovina)
+
+    # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
+    incarichi: list = []
+    if op.incarichi and citta:
+        strutture: dict = {}
+        for d in dungeon:
+            x, y, z, _ = d.forzieri()[2]
+            strutture[("rovina", d.x - meta_l, d.z - meta_l)] = (None, (x - meta_l, y, z - meta_l))
+        for t in torri:
+            strutture[("torre", t.x - meta_l, t.z - meta_l)] = ((t.x, t.z), None)
+        for fz in fortezze:
+            m = fz.maschio()
+            strutture[("fortezza", fz.x - meta_l, fz.z - meta_l)] = ((m.x, m.z), None)
+        for cs in castelli_rovina:
+            x, y, z, _ = cs.forzieri()[5]
+            strutture[("castello", cs.x - meta_l, cs.z - meta_l)] = (
+                (cs.x, cs.z), (x - meta_l, y, z - meta_l))
+        incarichi = IC.pianifica(citta, luoghi, strutture, meta_l, seed=op.seed)
+        if incarichi:
+            note.append(f"incarichi: {len(incarichi)} (" + ", ".join(
+                f"{i.committente} -> {i.meta}" for i in incarichi) + ")")
+    trofei = IC.trofei(incarichi)
+
     if torri:
-        capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed)
+        capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed, trofei=trofei)
         note.append(f"capi e guardie delle torri: {len(capi)}")
         abitanti = abitanti + capi
 
+    if castelli_rovina:
+        mostri = CS.combattenti(castelli_rovina, [(c.x, c.z) for c in citta], seed=op.seed,
+                                trofei=trofei)
+        note.append(f"capo e mostri dei castelli in rovina: {len(mostri)}")
+        abitanti = abitanti + mostri
+
     if fortezze:
-        soldati = FZ.combattenti(fortezze, [(c.x, c.z) for c in citta], seed=op.seed)
+        soldati = FZ.combattenti(fortezze, [(c.x, c.z) for c in citta], seed=op.seed,
+                                 trofei=trofei)
         note.append(f"capi e soldati delle fortezze: {len(soldati)}")
         abitanti = abitanti + soldati
 
@@ -1325,11 +1495,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"nemici: {len(nemici)} fra accampamenti e cimiteri")
         abitanti = abitanti + nemici
 
-    # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
-    meta_l = op.lato // 2
-    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
-                         fortezze=fortezze)
-    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l, fortezze)
+    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l, fortezze, castelli_rovina)
     if tipo_strada is not None:
         cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
     ind = LU.indizi(luoghi)
@@ -1349,12 +1515,19 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         x, y, z, _ = fz.maschio().forzieri()[1]
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    for cs in castelli_rovina:
+        libro = ind["tappe"].get(("castello", cs.x - meta_l, cs.z - meta_l))
+        x, y, z, _ = cs.forzieri()[6]
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
     libro_citta = None
     if ind["inizio"] is not None:
         c0, libro0 = ind["inizio"]
         raggio0 = next((c.raggio for c in citta if c.x - meta_l == c0.x and c.z - meta_l == c0.z), 30)
         libro_citta = (c0.x, c0.z, raggio0, libro0)
     abitanti = LU.offerte_bottega(abitanti, luoghi, meta_l)
+    if incarichi:
+        abitanti = abitanti + IC.abitanti(incarichi, tipo_strada, h, citta, meta_l, seed=op.seed)
     if luoghi:
         note.append(f"luoghi con nome: {len(luoghi)}, cartelli: {len(cartelli)}, "
                     f"libri di indizi: {len(libri) + (1 if libro_citta else 0)}")
@@ -1371,6 +1544,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
+                 incarichi=incarichi, oggetti_incarico=IC.oggetti_forziere(incarichi),
+                 castelli_rovina=castelli_rovina,
+                 indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
+                                         if castelli_rovina else {}),
                  fortezze=fortezze,
                  indice_fortezze=FZ.indice_per_chunk(fortezze) if fortezze else {},
                  torri=torri,
@@ -1460,46 +1637,8 @@ def fetta_orlo(a: np.ndarray, sx: int, sz: int, margine: int = 1) -> np.ndarray:
     return fuori.T
 
 
-def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
-                  quota_c=None, lava_c=None, colata_c=None, muro_c=None,
-                  campi_c=None, ox=0, oz=0, y0=-64, y1=ALTEZZA_MONDO,
-                  roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
-                  manto_c=None, scarpata_c=None, sponda_c=None,
-                  campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
-                  piazze=None, piede_c=None, biomi_c=None):
-    """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
-    hh = h_c.astype(np.int32)[:, None, :]
-    ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
-
-    out = np.full((16, y1 - y0, 16), scrittore.id_aria, dtype=np.uint32)
-    solido = ys < hh
-    out[solido] = scrittore.blocco("stone")
-    out[:, 0, :] = scrittore.blocco("bedrock")
-
-    # --- strati di roccia -------------------------------------------------
-    # PRIMA della superficie: gli strati stanno dentro la montagna, l'erba
-    # sopra. L'ordine inverso darebbe banchi di tufo in mezzo a un prato.
-    if roccia is not None:
-        scarto = (np.zeros((16, 16), np.int32) if scarto_c is None
-                  else np.asarray(scarto_c).astype(np.int32))[:, None, :]
-        SG.applica(out, roccia, ys, solido, scarto)
-
-    cima = ys == hh - 1
-    sotto = solido & (ys >= hh - 4) & ~cima
-    # Dove il pendio e' una parete non cresce niente: la superficie resta lo
-    # strato di roccia che c'e' sotto. E' cosi' che si ottengono le pareti,
-    # senza generarle: basta non coprirle di erba.
-    nuda = (np.zeros((16, 16), bool) if nuda_c is None
-            else np.asarray(nuda_c).astype(bool))[:, None, :]
-    for k, (sup, sub) in SUPERFICIE.items():
-        m = (cls_c == k)[:, None, :] & ~nuda
-        out[cima & m] = scrittore.blocco(sup)
-        out[sotto & m] = scrittore.blocco(sub)
-
-    if biomi_c is not None:
-        PI.mesa(out, scrittore, h_c, cls_c, biomi_c, nuda_c, y0)
-        PI.palude(out, scrittore, h_c, cls_c, biomi_c, ox, oz, y0)
-
+def _scarpate_e_sponde(out, scrittore, h_c, cls_c, scarpata_c, sponda_c, ox, oz, y0):
+    """Gradoni urbani vestiti di pietra e sponde dei fiumi."""
     # --- fronti dei gradoni -----------------------------------------------
     # Dove la citta' e' terrazzata, il salto fra un ripiano e l'altro si veste
     # di pietra: un muro di sostegno si legge come una cosa costruita, un
@@ -1543,6 +1682,9 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                 nome = SUPERFICIE.get(int(cls_c[lx, lz]), ("grass_block", "dirt"))[0]
                 out[lx, cima_y, lz] = scrittore.blocco(nome)
 
+
+def _neve(out, scrittore, roccia, neve_c, cima, h_c, y0):
+    """Linea delle nevi: manto a chiazze e blocco pieno."""
     # --- neve -------------------------------------------------------------
     # Non una quota netta ma una fascia: prima il manto sottile a chiazze,
     # poi il blocco pieno. Una linea delle nevi disegnata col righello si
@@ -1557,6 +1699,10 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
             if 0 <= ly < out.shape[1] and out[lx, ly, lz] == scrittore.id_aria:
                 out[lx, ly, lz] = roccia.manto
 
+
+def _acqua(out, scrittore, h_c, cls_c, liv_c, solido, ys, lava_c, biomi_c, caduta_c,
+           parete_acqua_c, ox, oz, y0):
+    """Acqua e lava fino al loro pelo, decori dell'acqua e cascate."""
     # Il livello dell'acqua NON e' globale: un fiume scorre in quota, e
     # riempirlo fino al livello del mare lo trasformerebbe in un canyon
     # asciutto o in un braccio di mare.
@@ -1577,6 +1723,13 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
     if biomi_c is not None:
         AC.decora(out, scrittore, h_c, liv_c if liv_c is not None
                   else np.full((16, 16), LIVELLO_MARE), cls_c, biomi_c, ox, oz, y0)
+    if caduta_c is not None:
+        CAS.posa(out, scrittore, h_c, liv[:, 0, :], caduta_c, parete_acqua_c, ox, oz, y0,
+                 mare=LIVELLO_MARE)
+
+
+def _cono(out, scrittore, cls_c, manto_c, piede_c, cima, sotto):
+    """Manto a colate del cono e striature del piede del vulcano."""
     # --- manto del cono ---------------------------------------------------
     # Prima il cono era basalto e basta, dalla base all'orlo. Un vulcano vero
     # e' fatto di colate sovrapposte di eta' diverse, e si vede.
@@ -1598,8 +1751,9 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
         for k, blocco in enumerate(_blocchi_piede(scrittore), start=1):
             out[cima & (pc == k)[:, None, :]] = blocco
 
-    PI.vulcano(out, scrittore, h_c, cls_c, lava_c, ox, oz, y0)
 
+def _colate(out, scrittore, hh, colata_c, y0):
+    """Le colate di lava sul pendio dei vulcani."""
     if colata_c is not None and np.any(colata_c):
         cima_i = (hh - 1 - y0)
         magma = scrittore.blocco("magma_block")
@@ -1626,6 +1780,60 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                     out[lx, yy, lz] = magma
                 else:
                     out[lx, yy, lz] = basalto
+
+
+def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
+                  quota_c=None, lava_c=None, colata_c=None, muro_c=None,
+                  campi_c=None, ox=0, oz=0, y0=-64, y1=ALTEZZA_MONDO,
+                  roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
+                  manto_c=None, scarpata_c=None, sponda_c=None,
+                  campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
+                  piazze=None, piede_c=None, biomi_c=None, caduta_c=None,
+                  parete_acqua_c=None):
+    """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
+    hh = h_c.astype(np.int32)[:, None, :]
+    ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
+
+    out = np.full((16, y1 - y0, 16), scrittore.id_aria, dtype=np.uint32)
+    solido = ys < hh
+    out[solido] = scrittore.blocco("stone")
+    out[:, 0, :] = scrittore.blocco("bedrock")
+
+    # --- strati di roccia -------------------------------------------------
+    # PRIMA della superficie: gli strati stanno dentro la montagna, l'erba
+    # sopra. L'ordine inverso darebbe banchi di tufo in mezzo a un prato.
+    if roccia is not None:
+        scarto = (np.zeros((16, 16), np.int32) if scarto_c is None
+                  else np.asarray(scarto_c).astype(np.int32))[:, None, :]
+        SG.applica(out, roccia, ys, solido, scarto)
+
+    cima = ys == hh - 1
+    sotto = solido & (ys >= hh - 4) & ~cima
+    # Dove il pendio e' una parete non cresce niente: la superficie resta lo
+    # strato di roccia che c'e' sotto. E' cosi' che si ottengono le pareti,
+    # senza generarle: basta non coprirle di erba.
+    nuda = (np.zeros((16, 16), bool) if nuda_c is None
+            else np.asarray(nuda_c).astype(bool))[:, None, :]
+    for k, (sup, sub) in SUPERFICIE.items():
+        m = (cls_c == k)[:, None, :] & ~nuda
+        out[cima & m] = scrittore.blocco(sup)
+        out[sotto & m] = scrittore.blocco(sub)
+
+    if biomi_c is not None:
+        PI.mesa(out, scrittore, h_c, cls_c, biomi_c, nuda_c, y0)
+        PI.palude(out, scrittore, h_c, cls_c, biomi_c, ox, oz, y0)
+
+    _scarpate_e_sponde(out, scrittore, h_c, cls_c, scarpata_c, sponda_c, ox, oz, y0)
+
+    _neve(out, scrittore, roccia, neve_c, cima, h_c, y0)
+
+    _acqua(out, scrittore, h_c, cls_c, liv_c, solido, ys, lava_c, biomi_c, caduta_c,
+           parete_acqua_c, ox, oz, y0)
+    _cono(out, scrittore, cls_c, manto_c, piede_c, cima, sotto)
+
+    PI.vulcano(out, scrittore, h_c, cls_c, lava_c, ox, oz, y0)
+
+    _colate(out, scrittore, hh, colata_c, y0)
 
     if tipo_c is not None:
         tipo_orlo = (np.asarray(tipo_orlo_c) if tipo_orlo_c is not None
@@ -2183,11 +2391,54 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
                           ar.x, ar.z, ar.base)
 
 
+def _modelli_di(op: Opzioni, piano: Piano) -> list:
+    """Case, castelli, navi, moli, fari e modelli del piano, nell'ordine di
+    `pianifica()`: gli indici di `piano.scelte` e `piano.isolate` si riferiscono
+    a questa lista."""
+    cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
+    modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
+               if cartelle_t else [])
+    if piano.isolate:
+        if op.templates_castello or op.templates_nave:
+            castelli_m, navi_m = _modelli_monumenti(op)
+            modelli = modelli + castelli_m + navi_m
+        moli_m, fari_m = _modelli_porti(op)
+        modelli = modelli + moli_m + fari_m + list(piano.modelli_extra)
+    return modelli
+
+
+def carica_modelli(op: Opzioni, piano: Piano) -> dict:
+    """Tutti i template che `scrivi` usa: {"modelli", "cimiteri", "portali"}.
+    Per `parallelo.py`, che li legge una volta sola e li passa ai lavoratori."""
+    cartelle_cim = [c.strip() for c in op.templates_cimitero.split(";") if c.strip()]
+    cartelle_portale = [c.strip() for c in op.templates_portale.split(";") if c.strip()]
+    return {
+        "modelli": _modelli_di(op, piano),
+        "cimiteri": (AP.carica_cimiteri(cartelle_cim, versione=op.versione)
+                     if cartelle_cim and piano.avamposti else []),
+        "portali": (AP.carica_portali(cartelle_portale, versione=op.versione)
+                    if cartelle_portale and piano.avamposti else []),
+    }
+
+
 def scrivi(op: Opzioni, a: Analisi, piano: Piano,
            avanza: Avanzamento = _nulla,
            da: int = 0, quanti: int = 0,
-           ferma: Callable[[], bool] | None = None) -> dict:
+           ferma: Callable[[], bool] | None = None,
+           indici: list[int] | None = None, lavoratore: bool = False,
+           precaricati: dict | None = None) -> dict:
     """Scrive i chunk. `da`/`quanti` servono alla CLI a lavorare a lotti.
+
+    `indici` (posizioni nella lista dei chunk) e `lavoratore` servono a
+    `parallelo.py`: un processo scrive solo quei chunk in un mondo di lavoro e
+    NON fa i passaggi finali (abitanti, bordo, elenco), che toccano al
+    processo principale quando tutti hanno finito.
+
+    `precaricati` ({"modelli", "cimiteri", "portali"}, vedi `carica_modelli`)
+    evita di rileggere i template: i lavoratori li ricevono dal processo
+    principale. Riletti da piu' processi insieme, quelli che si leggono da un
+    mondo (i fari) a volte uscivano vuoti e gli indici dei modelli non
+    coincidevano piu' con il piano.
 
     `ferma` e' interrogato a ogni chunk: la finestra deve poter annullare una
     generazione lunga senza chiudere il programma.
@@ -2215,6 +2466,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_dg = DG.Tavolozza(m) if piano.dungeon else None
         tav_tr = TR.Tavolozza(m) if piano.torri else None
         tav_fz = FZ.Tavolozza(m) if piano.fortezze else None
+        tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2223,13 +2475,15 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # perche' sono un'altra cartella e un'altra scelta (una struttura
         # sola, non una per lotto).
         cartelle_cim = [c.strip() for c in op.templates_cimitero.split(";") if c.strip()]
-        modelli_cim = (AP.carica_cimiteri(cartelle_cim, versione=op.versione)
-                      if cartelle_cim and piano.avamposti else [])
+        modelli_cim = (precaricati["cimiteri"] if precaricati is not None else
+                       AP.carica_cimiteri(cartelle_cim, versione=op.versione)
+                       if cartelle_cim and piano.avamposti else [])
         cat_cim = TM.Catalogo(modelli_cim, m) if modelli_cim else None
         aria_cim = m.id_aria if cat_cim is not None else 0
         basamento_cim = m.blocco("cobblestone") if cat_cim is not None else 0
         cartelle_portale = [c.strip() for c in op.templates_portale.split(";") if c.strip()]
-        modelli_portale = (AP.carica_portali(cartelle_portale, versione=op.versione)
+        modelli_portale = (precaricati["portali"] if precaricati is not None else
+                           AP.carica_portali(cartelle_portale, versione=op.versione)
                            if cartelle_portale and piano.avamposti else [])
         cat_portale = TM.Catalogo(modelli_portale, m) if modelli_portale else None
         aria_portale = m.id_aria if cat_portale is not None else 0
@@ -2276,17 +2530,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # Il modello di ogni lotto lo ha deciso `pianifica()` (`piano.scelte`),
         # senza ripetizioni nel villaggio: qui si carica solo il catalogo, con
         # lo stesso ordine, perche' gli indici coincidano.
-        cartelle_t = [c.strip() for c in op.templates.split(";") if c.strip()]
-        modelli = (TM.carica_cartelle(cartelle_t, versione=op.versione)
-                  if cartelle_t else [])
-        if piano.isolate:
-            # dopo le case, nello stesso ordine di `pianifica()`: castelli, navi,
-            # poi i modelli che il pianificatore ha costruito (molo, faro)
-            if op.templates_castello or op.templates_nave:
-                castelli_m, navi_m = _modelli_monumenti(op)
-                modelli = modelli + castelli_m + navi_m
-            moli_m, fari_m = _modelli_porti(op)
-            modelli = modelli + moli_m + fari_m + list(piano.modelli_extra)
+        modelli = (precaricati["modelli"] if precaricati is not None
+                   else _modelli_di(op, piano))
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
@@ -2300,6 +2545,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                     if a.biomi is not None else None)
         tutti = list(m.chunk_coords())
         fino = len(tutti) if quanti <= 0 else min(da + quanti, len(tutti))
+        lista = tutti[da:fino] if indici is None else [tutti[k] for k in indici]
         if da >= len(tutti):
             return {"chunk": 0, "totale": len(tutti), "restano": 0,
                     "secondi": 0.0, "interrotto": False}
@@ -2311,8 +2557,9 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         centri_g = [(c.x - meta, c.z - meta) for c in piano.citta]
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
-        n = max(1, fino - da)
-        for i, (cx, cz) in enumerate(tutti[da:fino]):
+        caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
+        n = max(1, len(lista))
+        for i, (cx, cz) in enumerate(lista):
             if ferma is not None and ferma():
                 interrotto = True
                 break
@@ -2335,6 +2582,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 scarpata_c=(fetta(piano.scarpata, sx, sz)
                             if piano.scarpata is not None else None),
                 sponda_c=fetta(sponda_m, sx, sz),
+                caduta_c=fetta(caduta_m, sx, sz),
+                parete_acqua_c=fetta(parete_acqua_m, sx, sz),
                 campi_orlo_c=(fetta_orlo(piano.campi, sx, sz)
                              if piano.campi is not None else None),
                 tipo_orlo_c=(fetta_orlo(piano.tipo_strada, sx, sz)
@@ -2391,6 +2640,13 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         piano.fortezze, _dal_chunk(piano.indice_fortezze, sx, sz), meta=meta)
                 dungeon_g.update({(x - meta, y, z - meta): tipo
                                   for x, y, z, tipo in tav_fz.bauli + tav_fz.torre.bauli})
+            if tav_cs is not None:
+                tav_cs.bauli.clear()
+                CS.posa(blocchi, tav_cs, fetta(piano.h, sx, sz), ox, oz, -64,
+                        piano.castelli_rovina, _dal_chunk(piano.indice_castelli_rovina, sx, sz),
+                        meta=meta)
+                dungeon_g.update({(x - meta, y, z - meta): tipo
+                                  for x, y, z, tipo in tav_cs.bauli})
             # Accampamenti e cimiteri: SENZA `protetto_c` - a differenza
             # dello scavo delle caverne e delle miniere, qui non c'e' niente
             # da proteggere da questo disegno, ed e' proprio il loro stesso
@@ -2437,7 +2693,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             bauli_c = (BA.trova(blocchi, tav_ba, ox, oz, -64, seed=71,
                                 campi=campi_g, minerali=minerali_g,
                                 cripte=cripte_g, centri=centri_g, dungeon=dungeon_g,
-                                libri=piano.libri, libro_citta=piano.libro_citta)
+                                libri=piano.libri, libro_citta=piano.libro_citta,
+                                oggetti=piano.oggetti_incarico)
                       if tav_ba is not None else None)
             if piano.cartelli:
                 for c in piano.cartelli:
@@ -2448,6 +2705,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                     blocchi[gx - ox, y + 64, gz - oz] = m.blocco(
                         "sign", material="oak", rotation=str(c.rotazione))
                     bauli_c = (bauli_c or []) + [LU.entita_cartello(c, y, meta)]
+            if piano.castelli_rovina:
+                be_cs = CS.entita_blocco(piano.castelli_rovina, ox, oz, meta)
+                if be_cs:
+                    bauli_c = (bauli_c or []) + be_cs
             if piano.dungeon:
                 spawner = DG.entita_blocco(piano.dungeon, ox, oz, meta)
                 if spawner:
@@ -2457,14 +2718,27 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             if i % 25 == 0 or i == n - 1:
                 avanza((i + 1) / n, f"chunk {da + i + 1} di {len(tutti)}")
 
+    if lavoratore:
+        return {"chunk": scritti, "totale": len(tutti), "restano": 0,
+                "secondi": time.time() - t0, "interrotto": interrotto, "lavoratore": True}
     restano = len(tutti) - (da + scritti)
     fuori = {"chunk": scritti, "totale": len(tutti), "restano": restano,
              "secondi": time.time() - t0, "interrotto": interrotto}
 
+    if restano == 0 and not interrotto:
+        passaggi_finali(op, piano, fuori)
+    return fuori
+
+
+def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
+    """Cio' che si fa una volta sola, a mondo scritto: abitanti, bordo
+    naturale, elenco dei luoghi, verifica del level.dat. Aggiorna e ritorna
+    `fuori`. Lo usa anche `parallelo.scrivi_parallelo`."""
+    from .livello_dat import verifica
     # Gli abitanti si scrivono ALLA FINE e da soli: `ScrittoreMondo` cancella
     # la cartella `entities/` a ogni chiusura, perche' amulet la scrive rotta.
     # Quella che mettiamo noi deve arrivare dopo l'ultima chiusura.
-    if restano == 0 and not interrotto and piano.abitanti:
+    if piano.abitanti:
         from dataclasses import replace as _replace
 
         from .livello_dat import ImpostazioniMondo as _Imp
@@ -2485,17 +2759,17 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                                _Imp(versione=op.versione).data_version)
         fuori["abitanti"] = st["abitanti"]
 
-    if restano == 0 and not interrotto and op.fuori_mappa == "naturale":
+    if op.fuori_mappa == "naturale":
         # il terreno che il gioco genera oltre il bordo si raccorda al nostro
         fuori["sfumatura"] = SF.segna_bordo(op.uscita)
 
-    if restano == 0 and not interrotto and piano.luoghi:
-        md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "")
+    if piano.luoghi:
+        md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
+                                 extra_md=IC.sezione_elenco(piano.incarichi))
         fuori["luoghi"] = md
 
-    if restano == 0 and not interrotto:
-        fuori["level_dat"] = "valido" if not verifica(
-            os.path.join(op.uscita, "level.dat")) else "PROBLEMI"
+    fuori["level_dat"] = "valido" if not verifica(
+        os.path.join(op.uscita, "level.dat")) else "PROBLEMI"
     return fuori
 
 

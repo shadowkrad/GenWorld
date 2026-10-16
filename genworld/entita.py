@@ -59,6 +59,8 @@ class Abitante:
     mestiere: str = "fruttivendolo"
     livello: int = 2
     seme: int = 0
+    # un nome da mostrare sopra la testa (i committenti degli incarichi)
+    nome: str = ""
     # scambi personalizzati: ognuno e' un dict {"compra": (oggetto, quanti),
     # "vende": (oggetto, quanti, componenti|None), "usi": n}. Vuoto = gli
     # scambi normali del mestiere (decide il gioco).
@@ -110,8 +112,12 @@ def nbt_abitante(a: Abitante, bioma: str = "plains"):
             "profession": StringTag(f"minecraft:{a.professione}"),
             "type": StringTag(f"minecraft:{bioma}"),
         }),
-        "Xp": IntTag(0),
+        # con scambi propri il villager e' al livello massimo: non ne aggiunge di suoi
+        "Xp": IntTag(250 if a.offerte else 0),
     })
+    if a.nome:
+        tag["CustomName"] = StringTag(a.nome)
+        tag["CustomNameVisible"] = ByteTag(1)
     if a.offerte:
         tag["Offers"] = CompoundTag({"Recipes": ListTag([_scambio(o) for o in a.offerte])})
     return tag

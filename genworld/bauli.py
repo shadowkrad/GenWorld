@@ -222,6 +222,14 @@ def _oggetti_cripta(rng: np.random.Generator) -> list[tuple[int, str, int]]:
             for s, t in zip(slot, tipi)]
 
 
+def componenti_oggetto(spec: dict) -> dict:
+    """I componenti (formato 1.21) di un oggetto d'incarico: nome, descrizione e
+    un'etichetta `custom_data` con cui un villager lo riconosce in uno scambio.
+    `spec` = {"id", "nome", "lore": [..], "uid"}."""
+    return {"custom_name": spec["nome"], "lore": list(spec.get("lore", [])),
+            "custom_data": {"incarico": spec["uid"]}}
+
+
 def _voce(v):
     """Una pila come CompoundTag; il quarto elemento, se c'e', sono i componenti."""
     from amulet_nbt import ByteTag, CompoundTag, IntTag, StringTag
@@ -257,7 +265,7 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
          seed: int = 0, campi: list | None = None, minerali: set | None = None,
          cripte: list | None = None, centri: list | None = None,
          dungeon: dict | None = None, libri: dict | None = None,
-         libro_citta: tuple | None = None) -> list:
+         libro_citta: tuple | None = None, oggetti: dict | None = None) -> list:
     """Cerca i forzieri singoli gia' scritti in un chunk (16, H, 16) e
     ritorna la lista di `amulet.api.block_entity.BlockEntity` col bottino.
 
@@ -313,6 +321,12 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
                     "written_book_content": {
                         "title": {"raw": libro.titolo}, "author": libro.autore,
                         "pages": [{"raw": p} for p in libro.pagine]}})]
+        if oggetti and (gx, gy, gz) in oggetti:
+            for spec in oggetti[(gx, gy, gz)]:
+                liberi = [s for s in range(27) if s not in {c[0] for c in contenuto}]
+                if liberi:
+                    contenuto = list(contenuto) + [(liberi[0], spec["id"], 1,
+                                                    componenti_oggetto(spec))]
         items = ListTag([_voce(v) for v in contenuto])
         # Namespace "minecraft" (raw) con NBT piatto si perde - verificato
         # con uno spike dedicato - non appena la sessione di scrittura tocca

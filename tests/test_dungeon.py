@@ -246,6 +246,16 @@ class TestSpawnerEntity(unittest.TestCase):
                          "minecraft:skeleton")
         self.assertEqual(DG.entita_blocco([d], 0, 0, 0), [])
 
+    def test_lo_spawner_ha_dei_compagni(self):
+        be = DG.be_spawner(0, 0, 0, "skeleton", misto=True)
+        pot = be.nbt.compound["utags"]["SpawnPotentials"]
+        ids = [str(p["data"]["entity"]["id"]) for p in pot]
+        self.assertEqual(ids[0], "minecraft:skeleton")
+        self.assertEqual(int(pot[0]["weight"]), 4)
+        self.assertEqual(ids[1:], [f"minecraft:{m}" for m in DG.COMPAGNI["skeleton"]])
+        semplice = DG.be_spawner(0, 0, 0, "skeleton").nbt.compound["utags"]["SpawnPotentials"]
+        self.assertEqual(len(semplice), 1)
+
 
 class TestPersistenza(unittest.TestCase):
     def test_lo_spawner_e_i_forzieri_sopravvivono_al_salvataggio(self):
@@ -304,7 +314,7 @@ class TestPersistenza(unittest.TestCase):
             self.assertEqual(len(trovati), 1)
             be = trovati[0]
             self.assertEqual(str(be["SpawnData"]["entity"]["id"]), "minecraft:zombie")
-            self.assertEqual(len(be["SpawnPotentials"]), 1)
+            self.assertEqual(len(be["SpawnPotentials"]), 1 + len(DG.COMPAGNI["zombie"]))
             self.assertEqual(str(be["SpawnPotentials"][0]["data"]["entity"]["id"]),
                              "minecraft:zombie")
             lv = amulet.load_level(percorso)

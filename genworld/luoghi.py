@@ -46,7 +46,7 @@ CIMITERI = ("Cimitero degli Impiccati", "Camposanto dei Dimenticati", "Cimitero 
             "Giardino dei Pianti", "Cimitero del Silenzio")
 PORTALI = ("Portale Antico", "Il Varco Spezzato", "Portale delle Ceneri", "Arco del Confine")
 
-TIPI_AVVENTURA = ("rovina", "torre", "fortezza")
+TIPI_AVVENTURA = ("rovina", "torre", "fortezza", "castello")
 
 # otto direzioni, a partire da est, in senso orario guardando la mappa dall'alto
 # (+x est, +z sud)
@@ -94,7 +94,8 @@ def _scegli(rng: np.random.Generator, elenco: tuple, usati: set) -> str:
 
 
 def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: list,
-             meta: int, seed: int = 0, fortezze: list | None = None) -> list[Luogo]:
+             meta: int, seed: int = 0, fortezze: list | None = None,
+             castelli: list | None = None) -> list[Luogo]:
     """Dà un nome a ogni luogo e lo mette in coordinate di gioco."""
     rng = np.random.default_rng(seed + 8888)
     usati: set = set()
@@ -115,6 +116,9 @@ def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: 
     for fz in fortezze or []:
         fuori.append(Luogo(f"Fortezza di {fz.nome}", "fortezza", fz.x - meta, fz.z - meta, fz.ys,
                            nota=f"capo: {fz.nome}"))
+    for cs in castelli or []:
+        fuori.append(Luogo(cs.nome, "castello", cs.x - meta, cs.z - meta, cs.ys,
+                           nota=f"in rovina, signore: {cs.capo}"))
     for av in avamposti:
         tab = {"campo": ("accampamento", ACCAMPAMENTI), "cimitero": ("cimitero", CIMITERI),
                "portale": ("portale", PORTALI)}[av.tipo]
@@ -126,11 +130,13 @@ def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: 
 # Elenco
 # --------------------------------------------------------------------------
 
-def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "") -> tuple[str, str]:
+def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "",
+                  extra_md: str = "") -> tuple[str, str]:
     """Scrive `luoghi.md` e `luoghi.json` in `cartella`. Ritorna i due percorsi."""
     os.makedirs(cartella, exist_ok=True)
-    ordine = ("citta", "torre", "rovina", "miniera", "accampamento", "cimitero", "portale")
-    titoli = {"citta": "Citta'", "torre": "Torri con un capo", "rovina": "Rovine con cripta",
+    ordine = ("citta", "torre", "fortezza", "castello", "rovina", "miniera", "accampamento", "cimitero", "portale")
+    titoli = {"citta": "Citta'", "torre": "Torri con un capo", "fortezza": "Fortezze",
+              "castello": "Castelli in rovina", "rovina": "Rovine con cripta",
               "miniera": "Miniere", "accampamento": "Accampamenti", "cimitero": "Cimiteri",
               "portale": "Portali"}
     righe = [f"# Luoghi{(' di ' + nome_mondo) if nome_mondo else ''}", "",
@@ -147,7 +153,7 @@ def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "") -> t
         righe.append("")
     md = os.path.join(cartella, "luoghi.md")
     with open(md, "w", encoding="utf-8") as f:
-        f.write("\n".join(righe))
+        f.write("\n".join(righe) + extra_md)
     js = os.path.join(cartella, "luoghi.json")
     with open(js, "w", encoding="utf-8") as f:
         json.dump([l.__dict__ for l in luoghi], f, ensure_ascii=False, indent=1)
@@ -274,7 +280,8 @@ def _righe(*testi: str) -> tuple:
 
 
 def cartelli(dungeon: list, torri: list, miniere: list, luoghi: list[Luogo],
-             meta: int, fortezze: list | None = None) -> list[Cartello]:
+             meta: int, fortezze: list | None = None,
+             castelli: list | None = None) -> list[Cartello]:
     """Un cartello davanti a ogni rovina, torre e miniera, col nome del luogo."""
     per_posto = {(l.tipo, l.x, l.z): l for l in luoghi}
     fuori: list[Cartello] = []
@@ -294,6 +301,11 @@ def cartelli(dungeon: list, torri: list, miniere: list, luoghi: list[Luogo],
         fuori.append(Cartello(x, z, ROTAZIONE[(fz.dx, fz.dz)],
                               _righe(l.nome[:15] if l else "Fortezza", l.nome[15:30] if l else "",
                                      "Fermati", "e annunciati")))
+    for cs in castelli or []:
+        l = per_posto.get(("castello", cs.x - meta, cs.z - meta))
+        x, z = cs.punto(19 + 3, 6)             # fuori dal portale sfondato
+        fuori.append(Cartello(x, z, ROTAZIONE[(cs.dx, cs.dz)],
+                              _righe(l.nome[:15] if l else "Castello", "", "Chi entra non", "torna uguale")))
     for mn in miniere:
         r = mn.rampa
         if r is None:

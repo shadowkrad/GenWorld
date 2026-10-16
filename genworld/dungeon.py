@@ -31,6 +31,16 @@ DISTANZA_FRA_RUINE = 160
 RILIEVO_MASSIMO = 3
 MOB = ("zombie", "skeleton", "spider")
 
+# Compagni occasionali di uno spawner: il mob principale pesa 4, ognuno dei
+# compagni 1, quindi su cinque comparse una e' diversa. Cosi' una cripta di
+# zombie ogni tanto lascia uscire anche uno scheletro o un ragno.
+COMPAGNI = {"zombie": ("skeleton", "spider", "husk"),
+            "skeleton": ("zombie", "cave_spider", "stray"),
+            "spider": ("cave_spider", "skeleton", "zombie"),
+            "cave_spider": ("spider", "skeleton"),
+            "skeleton_nero": ("skeleton", "zombie"),
+            "vindicatore": ("zombie", "skeleton")}
+
 # direzione (dx, dz) -> nome della faccia
 FACCIA = {(1, 0): "east", (-1, 0): "west", (0, 1): "south", (0, -1): "north"}
 
@@ -387,40 +397,64 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
             metti(cx, yf, cz, tav.scolpiti)
 
 
-def entita_blocco(dungeons: list[Dungeon], ox: int, oz: int, meta: int) -> list:
-    """I `BlockEntity` degli spawner che cadono nel chunk di angolo (ox, oz),
-    coordinate di GIOCO."""
+def be_spawner(gx: int, y: int, gz: int, mob: str, misto: bool = False):
+    """Il `BlockEntity` (formato universale di amulet) di uno spawner di `mob`.
+    Coordinate di GIOCO."""
     from amulet.api.block_entity import BlockEntity
     from amulet_nbt import (ByteTag, CompoundTag, FloatTag, IntTag, ListTag,
                             NamedTag, ShortTag, StringTag)
+    def _ent(m):
+        return CompoundTag({"entity": CompoundTag({"id": StringTag(f"minecraft:{m}")})})
+    entita = _ent(mob)
+    potenziali = [CompoundTag({"data": entita, "weight": IntTag(4 if misto else 1)})]
+    if misto:
+        potenziali += [CompoundTag({"data": _ent(m), "weight": IntTag(1)})
+                       for m in COMPAGNI.get(mob, ())]
+    utags = CompoundTag({
+        "isMovable": ByteTag(1),
+        "MaxNearbyEntities": ShortTag(6),
+        "RequiredPlayerRange": ShortTag(16),
+        "SpawnCount": ShortTag(4),
+        # formato del gioco recente (1.21.5+): `entity` dentro SpawnData e
+        # `data`/`weight` in SpawnPotentials. Senza SpawnPotentials amulet
+        # ne aggiunge uno di maiali nel vecchio formato, e dopo il primo
+        # giro lo spawner farebbe maiali.
+        "SpawnData": entita,
+        "SpawnPotentials": ListTag(potenziali),
+        "EntityIdentifier": StringTag(""),
+        "MaxSpawnDelay": ShortTag(800),
+        "Delay": ShortTag(20),
+        "SpawnRange": ShortTag(4),
+        "MinSpawnDelay": ShortTag(200),
+        "DisplayEntityHeight": FloatTag(1.8),
+        "DisplayEntityScale": FloatTag(1.0),
+        "DisplayEntityWidth": FloatTag(0.8),
+    })
+    return BlockEntity("universal_minecraft", "spawner", gx, y, gz,
+                       NamedTag(CompoundTag({"utags": utags})))
+
+
+def be_dispenser(gx: int, y: int, gz: int, oggetto: str = "arrow", quanti: int = 64):
+    """Un distributore con una pila di `oggetto` (frecce, di solito) in ogni slot
+    che ne vale la pena: sparera' finche' ne ha. Coordinate di GIOCO."""
+    from amulet.api.block_entity import BlockEntity
+    from amulet_nbt import (ByteTag, CompoundTag, IntTag, ListTag, NamedTag,
+                            StringTag)
+    voci = ListTag([CompoundTag({"Slot": ByteTag(i), "id": StringTag(f"minecraft:{oggetto}"),
+                                 "count": IntTag(quanti)}) for i in range(4)])
+    utags = CompoundTag({"isMovable": ByteTag(1), "Items": voci, "Lock": StringTag("")})
+    return BlockEntity("universal_minecraft", "dispenser", gx, y, gz,
+                       NamedTag(CompoundTag({"utags": utags})))
+
+
+def entita_blocco(dungeons: list[Dungeon], ox: int, oz: int, meta: int) -> list:
+    """I `BlockEntity` degli spawner che cadono nel chunk di angolo (ox, oz),
+    coordinate di GIOCO."""
     fuori = []
     for d in dungeons:
         x, y, z = d.spawner()
         gx, gz = x - meta, z - meta
         if not (ox <= gx < ox + 16 and oz <= gz < oz + 16):
             continue
-        utags = CompoundTag({
-            "isMovable": ByteTag(1),
-            "MaxNearbyEntities": ShortTag(6),
-            "RequiredPlayerRange": ShortTag(16),
-            "SpawnCount": ShortTag(4),
-            # formato del gioco recente (1.21.5+): `entity` dentro SpawnData e
-            # `data`/`weight` in SpawnPotentials. Senza SpawnPotentials amulet
-            # ne aggiunge uno di maiali nel vecchio formato, e dopo il primo
-            # giro lo spawner farebbe maiali.
-            "SpawnData": CompoundTag({"entity": CompoundTag({"id": StringTag(f"minecraft:{d.mob}")})}),
-            "SpawnPotentials": ListTag([CompoundTag({
-                "data": CompoundTag({"entity": CompoundTag({"id": StringTag(f"minecraft:{d.mob}")})}),
-                "weight": IntTag(1)})]),
-            "EntityIdentifier": StringTag(""),
-            "MaxSpawnDelay": ShortTag(800),
-            "Delay": ShortTag(20),
-            "SpawnRange": ShortTag(4),
-            "MinSpawnDelay": ShortTag(200),
-            "DisplayEntityHeight": FloatTag(1.8),
-            "DisplayEntityScale": FloatTag(1.0),
-            "DisplayEntityWidth": FloatTag(0.8),
-        })
-        fuori.append(BlockEntity("universal_minecraft", "spawner", gx, y, gz,
-                                 NamedTag(CompoundTag({"utags": utags}))))
+        fuori.append(be_spawner(gx, y, gz, d.mob, misto=True))
     return fuori

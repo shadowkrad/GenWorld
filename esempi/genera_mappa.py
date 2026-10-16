@@ -143,6 +143,12 @@ def main() -> None:
                          "citta'), 'quadrato', 'rettangolo', 'ovale', 'tondo', oppure un "
                          "elenco separato da virgole (es. tondo,ovale,rettangolo,quadrato) "
                          "percorso in ordine dalle citta' murate")
+    ap.add_argument("--cache-piano", action="store_true",
+                    help="salva/rilegge la pianificazione (accanto al mondo, *_piano.pkl): "
+                         "vale solo con le stesse opzioni, gli stessi template e lo stesso codice")
+    ap.add_argument("--processi", type=int, default=1, metavar="N",
+                    help="scrive i chunk con N processi (0 = uno per core, al massimo 8; "
+                         "1 = come prima). Non si combina con --chunk-per-lotto")
     ap.add_argument("--fuori-mappa", choices=("naturale", "vuoto"), default="naturale",
                     help="cosa c'e' oltre la mappa: 'naturale' (terreno normale di "
                          "Minecraft generato al volo, nessun bordo) o 'vuoto' (aria)")
@@ -191,14 +197,24 @@ def main() -> None:
             print(n)
         print(f"mappa {op.lato}x{op.lato}: quote {analisi.h.min()}..{analisi.h.max()}")
 
-    piano = pianifica(op, analisi)
+    if a.cache_piano:
+        from genworld.motore import pianifica_con_cache
+        piano, dalla_cache = pianifica_con_cache(op, analisi)
+        if dalla_cache:
+            print("piano riletto dalla cache")
+    else:
+        piano = pianifica(op, analisi)
     if primo:
         for n in piano.note:
             print(n)
 
     quanti = a.chunk_per_lotto
-    st = scrivi(op, analisi, piano, da=a.lotto * quanti if quanti else 0,
-                quanti=quanti)
+    if a.processi != 1 and not quanti:
+        from genworld.parallelo import scrivi_parallelo
+        st = scrivi_parallelo(op, analisi, piano, processi=a.processi)
+    else:
+        st = scrivi(op, analisi, piano, da=a.lotto * quanti if quanti else 0,
+                    quanti=quanti)
     da = a.lotto * quanti if quanti else 0
     print(f"lotto {a.lotto}: {st['chunk']} chunk da {da} di {st['totale']} "
           f"in {time.time() - t0:.0f}s ({st['restano']} rimanenti)")
