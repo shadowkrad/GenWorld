@@ -212,6 +212,41 @@ def _oggetti_dungeon(rng: np.random.Generator, tipo: str, lontano: bool) -> list
     return contenuto
 
 
+# Il bottino delle strutture da template che hanno un loro carattere: la nave
+# porta oro e provviste di bordo, il faro il necessario di chi veglia, il
+# castello armi, libri e oggetti da signore. (nome, minimo, massimo)
+BOTTINO_ZONA: dict[str, tuple] = {
+    "nave": (("gold_ingot", 2, 8), ("emerald", 1, 5), ("iron_ingot", 3, 9),
+             ("compass", 1, 1), ("spyglass", 1, 1), ("bread", 2, 6),
+             ("cooked_cod", 3, 8), ("lead", 1, 3), ("name_tag", 1, 1),
+             ("rotten_flesh", 2, 6), ("barrel", 1, 1), ("string", 4, 12)),
+    "faro": (("coal", 4, 12), ("torch", 8, 24), ("cooked_salmon", 2, 6),
+             ("fishing_rod", 1, 1), ("spyglass", 1, 1), ("lantern", 1, 3),
+             ("iron_ingot", 2, 5), ("emerald", 1, 3), ("glass_bottle", 2, 6),
+             ("bread", 2, 5), ("paper", 3, 8)),
+    "castello": (("iron_sword", 1, 1), ("shield", 1, 1), ("golden_apple", 1, 2),
+                 ("diamond", 1, 3), ("emerald", 2, 6), ("book", 2, 5),
+                 ("arrow", 12, 32), ("bow", 1, 1), ("iron_chestplate", 1, 1),
+                 ("experience_bottle", 2, 6), ("saddle", 1, 1), ("ender_pearl", 1, 3),
+                 ("gold_ingot", 3, 9), ("cooked_beef", 4, 10)),
+}
+
+
+def _oggetti_zona(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
+    """4-7 pile dal bottino del luogo, in slot diversi; lontano dalle citta' anche
+    un tesoro incantato (come per le cripte)."""
+    tabella = BOTTINO_ZONA[tipo]
+    n = int(rng.integers(4, 8))
+    slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
+    tipi = rng.choice(len(tabella), size=min(n, len(tabella)), replace=False)
+    contenuto = [(s, tabella[int(t)][0],
+                  int(rng.integers(tabella[int(t)][1], tabella[int(t)][2] + 1)))
+                 for s, t in zip(slot, tipi)]
+    if lontano:
+        contenuto = _aggiungi_tesori(contenuto, rng, 1)
+    return contenuto
+
+
 def _oggetti_cripta(rng: np.random.Generator) -> list[tuple[int, str, int]]:
     """3-6 pile di ossa, refurtiva e ogni tanto un oggetto raro."""
     n = int(rng.integers(3, 7))
@@ -268,7 +303,8 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
          seed: int = 0, campi: list | None = None, minerali: set | None = None,
          cripte: list | None = None, centri: list | None = None,
          dungeon: dict | None = None, libri: dict | None = None,
-         libro_citta: tuple | None = None, oggetti: dict | None = None) -> list:
+         libro_citta: tuple | None = None, oggetti: dict | None = None,
+         zone: list | None = None) -> list:
     """Cerca i forzieri singoli gia' scritti in un chunk (16, H, 16) e
     ritorna la lista di `amulet.api.block_entity.BlockEntity` col bottino.
 
@@ -291,8 +327,12 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
         # gemme, in un accampamento un diamante e un'arma, in casa la dispensa
         lontano = bool(centri) and min((gx - cx) ** 2 + (gz - cz) ** 2
                                        for cx, cz in centri) > DISTANZA_TESORI ** 2
+        zona = next((t for x0, z0, x1, z1, t in (zone or ())
+                     if x0 <= gx < x1 and z0 <= gz < z1), None)
         if dungeon and (gx, gy, gz) in dungeon:
             contenuto = _oggetti_dungeon(rng, dungeon[(gx, gy, gz)], lontano)
+        elif zona is not None:
+            contenuto = _oggetti_zona(rng, zona, lontano)
         elif minerali and (gx, gy, gz) in minerali:
             contenuto = _oggetti_miniera(rng)
         elif cripte and any((gx - cx) ** 2 + (gz - cz) ** 2 <= r * r for cx, cz, r in cripte):

@@ -341,6 +341,8 @@ class Tavolozza:
         self.stendardo = {(c, f): s.blocco("wall_banner", color=c, facing=f)
                           for c in STENDARDI for f in facce}
         self.barile = s.blocco("barrel", facing="up", open="false")
+        self.parafulmine = s.blocco("lightning_rod", facing="up", material="copper",
+                                    powered="false")
         self.banco_lavoro = s.blocco("crafting_table")
         self.fucina = s.blocco("smithing_table")
         self.fletcher = s.blocco("fletching_table")
@@ -488,6 +490,9 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
             for u, v in ((R, 0), (-R, 0), (0, R), (0, -R)):
                 alza(u, v, t.piano(k) + 1, tav.sbarre)
                 alza(u, v, t.piano(k) + 2, tav.sbarre)
+
+        # ---- il parafulmine di rame al centro del tetto (la torre e' la cosa piu' alta intorno)
+        alza(0, 0, cima, tav.parafulmine)
 
         # ---- tetto: pali agli angoli con lanterne -----------------------------------
         for u, v in ((R, R), (R, -R), (-R, R), (-R, -R)):

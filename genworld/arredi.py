@@ -148,18 +148,22 @@ def lampione() -> Disegno:
 # Le lampade di rame di una citta': i bulbi di rame (accesi) dal nuovo
 # all'ossidato, verdi. Il livello (0 nuova .. 3 ossidata) lo decide la
 # posizione: una via e' fatta di lampioni messi in anni diversi. Le lanterne di
-# rame vere non ci sono nel traduttore usato per gli arredi (1.21.4).
+# rame vere (1.21.9 in su) hanno il loro blocco; prima ci sono solo i bulbi.
 LANTERNE_RAME = ("copper_bulb", "exposed_copper_bulb",
                  "weathered_copper_bulb", "oxidized_copper_bulb")
+LANTERNE_RAME_VERE = ("copper_lantern", "exposed_copper_lantern",
+                      "weathered_copper_lantern", "oxidized_copper_lantern")
+VERSIONE_LANTERNE_RAME = (1, 21, 9)
 
 
-def lampione_a_braccio(verso: str = "+x", rame: int = -1) -> Disegno:
+def lampione_a_braccio(verso: str = "+x", rame: int = -1, rame_vero: bool = False) -> Disegno:
     """Il lampione di strada: un palo di staccionata scura alto cinque e un
     braccio orizzontale, sempre di staccionata, da cui pende la lanterna.
     Staccionata e non tronco: i lampioni sono sottili, come quelli del
     riferimento dato in gioco, e un tronco pieno li faceva sembrare pilastri.
 
-    Con `rame` da 0 a 3 la lanterna e' di rame, nuovo (0) o ossidato (3).
+    Con `rame` da 0 a 3 la lanterna e' di rame, nuovo (0) o ossidato (3): la
+    lanterna di rame vera se `rame_vero`, altrimenti un bulbo di rame acceso.
 
     `verso` e' dove sta il braccio rispetto al palo: "+x", "-x", "+z", "-z". Si
     sceglie quello che porta la lanterna sopra la strada. L'ingombro e' 2x1 o
@@ -167,7 +171,8 @@ def lampione_a_braccio(verso: str = "+x", rame: int = -1) -> Disegno:
     posa con `x, z` all'angolo minimo.
     """
     lungo_x = verso[1] == "x"
-    nome = "lampione_a_braccio" if rame < 0 else f"lampione_a_braccio_rame{rame}"
+    nome = ("lampione_a_braccio" if rame < 0
+            else f"lampione_a_braccio_rame{rame}{'v' if rame_vero else ''}")
     d = Disegno(nome, 2 if lungo_x else 1, 5, 1 if lungo_x else 2)
     positivo = verso[0] == "+"
     pal = (0 if positivo else 1)
@@ -181,6 +186,9 @@ def lampione_a_braccio(verso: str = "+x", rame: int = -1) -> Disegno:
     d.metti(*cella(arm, 4), "dark_oak_fence")
     if rame < 0:
         d.metti(*cella(arm, 3), "lantern", hanging="true", waterlogged="false")
+    elif rame_vero:
+        d.metti(*cella(arm, 3), LANTERNE_RAME_VERE[min(rame, 3)], hanging="true",
+                waterlogged="false")
     else:
         d.metti(*cella(arm, 3), LANTERNE_RAME[min(rame, 3)], lit="true",
                 powered="false")
@@ -529,6 +537,7 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
     rng = np.random.default_rng(seed * 4093 + 17)
     H, W = h.shape
     ver = TM.traduttore(versione)
+    rame_vero = tuple(versione) >= VERSIONE_LANTERNE_RAME
     cache: dict[str, int] = {}
 
     def materiale(x: int, z: int):
@@ -718,8 +727,8 @@ def pianifica(edifici: list, scelte: dict, citta: list, h: np.ndarray, cls: np.n
             rame = (((x * 7 + z * 3) % 4) if in_paese and (x + 2 * z) % 2 == 0
                     else -1)
             posa("lampione", px, pz, dx, dz,
-                 indice(f"lampione{verso}{rame}",
-                        lambda v=verso, r=rame: lampione_a_braccio(v, r),
+                 indice(f"lampione{verso}{rame}{'v' if rame_vero else ''}",
+                        lambda v=verso, r=rame: lampione_a_braccio(v, r, rame_vero),
                         materiale(x, z) if rame < 0 else None),
                  base=int(h[z, x]))
     return ris

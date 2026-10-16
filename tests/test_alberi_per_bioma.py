@@ -26,6 +26,8 @@ class Finta:
         self.tronco_a_terra = {(m, a): 950 + i for i, (m, a) in enumerate(
             (m, a) for m in ('oak', 'birch', 'spruce') for a in ('x', 'z'))}
         self.tappeto_muschio = 960
+        self.secca, self.secca_alta = 970, 971
+        self.lettiera = {(f, n): 980 + 10 * i + n for i, f in enumerate(('north', 'south', 'east', 'west')) for n in (1, 2, 3, 4)}
         self.fungo = {V.FUNGO_MARRONE: 961, V.FUNGO_ROSSO: 962}
         self.doppio = {sp: (300 + sp, 400 + sp) for sp in V.DOPPI}
         self.gambo = 500
@@ -132,9 +134,49 @@ class TestPianteNuove(unittest.TestCase):
             self.assertIn(attese, set(a["specie"].tolist()), nome)
 
     def test_ogni_specie_ha_altezza_e_nome(self):
-        for sp in range(35):
+        for sp in range(38):
             self.assertIn(sp, V.ALTEZZA)
             self.assertIn(sp, V.NOMI_SPECIE)
+
+
+class TestSeccoELettiera(unittest.TestCase):
+    def test_erba_secca_nel_deserto_e_nella_savana(self):
+        cls = np.full((200, 200), M.DESERTO, np.uint8)
+        h = np.full((200, 200), 80, np.int32)
+        a = V.semina(cls, h, livello_mare=62, seed=3, scala_densita=4.0)
+        spec = set(a["specie"].tolist())
+        self.assertIn(V.SECCA, spec)
+        self.assertIn(V.SECCA_ALTA, spec)
+        biomi = np.full((200, 200), B.INDICE["savanna"], np.uint8)
+        cls2 = np.full((200, 200), M.PRATERIA, np.uint8)
+        a = V.semina(cls2, h, livello_mare=62, seed=3, biomi=biomi, scala_densita=3.0)
+        self.assertIn(V.SECCA, set(a["specie"].tolist()))
+
+    def test_lettiera_nei_boschi(self):
+        cls = np.full((200, 200), M.FORESTA, np.uint8)
+        h = np.full((200, 200), 80, np.int32)
+        self.assertIn(V.LETTIERA, set(V.semina(cls, h, livello_mare=62, seed=3)["specie"].tolist()))
+        biomi = np.full((200, 200), B.INDICE["dark_forest"], np.uint8)
+        a = V.semina(cls, h, livello_mare=62, seed=3, biomi=biomi, scala_densita=3.0)
+        self.assertIn(V.LETTIERA, set(a["specie"].tolist()))
+
+    def test_si_disegnano(self):
+        self.assertEqual(int((disegnato(V.SECCA, 1) == 970).sum()), 1)
+        self.assertEqual(int((disegnato(V.SECCA_ALTA, 1) == 971).sum()), 1)
+        lett = disegnato(V.LETTIERA, 1)
+        nomi = {v for v in np.unique(lett) if 980 <= v <= 1030}
+        self.assertGreaterEqual(int(sum((lett == v).sum() for v in nomi)), 1)
+        self.assertLessEqual(int(sum((lett == v).sum() for v in nomi)), 5)
+
+    def test_la_traduzione_esiste(self):
+        from genworld.vegetazione import Tavolozza
+        class S:
+            id_aria = 0
+            def __init__(self): self.n = {}
+            def blocco(self, nome, **p): return self.n.setdefault((nome, tuple(sorted(p.items()))), len(self.n) + 1)
+        s = S(); Tavolozza(s)
+        self.assertIn(("leaf_litter", (("facing", "north"), ("segment_amount", "1"))), s.n)
+        self.assertIn(("plant", (("plant_type", "short_dry_grass"),)), s.n)
 
 
 class TestPalude(unittest.TestCase):

@@ -31,10 +31,43 @@ RADICE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # i lettori il cui codice decide il contenuto di un modello: se cambiano, i
 # compilati non valgono piu'
 LETTORI = ("template.py", "monumenti.py", "avamposti.py", "compilati.py")
-VERSIONE_FORMATO = 1
+VERSIONE_FORMATO = 2
+
+def varia_arenaria(m):
+    """L'arenaria liscia di una costruzione del deserto e' una parete piatta:
+    qui una parte dei blocchi diventa arenaria tagliata (la maggior parte),
+    liscia o scolpita, scelti dalla posizione. Vale per `sandstone` e
+    `red_sandstone` normali; le varianti gia' presenti non si toccano."""
+    import numpy as np
+    nuove = list(m.tavolozza)
+    celle = m.celle.copy()
+    cambiato = False
+    for base in ("sandstone", "red_sandstone"):
+        idx = [i for i, (n, p) in enumerate(m.tavolozza)
+               if n == base and p.get("variant", "normal") == "normal"]
+        if not idx:
+            continue
+        # le tre varianti si aggiungono in coda alla tavolozza
+        varianti = {}
+        for v in ("cut", "smooth", "chiseled"):
+            nuove.append((base, {"variant": v}))
+            varianti[v] = len(nuove) - 1
+        x, y, z = np.indices(celle.shape)
+        dado = ((x * 73856093) ^ (y * 19349663) ^ (z * 83492791)) % 100
+        for i in idx:
+            dentro = celle == i
+            celle[dentro & (dado < 24)] = varianti["cut"]
+            celle[dentro & (dado >= 24) & (dado < 30)] = varianti["smooth"]
+            celle[dentro & (dado >= 30) & (dado < 33)] = varianti["chiseled"]
+        cambiato = True
+    if not cambiato:
+        return m
+    import dataclasses
+    return dataclasses.replace(m, celle=celle, tavolozza=nuove)
+
 
 # funzioni modello -> modello, applicate prima di salvare (vedi sopra)
-MIGLIORAMENTI: list[Callable] = []
+MIGLIORAMENTI: list[Callable] = [varia_arenaria]
 
 
 def cartella() -> str:

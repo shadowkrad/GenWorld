@@ -35,24 +35,25 @@ LATO_FARO = 7
 _QUARTI = {(0, 1): 0, (1, 0): 1, (0, -1): 2, (-1, 0): 3}
 
 
-def molo(lunghezza: int) -> Disegno:
+def molo(lunghezza: int, legno: str = "spruce") -> Disegno:
     """Un molo lungo `lunghezza` (asse x, il lato di terra e' x=0) e largo 3.
 
     Pali di tronco ogni quattro celle sui due lati, tavolato di assi, una
     ringhiera di staccionata (con l'imbocco libero) e una lanterna su ogni palo.
+    Il legno e' quello del posto (`biomi.legno_di`): abete se non si sa.
     """
-    d = Disegno("molo", lunghezza, PALI + 3, 3)
+    d = Disegno("molo" if legno == "spruce" else f"molo_{legno}", lunghezza, PALI + 3, 3)
     for x in range(lunghezza):
         for z in range(3):
-            d.metti(x, PALI, z, "spruce_planks")
+            d.metti(x, PALI, z, f"{legno}_planks")
         palo = x % 4 == 0 or x == lunghezza - 1
         if palo:
             for z in (0, 2):
                 for y in range(PALI):
-                    d.metti(x, y, z, "spruce_log", axis="y")
+                    d.metti(x, y, z, f"{legno}_log", axis="y")
         if x >= 2:
             for z in (0, 2):
-                d.metti(x, PALI + 1, z, "spruce_fence")
+                d.metti(x, PALI + 1, z, f"{legno}_fence")
         if palo and x >= 2:
             for z in (0, 2):
                 d.metti(x, PALI + 2, z, "lantern", hanging="false", waterlogged="false")
@@ -343,8 +344,8 @@ def _faro_da_modello(m, indice: int, citta: list, h, mare, occ, livello_mare: in
 def pianifica(citta: list, cls: np.ndarray, h: np.ndarray, marino, livello_mare: int,
               evita: np.ndarray, barche: list, primo_barche: int, primo_extra: int,
               ver, seed: int = 0, con_faro: bool = True, *, moli: list = (),
-              primo_molo: int = 0, fari: list = (), primo_faro: int = 0
-              ) -> tuple[list[CasaIsolata], list]:
+              primo_molo: int = 0, fari: list = (), primo_faro: int = 0,
+              legno=None) -> tuple[list[CasaIsolata], list]:
     """Molo, barche e faro per gli abitati sulla costa.
 
     Ritorna (pezzi da posare, modelli nuovi). I modelli nuovi (il molo, il faro)
@@ -419,7 +420,7 @@ def pianifica(citta: list, cls: np.ndarray, h: np.ndarray, marino, livello_mare:
             continue
         if occ[z0 - 1:z0 + iz + 1, x0 - 1:x0 + ix + 1].any():
             continue
-        modello_molo = molo(lung).modello(ver)
+        modello_molo = molo(lung, (legno(cx, cz) if legno is not None else None) or "spruce").modello(ver)
         extra.append(modello_molo)
         pezzi.append(CasaIsolata(x=x0, z=z0, larghezza=ix, profondita=iz,
                                  base=PIANO_MOLO - PALI, modello=primo_extra + len(extra) - 1,

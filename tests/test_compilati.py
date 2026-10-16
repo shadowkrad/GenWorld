@@ -155,6 +155,39 @@ class TestCache(Base):
         self.assertEqual(self.chiamate, 1)
 
 
+class TestArenaria(unittest.TestCase):
+    def modello(self, base="sandstone", variant="normal"):
+        celle = np.zeros((10, 10, 10), np.int16)
+        return TM.Modello(nome="casa", celle=celle,
+                          tavolozza=[(base, {"variant": variant}), ("stone", {})])
+
+    def test_varia_l_arenaria_normale(self):
+        m = CO.varia_arenaria(self.modello())
+        nomi = {(n, p.get("variant")) for n, p in m.tavolozza}
+        self.assertTrue({("sandstone", "cut"), ("sandstone", "smooth"),
+                         ("sandstone", "chiseled")} <= nomi)
+        usati = {m.tavolozza[int(i)][1].get("variant") for i in np.unique(m.celle)}
+        self.assertIn("normal", usati)                       # la maggior parte resta com'e'
+        self.assertIn("cut", usati)
+        self.assertGreater(int((m.celle == 0).sum()), 500)   # >50% invariato
+        self.assertEqual(m.celle.shape, (10, 10, 10))
+
+    def test_non_tocca_altro(self):
+        m = self.modello("stone")
+        self.assertIs(CO.varia_arenaria(m), m)
+        m2 = self.modello("sandstone", "smooth")
+        self.assertIs(CO.varia_arenaria(m2), m2)
+
+    def test_deterministica_e_arenaria_rossa(self):
+        a = CO.varia_arenaria(self.modello("red_sandstone"))
+        b = CO.varia_arenaria(self.modello("red_sandstone"))
+        self.assertTrue(np.array_equal(a.celle, b.celle))
+        self.assertIn(("red_sandstone", "cut"), {(n, p.get("variant")) for n, p in a.tavolozza})
+
+    def test_e_fra_i_miglioramenti_di_default(self):
+        self.assertIn(CO.varia_arenaria, CO.MIGLIORAMENTI)
+
+
 class TestIntegrazione(Base):
     def test_carica_cartelle_usa_la_cache_sui_template_veri(self):
         reale = os.path.join(CO.RADICE, "templates", "strutture")

@@ -113,6 +113,13 @@ def main() -> None:
             righe.append("")
     righe.extend([
         "## Altro da controllare", "",
+        "- [ ] Erba secca (savana, deserto) e lettiera di foglie sotto gli alberi dei boschi e del bosco scuro.",
+        "- [ ] Lampioni di rame veri (non bulbi) nelle citta', di ossidazione diversa da uno all'altro.",
+        "- [ ] I moli di legno procedurali (se ci sono) hanno il legno del bioma, non sempre abete.",
+        "- [ ] Il tetto delle torri ha un parafulmine di rame al centro.",
+        "- [ ] I forzieri di nave, faro e castello da template hanno il loro bottino (oro e provviste di bordo; "
+        "carbone, torce, canna da pesca; armi, libri, mele d'oro), non la dispensa di una casa.",
+        "- [ ] Le costruzioni di arenaria (se ce n'e') hanno blocchi lisci, tagliati e scolpiti mescolati.",
         "- [ ] Gli spawner delle cripte fanno uscire ogni tanto un mob diverso (zombie con scheletro, ragno...).",
         "- [ ] Nel log all'apertura del mondo non devono comparire 'Failed to load chunk'.", ""])
     righe.extend([
