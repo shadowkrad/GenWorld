@@ -544,6 +544,20 @@ def decora_caverne(out, tav, scavato, ox, oz, y0, seed) -> int:
     chiusa &= sotto_p
     metti(chiusa, d.acqua)
 
+    # -- ruscelli: stesso criterio delle pozze, ma lungo una fascia sinuosa -----
+    # Un ruscello e' acqua FERMA in un solco di una cella: ogni cella e' chiusa
+    # da roccia sui quattro lati e sotto, quindi non scorre e non si svuota. La
+    # fascia usa le coordinate di mondo, cosi' prosegue da un chunk al vicino
+    # (dove il bordo interrompe i controlli resta un varco di roccia). Dove il
+    # pavimento fa un gradino la cella non e' piu' chiusa e il ruscello si ferma.
+    ondulazione = np.sin(gx * 0.21 + 1.7 * np.sin(gz * 0.11 + seed * 0.37) + seed)
+    banda = (np.abs(ondulazione) < 0.14)[:, None, :]
+    chiusa_r = roccia_sotto(pav_l & banda & interno)
+    for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        chiusa_r &= np.roll(solido, (dx, dz), axis=(0, 2))
+    chiusa_r &= sotto_p
+    metti(chiusa_r, d.acqua)
+
     # -- sculk nelle caverne profonde ----------------------------------------
     pav_s, sof_s = pavimento & sculk, soffitto & sculk
     metti(roccia_sotto(pav_s & (dado < 0.80)), d.sculk)

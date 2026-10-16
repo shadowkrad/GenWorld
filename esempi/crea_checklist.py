@@ -113,6 +113,9 @@ def main() -> None:
             righe.append("")
     righe.extend([
         "## Altro da controllare", "",
+        "- [ ] Grotte lussureggianti: oltre alle pozze, ruscelli sinuosi di acqua ferma in un solco di una cella, "
+        "chiusi dalla roccia (non scorrono e non si svuotano); si interrompono ai gradini del pavimento.",
+        "- [ ] Giungla: ogni tanto una pianta brocca (`pitcher_plant`), alta due blocchi.",
         "- [ ] Erba secca (savana, deserto) e lettiera di foglie sotto gli alberi dei boschi e del bosco scuro.",
         "- [ ] Lampioni di rame veri (non bulbi) nelle citta', di ossidazione diversa da uno all'altro.",
         "- [ ] I moli di legno procedurali (se ci sono) hanno il legno del bioma, non sempre abete.",

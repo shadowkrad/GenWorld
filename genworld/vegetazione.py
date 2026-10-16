@@ -32,7 +32,7 @@ from .rumore import fbm
  FUNGO_MARRONE, FUNGO_ROSSO, CANNA, ACACIA, ROVERE_SCURO, GIUNGLA,
  ABETE_ALTO, GIRASOLE, FELCE_GRANDE, LILLA, ROSAIO, PEONIA, FUNGO_GIGANTE_M,
  FUNGO_GIGANTE_R, TORCHFLOWER, MANGROVIA, AZALEA, BAMBU, SASSO,
- TRONCO_CADUTO, SECCA, SECCA_ALTA, LETTIERA) = range(38)
+ TRONCO_CADUTO, SECCA, SECCA_ALTA, LETTIERA, BROCCA) = range(39)
 
 # piante alte due blocchi (meta' bassa e meta' alta)
 DOPPI = {GIRASOLE: "sunflower", FELCE_GRANDE: "large_fern", LILLA: "lilac",
@@ -62,6 +62,7 @@ NOMI_SPECIE = {
     TORCHFLOWER: "torchflower", MANGROVIA: "mangrovia", AZALEA: "azalea",
     BAMBU: "bambu", SASSO: "sasso", TRONCO_CADUTO: "tronco_caduto",
     SECCA: "erba_secca", SECCA_ALTA: "erba_secca_alta", LETTIERA: "lettiera",
+    BROCCA: "pianta_brocca",
 }
 
 # Alberi per blocco quadrato. Una foresta fitta di Minecraft sta intorno a
@@ -111,7 +112,7 @@ ALTEZZA = {QUERCIA: (4, 7), BETULLA: (5, 8), ABETE: (6, 12),
            FUNGO_GIGANTE_M: (4, 7), FUNGO_GIGANTE_R: (4, 7), TORCHFLOWER: (1, 2),
            MANGROVIA: (5, 8), AZALEA: (1, 2), BAMBU: (5, 12),
            SASSO: (1, 4), TRONCO_CADUTO: (3, 6),
-           SECCA: (1, 2), SECCA_ALTA: (1, 2), LETTIERA: (1, 2)}
+           SECCA: (1, 2), SECCA_ALTA: (1, 2), LETTIERA: (1, 2), BROCCA: (2, 3)}
 
 # Rocce e tronchi caduti: una quota delle piante dei terreni boscosi e rocciosi
 # diventa un sasso (anche in montagna e sulla neve), e nei boschi un tronco a
@@ -138,7 +139,8 @@ MISCELA_BIOMA = {
     "snowy_taiga": [(ABETE, 0.80), (CESPUGLIO, 0.12), (BACCHE, 0.08)],
     "mangrove_swamp": [(MANGROVIA, 0.55), (CESPUGLIO, 0.20), (FUNGO_MARRONE, 0.05),
                        (AZALEA, 0.10), (CANNA, 0.10)],
-    "jungle": [(GIUNGLA, 0.50), (BAMBU, 0.20), (CESPUGLIO, 0.20), (QUERCIA, 0.10)],
+    "jungle": [(GIUNGLA, 0.50), (BAMBU, 0.20), (CESPUGLIO, 0.20), (QUERCIA, 0.06),
+               (BROCCA, 0.04)],
     "meadow": [(CILIEGIO, 0.20), (QUERCIA, 0.24), (DENTE_DI_LEONE, 0.12),
                (TULIPANO, 0.08), (LILLA, 0.08), (PEONIA, 0.08), (ROSAIO, 0.06),
                (CESPUGLIO, 0.14)],
@@ -395,6 +397,8 @@ class Tavolozza:
         self.felce = s.blocco("plant", plant_type="fern")
         self.canna = s.blocco("sugar_cane", age="0")
         # erba secca (savana, deserto, badlands) e lettiera di foglie (boschi)
+        self.brocca = (s.blocco("pitcher_plant", half="lower"),
+                       s.blocco("pitcher_plant", half="upper"))
         self.secca = s.blocco("plant", plant_type="short_dry_grass")
         self.secca_alta = s.blocco("plant", plant_type="tall_dry_grass")
         self.lettiera = {
@@ -578,6 +582,11 @@ def disegna(
             continue
         if sp == CESPUGLIO:
             posa(x, base, z, tav.erba_alta if rng.random() < 0.7 else tav.felce)
+            messi += 1
+            continue
+        if sp == BROCCA:                       # la pianta carnivora, alta due blocchi
+            posa(x, base, z, tav.brocca[0])
+            posa(x, base + 1, z, tav.brocca[1])
             messi += 1
             continue
         if sp in (SECCA, SECCA_ALTA):
