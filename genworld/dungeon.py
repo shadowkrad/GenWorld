@@ -323,7 +323,9 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
                     if s.tipo == "scala":
                         for y in range(ys - u + 1, ys - u + 4):
                             metti(x, y, z, tav.aria)
-                        metti(x, ys - u, z, tav.scale[faccia])
+                        # `facing` di una scala e' il verso in cui si SALE: si scende
+                        # verso +d, quindi la scala guarda l'ingresso (-d)
+                        metti(x, ys - u, z, tav.scale[indietro])
                     else:
                         for y in range(s.y0, s.y1 + 1):
                             metti(x, y, z, tav.aria)

@@ -181,6 +181,15 @@ class TestPianta(unittest.TestCase):
         zz, xx = np.nonzero(muro > 0)
         self.assertEqual(int(zz.max() - zz.min()) + 1 > int(xx.max() - xx.min()) + 1, c.lz > c.lx)
 
+    def test_un_elenco_di_forme_si_percorre_in_ordine(self):
+        H = W = 700
+        cls = np.full((H, W), M.PIANURA, np.uint8)
+        h = np.full((H, W), 70, np.int32)
+        liv = np.full((H, W), 62.0, np.float32)
+        siti = [(150, 150, 40), (150, 400, 40), (400, 150, 40), (400, 400, 40)]
+        r = C.pianifica(cls, h, liv, siti, seed=1, forme="tondo,ovale,rettangolo,quadrato")
+        self.assertEqual([c.forma for c in r[4]], ["tondo", "ovale", "rettangolo", "quadrato"])
+
     def test_il_piano_e_deterministico(self):
         a = piana(forme="miste", seed=3)
         b = piana(forme="miste", seed=3)
@@ -199,6 +208,41 @@ class TestScaleELotti(unittest.TestCase):
                               ("quadrato", True)):
             ed, h, vie, muro, citta, *_ = piana(forme=forma)
             self.assertEqual(bool((muro >= C.SCALA_BASE).any()), atteso, forma)
+
+    def test_le_cinte_curve_hanno_otto_scale_a_pioli_le_dritte_nessuna(self):
+        for forma, atteso in (("tondo", 8), ("ovale", 8), ("rettangolo", 0), ("quadrato", 0)):
+            ed, h, vie, muro, citta, *_ = piana(forme=forma)
+            pioli = ((muro >= C.PIOLO_BASE) & (muro < C.SCALA_BASE)).sum()
+            self.assertEqual(int(pioli), atteso, forma)
+
+    def test_ogni_scala_a_pioli_ha_il_muro_dietro_e_guarda_verso_l_interno(self):
+        # (dz, dx) del muro rispetto alla scala, per verso: nord, est, sud, ovest
+        dietro = {0: (1, 0), 1: (0, -1), 2: (-1, 0), 3: (0, 1)}
+        for forma in ("tondo", "ovale"):
+            ed, h, vie, muro, citta, *_ = piana(forme=forma)
+            c = citta[0]
+            zz, xx = np.nonzero((muro >= C.PIOLO_BASE) & (muro < C.SCALA_BASE))
+            self.assertEqual(len(zz), 8)
+            for z, x in zip(zz, xx):
+                verso = int(muro[z, x]) - C.PIOLO_BASE
+                vz, vx = dietro[verso]
+                self.assertEqual(int(muro[z + vz, x + vx]), 1, f"{forma}: nessun muro dietro la scala")
+                # guarda verso il centro: l'opposto del muro punta dentro la citta'
+                self.assertLess((z - vz - c.z) ** 2 + (x - vx - c.x) ** 2,
+                                (z + vz - c.z) ** 2 + (x + vx - c.x) ** 2)
+                # sotto non c'e' una casa
+                for e in ed:
+                    x0, z0, x1, z1 = e.ingombro_tetto()
+                    self.assertFalse(x0 <= x <= x1 and z0 <= z <= z1)
+
+    def test_due_scale_per_quadrante(self):
+        ed, h, vie, muro, citta, *_ = piana(forme="tondo")
+        c = citta[0]
+        zz, xx = np.nonzero((muro >= C.PIOLO_BASE) & (muro < C.SCALA_BASE))
+        quadranti = {}
+        for z, x in zip(zz, xx):
+            quadranti[(z > c.z, x > c.x)] = quadranti.get((z > c.z, x > c.x), 0) + 1
+        self.assertEqual(sorted(quadranti.values()), [2, 2, 2, 2])
 
     def test_le_scalinate_del_rettangolo_stanno_contro_la_cinta(self):
         ed, h, vie, muro, citta, *_ = piana(forme="rettangolo")

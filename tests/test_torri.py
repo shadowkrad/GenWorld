@@ -50,6 +50,14 @@ def posa_su_regione(t, quota=90):
     def blocco(x, y, z):
         out = regione.get((x // 16, z // 16))
         return None if out is None else s.nome(int(out[x % 16, y - Y0, z % 16]))
+
+    def proprieta(x, y, z):
+        out = regione.get((x // 16, z // 16))
+        if out is None:
+            return {}
+        i = int(out[x % 16, y - Y0, z % 16])
+        return next((dict(p) for (n, p), v in s.ids.items() if v == i), {})
+    blocco.proprieta = proprieta
     return s, tav, blocco
 
 
@@ -83,71 +91,183 @@ class TestPosa(unittest.TestCase):
         self.t = una_torre()
         self.s, self.tav, self.b = posa_su_regione(self.t)
 
-    def test_i_quattro_piani_hanno_aria_e_un_solaio_sopra(self):
+    def p(self, u, v):
+        return self.t.punto(u, v)
+
+    def blocco(self, u, v, y):
+        x, z = self.p(u, v)
+        return self.b(x, y, z)
+
+    def proprieta(self, u, v, y):
+        x, z = self.p(u, v)
+        return self.b.proprieta(x, y, z)
+
+    def test_i_quattro_piani_hanno_aria_in_una_cella_libera_e_un_solaio_sopra(self):
         t = self.t
-        x, z = t.punto(1, 1)
         for k in range(TR.PIANI):
             base = t.piano(k)
             for y in range(base, base + TR.ALTEZZA_PIANO - 1):
-                self.assertIn(self.b(x, y, z), ("air", "lantern"), (k, y))
-            self.assertIn(self.b(x, base + TR.ALTEZZA_PIANO - 1, z),
+                self.assertEqual(self.blocco(1, 2, y), "air", (k, y))
+            self.assertIn(self.blocco(1, 2, base + TR.ALTEZZA_PIANO - 1),
                           ("planks", "stone_bricks"), k)
 
-    def test_le_pareti_chiudono_il_perimetro_tranne_porta_e_feritoie(self):
+    def test_le_pareti_chiudono_il_perimetro_tranne_la_porta(self):
         t = self.t
         for k in range(TR.PIANI):
             base = t.piano(k)
-            for v in range(-TR.R, TR.R + 1):
-                for u in (-TR.R, TR.R):
+            for u in range(-TR.R, TR.R + 1):
+                for v in (-TR.R, TR.R):
                     for w in (u, v), (v, u):
-                        x, z = t.punto(*w)
-                        nome = self.b(x, base + 2, z)
+                        nome = self.blocco(*w, base + 2)
                         porta = (k == 0 and w == (TR.R, 0))
-                        feritoia = False
-                        self.assertTrue(nome in ("stone_bricks", "bars") or porta or feritoia,
+                        self.assertTrue(nome in ("stone_bricks", "bars", "door") or porta,
                                         f"buco in parete {w} piano {k}: {nome}")
 
-    def test_la_porta_e_un_varco_alto_due(self):
-        t = self.t
-        x, z = t.punto(TR.R, 0)
-        self.assertEqual(self.b(x, t.ys, z), "air")
-        self.assertEqual(self.b(x, t.ys + 1, z), "air")
-        self.assertEqual(self.b(x, t.ys + 2, z), "stone_bricks")
+    def test_la_porta_ha_gli_stipiti_l_architrave_e_un_gradino(self):
+        t, R = self.t, TR.R
+        self.assertEqual(self.blocco(R, 0, t.ys), "door")
+        self.assertEqual(self.blocco(R, 0, t.ys + 1), "door")
+        self.assertEqual(self.blocco(R, 0, t.ys + 2), "stone_bricks")      # architrave
+        for v in (-1, 1):
+            for y in range(t.ys, t.ys + 3):
+                self.assertEqual(self.blocco(R, v, y), "stone_bricks")
+            self.assertEqual(self.blocco(R + 1, v, t.ys + 2), "torch")
+        self.assertEqual(self.blocco(R + 1, 0, t.ys), "stairs")
+        for v in (-3, 3):
+            self.assertEqual(self.blocco(R + 1, v, t.ys + 3), "wall_banner")
 
-    def test_la_scala_a_pioli_sale_dal_piano_terra_al_tetto_attraverso_i_solai(self):
-        t = self.t
-        x, z = t.punto(-TR.R + 1, 0)
-        for y in range(t.ys, t.piano(TR.PIANI)):
-            self.assertEqual(self.b(x, y, z), "ladder", f"manca un piolo a y={y}")
+    def test_lo_zoccolo_gira_attorno_alla_torre_tranne_l_ingresso(self):
+        t, R = self.t, TR.R
+        for u in range(-R, R + 1):
+            self.assertEqual(self.blocco(u, R + 1, t.ys), "stairs", f"zoccolo u={u}")
+            self.assertEqual(self.blocco(u, -R - 1, t.ys), "stairs")
+        for v in range(-R, R + 1):
+            self.assertEqual(self.blocco(-R - 1, v, t.ys), "stairs")
+        for v in (-4, -3, -2, 2, 3, 4):
+            self.assertEqual(self.blocco(R + 1, v, t.ys), "stairs")
 
-    def test_la_scala_e_appoggiata_al_muro_e_guarda_verso_l_interno(self):
+    def test_la_scala_interna_sale_di_un_blocco_a_cella_con_posto_per_la_testa(self):
         t = self.t
-        x, z = t.punto(-TR.R, 0)
-        self.assertEqual(self.b(x, t.ys + 2, z), "stone_bricks")
+        for k, ((u0, v0), (du, dv)) in TR.RAMPE.items():
+            for j in range(5):
+                u, v = u0 + du * j, v0 + dv * j
+                y = t.piano(k) + j
+                self.assertEqual(self.blocco(u, v, y), "stairs", (k, j))
+                self.assertEqual(self.blocco(u, v, y + 2), "air", (k, j))
 
-    def test_due_forzieri_uno_al_secondo_piano_uno_in_cima_aperti(self):
+    def test_il_solaio_e_bucato_dove_la_scala_sale_e_intero_altrove(self):
+        t = self.t
+        for k, ((u0, v0), (du, dv)) in TR.RAMPE.items():
+            y = t.piano(k) + 4
+            for j in (2, 3):
+                self.assertEqual(self.blocco(u0 + du * j, v0 + dv * j, y), "air", (k, j))
+            for j in (0, 1):
+                self.assertNotEqual(self.blocco(u0 + du * j, v0 + dv * j, y), "air", (k, j))
+            self.assertIn(self.blocco(1, 2, y), ("planks", "stone_bricks"))
+
+    def test_le_scale_guardano_il_verso_della_salita(self):
+        """`facing` di una scala e' il verso in cui si sale: il dorso alto sta di la'."""
+        t = self.t
+        for k, ((u0, v0), (du, dv)) in TR.RAMPE.items():
+            atteso = TR.FACCIA[(t.dx * du - t.dz * dv, t.dz * du + t.dx * dv)]
+            self.assertEqual(self.proprieta(u0, v0, t.piano(k))["facing"], atteso, k)
+
+    def test_i_due_forzieri_sono_agli_angoli_lontani_dalle_rampe_e_aperti(self):
+        t = self.t
         self.assertEqual(sorted(tp for *_, tp in self.tav.bauli), ["stanza", "tesoro"])
         quote = {tp: y for _, y, _, tp in self.tav.bauli}
-        self.assertEqual(quote["stanza"], self.t.piano(2))
-        self.assertEqual(quote["tesoro"], self.t.piano(TR.PIANI - 1))
+        self.assertEqual(quote["stanza"], t.piano(2))
+        self.assertEqual(quote["tesoro"], t.piano(TR.PIANI - 1))
         for x, y, z, _ in self.tav.bauli:
             self.assertEqual(self.b(x, y, z), "chest")
-            self.assertIn(self.b(x, y + 1, z), ("air", "lantern"))
+            self.assertEqual(self.b(x, y + 1, z), "air")
+        x, _, z, _ = self.tav.bauli[0]
+        celle_rampe = {self.p(u0 + du * j, v0 + dv * j)
+                       for _, ((u0, v0), (du, dv)) in TR.RAMPE.items() for j in range(6)}
+        self.assertNotIn((x, z), celle_rampe)
 
-    def test_merli_sul_tetto(self):
+    def test_ogni_piano_e_allestito(self):
+        t = self.t
+        attesi = {0: ("barrel", "crafting_table", "furnace", "anvil", "carpet", "slab"),
+                  1: ("bed", "barrel", "candle"),
+                  2: ("fletching_table", "smithing_table", "grindstone", "anvil",
+                      "cartography_table"),
+                  3: ("bookshelf", "lectern", "carpet", "stairs")}
+        for k, nomi in attesi.items():
+            visti = set()
+            for u in range(-3, 4):
+                for v in range(-3, 4):
+                    for y in range(t.piano(k), t.piano(k) + 3):
+                        visti.add(self.blocco(u, v, y))
+            for n in nomi:
+                self.assertIn(n, visti, f"piano {k}: manca {n}")
+
+    def test_i_letti_hanno_testa_e_piedi_e_la_testata_contro_il_muro(self):
+        t = self.t
+        y = t.piano(1)
+        verso_muro = TR.FACCIA[(-t.dz * -1 + 0, t.dx * -1)]       # direzione di -v
+        for u in (-2, 0, 2):
+            self.assertEqual(self.blocco(u, -3, y), "bed")
+            self.assertEqual(self.blocco(u, -2, y), "bed")
+            testa, piedi = self.proprieta(u, -3, y), self.proprieta(u, -2, y)
+            self.assertEqual(testa["part"], "head")
+            self.assertEqual(piedi["part"], "foot")
+            self.assertEqual(testa["facing"], verso_muro)
+
+    def test_i_mobili_non_chiudono_le_celle_delle_guardie_ne_il_centro(self):
+        t = self.t
+        for k, (u, v) in TR.CELLE_GUARDIE.items():
+            self.assertEqual(self.blocco(u, v, t.piano(k)), "air", k)
+            self.assertEqual(self.blocco(u, v, t.piano(k) + 1), "air", k)
+        self.assertEqual(self.blocco(0, 0, t.piano(TR.PIANI - 1) + 1), "air")
+
+    def test_gli_stendardi_e_le_torce_stanno_attaccati_a_un_muro_pieno(self):
+        t = self.t
+        trovati = 0
+        for y in range(t.ys, t.piano(TR.PIANI)):
+            for u in range(-TR.R - 1, TR.R + 2):
+                for v in range(-TR.R - 1, TR.R + 2):
+                    n = self.blocco(u, v, y)
+                    if n in ("torch", "wall_banner"):
+                        trovati += 1
+                        vicini = [self.blocco(u + a, v + b, y) for a, b in
+                                  ((1, 0), (-1, 0), (0, 1), (0, -1))]
+                        self.assertTrue(any(x in ("stone_bricks", "bookshelf") for x in vicini),
+                                        f"{n} senza muro a ({u},{v},{y})")
+        self.assertGreater(trovati, 15)
+
+    def test_il_tetto_ha_pali_con_lanterne_agli_angoli_e_merli(self):
         t = self.t
         cima = t.piano(TR.PIANI)
+        for u, v in ((TR.R, TR.R), (TR.R, -TR.R), (-TR.R, TR.R), (-TR.R, -TR.R)):
+            self.assertEqual(self.blocco(u, v, cima + 1), "wall")
+            self.assertEqual(self.blocco(u, v, cima + 3), "lantern")
         alti = sum(1 for u in range(-TR.R, TR.R + 1) for v in (-TR.R, TR.R)
-                   if self.b(*(lambda p: (p[0], cima + 1, p[1]))(t.punto(u, v))) == "stone_bricks")
+                   if self.blocco(u, v, cima + 1) == "stone_bricks")
         self.assertGreater(alti, 2)
+
+    def test_le_fasce_scolpite_marcano_i_piani_sul_filo(self):
+        t = self.t
+        for k in range(1, TR.PIANI):
+            y = t.ys - 1 + TR.ALTEZZA_PIANO * k
+            self.assertEqual(self.blocco(1, TR.R, y), "stone_bricks")
+            self.assertEqual(self.proprieta(1, TR.R, y).get("variant"), "chiseled", k)
+
+    def test_non_ci_sono_piu_scale_a_pioli(self):
+        for u in range(-5, 6):
+            for v in range(-5, 6):
+                for y in range(self.t.ys, self.t.piano(TR.PIANI) + 4):
+                    self.assertNotEqual(self.blocco(u, v, y), "ladder")
 
     def test_le_quattro_direzioni_producono_la_stessa_torre(self):
         for dire in ((1, 0), (-1, 0), (0, 1), (0, -1)):
             t = una_torre(dire)
             _, tav, b = posa_su_regione(t)
             x, z = t.punto(TR.R, 0)
-            self.assertEqual(b(x, t.ys, z), "air", dire)
+            self.assertEqual(b(x, t.ys, z), "door", dire)
             self.assertEqual(len(tav.bauli), 2, dire)
+            x, z = t.punto(-3, -3)
+            self.assertEqual(b(x, t.piano(0), z), "stairs", dire)
 
     def test_non_tocca_i_chunk_lontani(self):
         s = Finto()
@@ -232,6 +352,25 @@ class TestIndiceEMaschera(unittest.TestCase):
         self.assertTrue(m[t.z, t.x])
         self.assertTrue(m[t.z + TR.R + 3, t.x])
         self.assertFalse(m[t.z + TR.R + 6, t.x])
+
+
+class TestTutteLeTraduzioni(unittest.TestCase):
+    def test_ogni_blocco_della_tavolozza_si_traduce_in_un_blocco_di_gioco(self):
+        import PyMCTranslate
+        import amulet_nbt as n
+        from amulet.api.block import Block
+        v = PyMCTranslate.new_translation_manager().get_version("java", (26, 2, 0))
+        s = Finto()
+        TR.Tavolozza(s)
+        cattivi = []
+        for (nome, prop), _ in s.ids.items():
+            if nome == "air":
+                continue
+            b = Block("universal_minecraft", nome, {k: n.StringTag(x) for k, x in prop})
+            o, _, _ = v.block.from_universal(b)
+            if o.namespace != "minecraft":
+                cattivi.append((nome, dict(prop)))
+        self.assertEqual(cattivi, [])
 
 
 class TestTraduzioni(unittest.TestCase):

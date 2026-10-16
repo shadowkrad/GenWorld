@@ -12,12 +12,19 @@ Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, du
 - [ ] **Torre di Ivor il Custode** - `/tp @s -175 77 -319` (capo: Ivor il Custode)
 - [ ] **Torre di Kael Lamarotta** - `/tp @s 43 75 -227` (capo: Kael Lamarotta)
 
+## Fortezze
+
+Cinta di pietra 29x29 con quattro torri d'angolo (scala a pioli, arciere sul tetto), portale con saracinesca alzata, camminamento con merli (scale d'accesso sul lato di fondo), cortile con pozzo, fucina con cassa, stalla, bracieri, lampioni e stendardi; il maschio al centro e' una torre curata con il capo (nome, armatura) e quattro soldati nel cortile.
+
+- [ ] **Fortezza di Dama Isolda** - `/tp @s -335 76 -196` (capo: Dama Isolda)
+- [ ] **Fortezza di Maresciallo Brenno** - `/tp @s 220 76 -210` (capo: Maresciallo Brenno)
+
 ## Rovine con cripta
 
 Rovina in superficie, scala di 14 blocchi, anticamera, sala dello spawner, tesoro con due forzieri-trappola sul TNT. Cartello davanti. Lo spawner sta circa 41 blocchi dalla rovina.
 
 - [ ] **Cripta della Veglia** - `/tp @s 43 86 286` (cripta con zombie)
-- [ ] **Cripta di Orrenda** - `/tp @s -200 77 -269` (cripta con zombie)
+- [ ] **Cripta di Orrenda** - `/tp @s -237 74 -357` (cripta con zombie)
 - [ ] **Rovine di Altomuro** - `/tp @s -207 74 -78` (cripta con skeleton)
 - [ ] **Sepolcro dei Cento** - `/tp @s 210 79 -159` (cripta con zombie)
 
@@ -25,28 +32,28 @@ Rovina in superficie, scala di 14 blocchi, anticamera, sala dello spawner, tesor
 
 Imbocco con cartello, collina del posto, binari. Nell'ultimo piano: camera finale con pozza.
 
-- [ ] **Miniera dei Due Fratelli** - `/tp @s -130 79 -214`
+- [ ] **Miniera dei Due Fratelli** - `/tp @s -201 76 -271`
 - [ ] **Miniera dei Sospiri** - `/tp @s 421 83 312`
-- [ ] **Miniera dei Tre Pozzi** - `/tp @s 10 67 10`
-- [ ] **Miniera del Carbone** - `/tp @s -145 76 -3`
-- [ ] **Miniera del Cinghiale** - `/tp @s 111 84 313`
-- [ ] **Miniera del Corvo** - `/tp @s 479 74 -259`
+- [ ] **Miniera dei Tre Pozzi** - `/tp @s -21 76 -180`
+- [ ] **Miniera del Carbone** - `/tp @s 59 78 -350`
+- [ ] **Miniera del Cinghiale** - `/tp @s -238 97 -388`
+- [ ] **Miniera del Corvo** - `/tp @s -437 80 -109`
 - [ ] **Miniera del Cristallo** - `/tp @s -296 84 138`
-- [ ] **Miniera del Falco** - `/tp @s 11 73 -235`
-- [ ] **Miniera del Ghiaccio** - `/tp @s -403 80 -18`
-- [ ] **Miniera del Gufo** - `/tp @s -314 83 285`
-- [ ] **Miniera del Re Cieco** - `/tp @s 57 77 -340`
-- [ ] **Miniera del Sale** - `/tp @s 87 83 -170`
-- [ ] **Miniera del Salice** - `/tp @s 358 67 -316`
-- [ ] **Miniera del Vento** - `/tp @s -109 77 -310`
-- [ ] **Miniera dell'Argento Nero** - `/tp @s -285 102 -412`
-- [ ] **Miniera dell'Ultima Vena** - `/tp @s 461 83 108`
-- [ ] **Miniera della Lanterna** - `/tp @s -390 82 -326`
-- [ ] **Miniera della Luna Cava** - `/tp @s -100 84 166`
+- [ ] **Miniera del Falco** - `/tp @s 419 66 -205`
+- [ ] **Miniera del Ghiaccio** - `/tp @s 87 83 -170`
+- [ ] **Miniera del Gufo** - `/tp @s -197 73 -47`
+- [ ] **Miniera del Re Cieco** - `/tp @s -289 77 -232`
+- [ ] **Miniera del Sale** - `/tp @s 323 66 275`
+- [ ] **Miniera del Salice** - `/tp @s 461 83 108`
+- [ ] **Miniera del Vento** - `/tp @s 160 83 -402`
+- [ ] **Miniera dell'Argento Nero** - `/tp @s -408 83 -324`
+- [ ] **Miniera dell'Ultima Vena** - `/tp @s -403 80 -18`
+- [ ] **Miniera della Lanterna** - `/tp @s -129 84 173`
+- [ ] **Miniera della Luna Cava** - `/tp @s -130 79 -214`
 - [ ] **Miniera della Pioggia** - `/tp @s 212 85 299`
 - [ ] **Miniera dello Stagno** - `/tp @s -304 73 -76`
-- [ ] **Miniera di Ferrovecchio** - `/tp @s -191 85 127`
-- [ ] **Miniera di Pietrabuia** - `/tp @s 110 72 -464`
+- [ ] **Miniera di Ferrovecchio** - `/tp @s 441 70 -309`
+- [ ] **Miniera di Pietrabuia** - `/tp @s 240 68 -34`
 
 ## Citta'
 
@@ -55,10 +62,10 @@ Piazza con fontana (parafulmine), campana, 2 stendardi, 2 bracieri, lampioni di 
 - [ ] **Colledoro** - `/tp @s 50 86 -407` (raggio 41)
 - [ ] **Granvalle** - `/tp @s 155 86 -88` (raggio 54, murata)
 - [ ] **Monteverde** - `/tp @s -59 86 59` (raggio 41)
-- [ ] **Pietrafonda** - `/tp @s 259 86 -318` (raggio 54, murata)
-- [ ] **Rivabella** - `/tp @s 321 86 -147` (raggio 54, murata)
+- [ ] **Pietrafonda** - `/tp @s 259 86 -318` (raggio 54, murata, ovale)
+- [ ] **Rivabella** - `/tp @s 321 86 -147` (raggio 54, murata, tondo)
 - [ ] **Valdargento** - `/tp @s 359 86 -247` (raggio 33)
-- [ ] **Villabianca** - `/tp @s 318 86 -6` (raggio 46, murata)
+- [ ] **Villabianca** - `/tp @s 318 86 -6` (raggio 46, murata, rettangolo)
 
 ## Accampamenti
 
@@ -69,16 +76,16 @@ Cerchio calpestato, falo', predone con balestra, cavalli.
 - [ ] **Bivacco dell'Esule** - `/tp @s -65 80 -319`
 - [ ] **Campo dei Predoni** - `/tp @s -250 74 -91`
 - [ ] **Campo dei Senzanome** - `/tp @s 4 85 -201`
-- [ ] **Campo dei Senzanome 6** - `/tp @s 463 84 155`
+- [ ] **Campo dei Senzanome 6** - `/tp @s -221 82 -283`
 - [ ] **Campo del Corvo** - `/tp @s 484 85 316`
 
 ## Cimiteri
 
 Forzieri con ossa e refurtiva; scheletro (stray sulla neve).
 
-- [ ] **Cimitero degli Impiccati** - `/tp @s -377 85 -284`
-- [ ] **Cimitero di Valdoro** - `/tp @s 106 92 -375`
-- [ ] **Giardino dei Pianti** - `/tp @s -130 85 188`
+- [ ] **Cimitero degli Impiccati** - `/tp @s 460 84 154`
+- [ ] **Cimitero di Valdoro** - `/tp @s -305 74 -151`
+- [ ] **Giardino dei Pianti** - `/tp @s 106 92 -375`
 
 ## Biomi
 
