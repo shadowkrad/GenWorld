@@ -65,6 +65,13 @@ def main() -> None:
     sezione("Torri con un capo", "torre",
             "Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, "
             "due forzieri; cartello davanti.")
+    sezione("Castelli in rovina", "castello",
+            "Cinta con brecce e torri spezzate, portale sfondato, cortile invaso da erba, macerie, ossa, "
+            "alberi morti e tombe; il maschio sventrato con trono (il capo siede li'), tavola rotta, "
+            "scala rovinata; torre dello spawner (SW). Dalla sala, a sinistra, una scala scende alla "
+            "cripta: anticamera, DUE fili d'inciampo con distributori di frecce, fossa con le punte "
+            "(sponda stretta su un lato), sala dello spawner, celle con prigionieri, caveau con piastre "
+            "sul TNT, forzieri-esca e il tesoro. Il cartello e' fuori dal portale.")
     sezione("Fortezze", "fortezza",
             "Cinta di pietra 29x29 con quattro torri d'angolo (scala a pioli, arciere sul tetto), portale "
             "con saracinesca alzata, camminamento con merli (scale d'accesso sul lato di fondo), cortile "

@@ -338,8 +338,8 @@ class TestCombattenti(unittest.TestCase):
             self.assertEqual(str(n["id"]), f"minecraft:{gioco}")
             self.assertNotIn("CustomName", n)
 
-    def test_ogni_specie_ha_un_arma(self):
-        for sp in TR.SPECIE:
+    def test_ogni_specie_che_puo_essere_capo_ha_un_arma(self):
+        for sp in TR.CAPO_PER_ZONA:
             self.assertIn(sp, TR.ARMA)
 
 

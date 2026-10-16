@@ -30,7 +30,8 @@ FACCIA = {(1, 0): "east", (-1, 0): "west", (0, 1): "south", (0, -1): "north"}
 
 # nome nostro -> id di gioco
 SPECIE = {"zombie": "zombie", "scheletro": "skeleton", "vindicatore": "vindicator",
-          "scheletro_nero": "wither_skeleton"}
+          "scheletro_nero": "wither_skeleton", "ragno": "spider",
+          "ragno_grotta": "cave_spider", "husk": "husk"}
 NOMI_CAPO = ("Aldric il Cupo", "Brenna Mano di Ferro", "Corvo Nero", "Dagan l'Esule",
              "Edrik Spezzaossa", "Fenna la Vedetta", "Garrick Senzaterra",
              "Hilda Cuordipietra", "Ivor il Custode", "Kael Lamarotta")

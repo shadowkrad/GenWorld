@@ -33,6 +33,7 @@ from . import citta as CT
 from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
+from . import castello as CS
 from . import entita as EN
 from . import fortezze as FZ
 from . import luoghi as LU
@@ -137,6 +138,8 @@ class Opzioni:
     torri: float = 1.0
     # Idem per le fortezze isolate (vedi `fortezze.py`).
     fortezze: float = 1.0
+    # Idem per i castelli in rovina con la cripta (vedi `castello.py`).
+    castelli_rovina: float = 1.0
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -511,6 +514,8 @@ class Piano:
     indice_torri: dict = field(default_factory=dict)
     fortezze: list = field(default_factory=list)
     indice_fortezze: dict = field(default_factory=dict)
+    castelli_rovina: list = field(default_factory=list)
+    indice_castelli_rovina: dict = field(default_factory=dict)
     # luoghi con nome, cartelli e indizi (vedi `luoghi.py`)
     luoghi: list = field(default_factory=list)
     cartelli: list = field(default_factory=list)
@@ -658,6 +663,29 @@ def _pianifica_fortezze(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
         note.append(f"fortezze: {len(fortezze)} a "
                     + ", ".join(f"({f.x - meta}, {f.z - meta})" for f in fortezze))
     return fortezze
+
+
+def _pianifica_castelli_rovina(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                               muro, tipo_strada, miniere: list, campi, note: list[str]) -> list:
+    """Castelli in rovina: su un pianoro, lontani da tutto il resto."""
+    if op.castelli_rovina <= 0:
+        return []
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi,
+                       riservato=a.riservato)
+    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 8)
+    if miniere:
+        evita |= MI.maschera_ingresso(miniere, a.cls.shape, margine=12)
+    from scipy.ndimage import binary_dilation as _dil
+    evita |= _dil(evita, iterations=12)
+    acqua = np.isin(a.cls, M.ACQUA)
+    castelli = CS.pianifica(h, acqua, evita=evita, densita=op.castelli_rovina, seed=op.seed)
+    if castelli:
+        m = CS.maschera(castelli, a.cls.shape, margine=3)
+        a.riservato = m if a.riservato is None else (a.riservato | m)
+        meta = op.lato // 2
+        note.append(f"castelli in rovina: {len(castelli)} a "
+                    + ", ".join(f"({c.x - meta}, {c.z - meta})" for c in castelli))
+    return castelli
 
 
 def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
@@ -1239,6 +1267,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     if dungeon:
         protetto |= DG.maschera(dungeon, a.cls.shape, margine=1)
 
+    avanza(0.702, "castelli in rovina")
+    castelli_rovina = _pianifica_castelli_rovina(op, a, h, edifici, muro, tipo_strada, miniere,
+                                                 campi, note)
+    if castelli_rovina:
+        protetto |= CS.maschera(castelli_rovina, a.cls.shape, margine=1)
+
     avanza(0.703, "fortezze")
     fortezze = _pianifica_fortezze(op, a, h, edifici, muro, tipo_strada, miniere, campi, note)
     if fortezze:
@@ -1314,6 +1348,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"capi e guardie delle torri: {len(capi)}")
         abitanti = abitanti + capi
 
+    if castelli_rovina:
+        mostri = CS.combattenti(castelli_rovina, [(c.x, c.z) for c in citta], seed=op.seed)
+        note.append(f"capo e mostri dei castelli in rovina: {len(mostri)}")
+        abitanti = abitanti + mostri
+
     if fortezze:
         soldati = FZ.combattenti(fortezze, [(c.x, c.z) for c in citta], seed=op.seed)
         note.append(f"capi e soldati delle fortezze: {len(soldati)}")
@@ -1328,8 +1367,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
     meta_l = op.lato // 2
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
-                         fortezze=fortezze)
-    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l, fortezze)
+                         fortezze=fortezze, castelli=castelli_rovina)
+    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l, fortezze, castelli_rovina)
     if tipo_strada is not None:
         cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
     ind = LU.indizi(luoghi)
@@ -1347,6 +1386,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     for fz in fortezze:
         libro = ind["tappe"].get(("fortezza", fz.x - meta_l, fz.z - meta_l))
         x, y, z, _ = fz.maschio().forzieri()[1]
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
+    for cs in castelli_rovina:
+        libro = ind["tappe"].get(("castello", cs.x - meta_l, cs.z - meta_l))
+        x, y, z, _ = cs.forzieri()[6]
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     libro_citta = None
@@ -1371,6 +1415,9 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
+                 castelli_rovina=castelli_rovina,
+                 indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
+                                         if castelli_rovina else {}),
                  fortezze=fortezze,
                  indice_fortezze=FZ.indice_per_chunk(fortezze) if fortezze else {},
                  torri=torri,
@@ -2215,6 +2262,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_dg = DG.Tavolozza(m) if piano.dungeon else None
         tav_tr = TR.Tavolozza(m) if piano.torri else None
         tav_fz = FZ.Tavolozza(m) if piano.fortezze else None
+        tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2391,6 +2439,13 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         piano.fortezze, _dal_chunk(piano.indice_fortezze, sx, sz), meta=meta)
                 dungeon_g.update({(x - meta, y, z - meta): tipo
                                   for x, y, z, tipo in tav_fz.bauli + tav_fz.torre.bauli})
+            if tav_cs is not None:
+                tav_cs.bauli.clear()
+                CS.posa(blocchi, tav_cs, fetta(piano.h, sx, sz), ox, oz, -64,
+                        piano.castelli_rovina, _dal_chunk(piano.indice_castelli_rovina, sx, sz),
+                        meta=meta)
+                dungeon_g.update({(x - meta, y, z - meta): tipo
+                                  for x, y, z, tipo in tav_cs.bauli})
             # Accampamenti e cimiteri: SENZA `protetto_c` - a differenza
             # dello scavo delle caverne e delle miniere, qui non c'e' niente
             # da proteggere da questo disegno, ed e' proprio il loro stesso
@@ -2448,6 +2503,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                     blocchi[gx - ox, y + 64, gz - oz] = m.blocco(
                         "sign", material="oak", rotation=str(c.rotazione))
                     bauli_c = (bauli_c or []) + [LU.entita_cartello(c, y, meta)]
+            if piano.castelli_rovina:
+                be_cs = CS.entita_blocco(piano.castelli_rovina, ox, oz, meta)
+                if be_cs:
+                    bauli_c = (bauli_c or []) + be_cs
             if piano.dungeon:
                 spawner = DG.entita_blocco(piano.dungeon, ox, oz, meta)
                 if spawner:
