@@ -33,6 +33,7 @@ from . import citta as CT
 from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
+from . import cascate as CAS
 from . import castello as CS
 from . import entita as EN
 from . import incarichi as IC
@@ -1547,7 +1548,8 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   roccia=None, scarto_c=None, nuda_c=None, neve_c=None,
                   manto_c=None, scarpata_c=None, sponda_c=None,
                   campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
-                  piazze=None, piede_c=None, biomi_c=None):
+                  piazze=None, piede_c=None, biomi_c=None, caduta_c=None,
+                  parete_acqua_c=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -1658,6 +1660,9 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
     if biomi_c is not None:
         AC.decora(out, scrittore, h_c, liv_c if liv_c is not None
                   else np.full((16, 16), LIVELLO_MARE), cls_c, biomi_c, ox, oz, y0)
+    if caduta_c is not None:
+        CAS.posa(out, scrittore, h_c, liv[:, 0, :], caduta_c, parete_acqua_c, ox, oz, y0,
+                 mare=LIVELLO_MARE)
     # --- manto del cono ---------------------------------------------------
     # Prima il cono era basalto e basta, dalla base all'orlo. Un vulcano vero
     # e' fatto di colate sovrapposte di eta' diverse, e si vede.
@@ -2393,6 +2398,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         centri_g = [(c.x - meta, c.z - meta) for c in piano.citta]
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
+        caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
         n = max(1, fino - da)
         for i, (cx, cz) in enumerate(tutti[da:fino]):
             if ferma is not None and ferma():
@@ -2417,6 +2423,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 scarpata_c=(fetta(piano.scarpata, sx, sz)
                             if piano.scarpata is not None else None),
                 sponda_c=fetta(sponda_m, sx, sz),
+                caduta_c=fetta(caduta_m, sx, sz),
+                parete_acqua_c=fetta(parete_acqua_m, sx, sz),
                 campi_orlo_c=(fetta_orlo(piano.campi, sx, sz)
                              if piano.campi is not None else None),
                 tipo_orlo_c=(fetta_orlo(piano.tipo_strada, sx, sz)
