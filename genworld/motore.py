@@ -34,6 +34,7 @@ from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
 from . import entita as EN
+from . import fortezze as FZ
 from . import luoghi as LU
 from . import fauna as FA
 from . import fiumi as R
@@ -134,6 +135,8 @@ class Opzioni:
     dungeon: float = 1.0
     # Idem per le torri isolate con un capo (vedi `torri.py`).
     torri: float = 1.0
+    # Idem per le fortezze isolate (vedi `fortezze.py`).
+    fortezze: float = 1.0
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -506,6 +509,8 @@ class Piano:
     indice_dungeon: dict = field(default_factory=dict)
     torri: list = field(default_factory=list)
     indice_torri: dict = field(default_factory=dict)
+    fortezze: list = field(default_factory=list)
+    indice_fortezze: dict = field(default_factory=dict)
     # luoghi con nome, cartelli e indizi (vedi `luoghi.py`)
     luoghi: list = field(default_factory=list)
     cartelli: list = field(default_factory=list)
@@ -630,6 +635,29 @@ def _pianifica_torri(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
         note.append(f"torri con capo: {len(torri)} a "
                     + ", ".join(f"({t.x - meta}, {t.z - meta})" for t in torri))
     return torri
+
+
+def _pianifica_fortezze(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
+                        muro, tipo_strada, miniere: list, campi, note: list[str]) -> list:
+    """Fortezze: su un pianoro, lontane da tutto il resto."""
+    if op.fortezze <= 0:
+        return []
+    evita = _costruito(a.cls.shape, edifici, muro, tipo_strada, campi=campi,
+                       riservato=a.riservato)
+    evita |= zona_vulcanica(a, DISTANZA_MIN_VULCANO + 8)
+    if miniere:
+        evita |= MI.maschera_ingresso(miniere, a.cls.shape, margine=12)
+    from scipy.ndimage import binary_dilation as _dil
+    evita |= _dil(evita, iterations=10)
+    acqua = np.isin(a.cls, M.ACQUA)
+    fortezze = FZ.pianifica(h, acqua, evita=evita, densita=op.fortezze, seed=op.seed)
+    if fortezze:
+        m = FZ.maschera(fortezze, a.cls.shape, margine=3)
+        a.riservato = m if a.riservato is None else (a.riservato | m)
+        meta = op.lato // 2
+        note.append(f"fortezze: {len(fortezze)} a "
+                    + ", ".join(f"({f.x - meta}, {f.z - meta})" for f in fortezze))
+    return fortezze
 
 
 def _pianifica_avamposti(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
@@ -1211,6 +1239,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     if dungeon:
         protetto |= DG.maschera(dungeon, a.cls.shape, margine=1)
 
+    avanza(0.703, "fortezze")
+    fortezze = _pianifica_fortezze(op, a, h, edifici, muro, tipo_strada, miniere, campi, note)
+    if fortezze:
+        protetto |= FZ.maschera(fortezze, a.cls.shape, margine=1)
+
     avanza(0.705, "torri")
     torri = _pianifica_torri(op, a, h, edifici, muro, tipo_strada, miniere, campi, note)
     if torri:
@@ -1281,6 +1314,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"capi e guardie delle torri: {len(capi)}")
         abitanti = abitanti + capi
 
+    if fortezze:
+        soldati = FZ.combattenti(fortezze, [(c.x, c.z) for c in citta], seed=op.seed)
+        note.append(f"capi e soldati delle fortezze: {len(soldati)}")
+        abitanti = abitanti + soldati
+
     nemici = (AP.nemici(avamposti, seed=63, modelli_cimitero=modelli_cim, biomi=a.biomi)
               if avamposti else [])
     if nemici:
@@ -1289,8 +1327,9 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 
     # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
     meta_l = op.lato // 2
-    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed)
-    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l)
+    luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
+                         fortezze=fortezze)
+    cartelli = LU.cartelli(dungeon, torri, miniere, luoghi, meta_l, fortezze)
     if tipo_strada is not None:
         cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
     ind = LU.indizi(luoghi)
@@ -1303,6 +1342,11 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     for t in torri:
         libro = ind["tappe"].get(("torre", t.x - meta_l, t.z - meta_l))
         x, y, z, _ = t.forzieri()[1]
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
+    for fz in fortezze:
+        libro = ind["tappe"].get(("fortezza", fz.x - meta_l, fz.z - meta_l))
+        x, y, z, _ = fz.maschio().forzieri()[1]
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     libro_citta = None
@@ -1327,6 +1371,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
+                 fortezze=fortezze,
+                 indice_fortezze=FZ.indice_per_chunk(fortezze) if fortezze else {},
                  torri=torri,
                  indice_torri=TR.indice_per_chunk(torri) if torri else {},
                  dungeon=dungeon,
@@ -2168,6 +2214,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_mi = MI.Tavolozza(m) if piano.miniere else None
         tav_dg = DG.Tavolozza(m) if piano.dungeon else None
         tav_tr = TR.Tavolozza(m) if piano.torri else None
+        tav_fz = FZ.Tavolozza(m) if piano.fortezze else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2337,6 +2384,13 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         piano.torri, _dal_chunk(piano.indice_torri, sx, sz), meta=meta)
                 dungeon_g.update({(x - meta, y, z - meta): tipo
                                   for x, y, z, tipo in tav_tr.bauli})
+            if tav_fz is not None:
+                tav_fz.bauli.clear()
+                tav_fz.torre.bauli.clear()
+                FZ.posa(blocchi, tav_fz, fetta(piano.h, sx, sz), ox, oz, -64,
+                        piano.fortezze, _dal_chunk(piano.indice_fortezze, sx, sz), meta=meta)
+                dungeon_g.update({(x - meta, y, z - meta): tipo
+                                  for x, y, z, tipo in tav_fz.bauli + tav_fz.torre.bauli})
             # Accampamenti e cimiteri: SENZA `protetto_c` - a differenza
             # dello scavo delle caverne e delle miniere, qui non c'e' niente
             # da proteggere da questo disegno, ed e' proprio il loro stesso
