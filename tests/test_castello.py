@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from genworld import castello as CS
 
 Y0, ALT = -64, 320
-LIBERO = ("air", "cobweb", "bone_block", "head", "carpet", "plant", "soul_lantern")
+LIBERO = ("air", "cobweb", "bone_block", "head", "carpet", "plant", "soul_lantern",
+          "moss_carpet", "brown_mushroom", "red_mushroom", "candle")
 
 
 class Finto:
@@ -189,15 +190,19 @@ class TestSuperficie(unittest.TestCase):
         self.assertEqual(self.blocco(u, v, yy), "chest")
 
     def test_i_forzieri_di_superficie_sono_aperti(self):
+        murato = self.c.punto(*self.c.forzieri_locali()[7][:2])
         for x, y, z, tipo in self.tav.bauli:
             if y >= self.c.ys:
                 self.assertEqual(self.b(x, y, z), "chest")
-                self.assertIn(self.b(x, y + 1, z), LIBERO, tipo)
+                if (x, z) == murato:                    # il forziere murato dietro lo scaffale
+                    self.assertEqual(self.b(x, y + 1, z), "stone_bricks")
+                else:
+                    self.assertIn(self.b(x, y + 1, z), LIBERO, tipo)
 
     def test_i_mobili_della_sala_non_chiudono_le_sentinelle(self):
         c = self.c
         for m in CS.combattenti([c]):
-            if abs(m.x - c.x) < 0 or m.y != float(c.ys):
+            if not hasattr(m, "specie") or m.y != float(c.ys):
                 continue
             x, z = int(m.x), int(m.z)
             nome = self.b(x, c.ys, z)
@@ -242,9 +247,9 @@ class TestCripta(unittest.TestCase):
             for y in (c.yf, c.yf + 1):
                 n = self.blocco(u, CS.VC, y)
                 self.assertIn(n, LIBERO + ("tripwire", "tripwire_hook", "stone_bricks", "spawner",
-                                           "pressure_plate", "stairs"), (u, y, n))
+                                           "pressure_plate", "stairs", "moss_block"), (u, y, n))
 
-    def test_i_due_fili_d_inciampo_hanno_ganci_filo_e_quattro_distributori(self):
+    def test_i_fili_d_inciampo_hanno_ganci_filo_e_i_distributori(self):
         c = self.c
         for u in CS.STAZIONI_FILO:
             self.assertEqual(self.blocco(u, CS.VC, c.yf), "tripwire")
@@ -255,7 +260,7 @@ class TestCripta(unittest.TestCase):
                 # appoggiato al muro dietro il gancio, e guarda il corridoio
                 self.assertEqual(self.blocco(u, CS.VC + 2 * lato, c.yf), "stone_bricks")
                 self.assertEqual(self.prop(u, CS.VC + 2 * lato, c.yf + 1)["facing"], c._faccia(0, -lato))
-        self.assertEqual(len(c.distributori()), 4)
+        self.assertEqual(len(c.distributori()), 6)         # quattro nella cripta, due nella sala
 
     def test_i_ganci_guardano_il_corridoio_e_il_filo_corre_in_traverso(self):
         c = self.c
@@ -263,8 +268,10 @@ class TestCripta(unittest.TestCase):
         self.assertEqual(self.prop(u, CS.VC + 1, c.yf)["facing"], c._faccia(0, -1))
         self.assertEqual(self.prop(u, CS.VC - 1, c.yf)["facing"], c._faccia(0, 1))
         f = self.prop(u, CS.VC, c.yf)
-        asse_v = c._faccia(0, 1)
-        self.assertEqual(f[asse_v], "true")
+        lungo = ("north", "south") if c.asse_v() == "z" else ("east", "west")
+        trasverso = ("east", "west") if c.asse_v() == "z" else ("north", "south")
+        self.assertTrue(all(f[d] == "true" for d in lungo), f)
+        self.assertTrue(all(f[d] == "false" for d in trasverso), f)
 
     def test_la_fossa_ha_le_punte_e_una_sponda_libera(self):
         c = self.c
@@ -306,16 +313,15 @@ class TestCripta(unittest.TestCase):
             self.assertEqual(self.b(x, y, z), "spawner", mob)
             self.assertEqual(self.b(x, y - 1, z), "stone_bricks", mob)
 
-    def test_i_forzieri_veri_sono_sette_aperti_e_con_i_tipi_giusti(self):
+    def test_i_forzieri_veri_sono_nove_e_con_i_tipi_giusti(self):
         c = self.c
         locali = c.forzieri_locali()
-        self.assertEqual(len(locali), 7)
-        self.assertEqual(sorted(t for *_, t in locali), ["stanza"] * 5 + ["tesoro"] * 2)
+        self.assertEqual(len(locali), 9)
+        self.assertEqual(sorted(t for *_, t in locali), ["stanza"] * 7 + ["tesoro"] * 2)
         veri = self.tav.bauli
-        self.assertEqual(len(veri), 7)
+        self.assertEqual(len(veri), 9)
         for x, y, z, tipo in veri:
             self.assertEqual(self.b(x, y, z), "chest", (x, y, z, tipo))
-            self.assertIn(self.b(x, y + 1, z), LIBERO, tipo)
         self.assertEqual(sorted(t for *_, t in c.forzieri()), sorted(t for *_, t in locali))
 
     def test_le_guardie_e_i_prigionieri_nascono_in_aria_libera(self):
@@ -326,8 +332,9 @@ class TestCripta(unittest.TestCase):
                 n += 1
                 x, z = int(m.x), int(m.z)
                 self.assertIn(self.b(x, int(m.y), z), LIBERO + ("hay_block",), (m.specie, x, z))
-                self.assertIn(self.b(x, int(m.y) + 1, z), LIBERO, (m.specie, x, z))
-                self.assertNotIn(self.b(x, int(m.y) - 1, z), ("air", None))
+                if m.specie != "pipistrello":
+                    self.assertIn(self.b(x, int(m.y) + 1, z), LIBERO, (m.specie, x, z))
+                    self.assertNotIn(self.b(x, int(m.y) - 1, z), ("air", None))
         self.assertGreaterEqual(n, 12)
 
     def test_le_quattro_direzioni_producono_lo_stesso_castello(self):
@@ -338,26 +345,159 @@ class TestCripta(unittest.TestCase):
             self.assertEqual(b(x, c.yf, z), "chest", dire)
             sx, sy, sz, _ = c.spawner()[1]
             self.assertEqual(b(sx, sy, sz), "spawner", dire)
-            self.assertEqual(len(tav.bauli), 7, dire)
+            self.assertEqual(len(tav.bauli), 9, dire)
+
+
+class TestRifiniture(unittest.TestCase):
+    def setUp(self):
+        self.c = un_castello()
+        self.s, self.tav, self.b = posa_su_regione(self.c)
+
+    def blocco(self, u, v, y):
+        x, z = self.c.punto(u, v)
+        return self.b(x, y, z)
+
+    def prop(self, u, v, y):
+        x, z = self.c.punto(u, v)
+        return self.b.proprieta(x, y, z)
+
+    def test_la_sala_del_trono_ha_il_suo_filo_d_inciampo_con_due_distributori(self):
+        c, M = self.c, CS.MEZZO_MASCHIO
+        uf = CS.FILO_SALA_U
+        self.assertEqual(self.blocco(uf, M - 1, c.ys + 1), "tripwire_hook")
+        self.assertEqual(self.blocco(uf, -M + 1, c.ys + 1), "tripwire_hook")
+        for v in range(-M + 2, M - 1):
+            self.assertEqual(self.blocco(uf, v, c.ys + 1), "tripwire", v)
+        for lato in (1, -1):
+            self.assertEqual(self.blocco(uf, M * lato, c.ys + 1), "stone_bricks")
+            self.assertEqual(self.blocco(uf, M * lato, c.ys + 2), "dispenser")
+            self.assertEqual(self.prop(uf, M * lato, c.ys + 2)["facing"], c._faccia(0, -lato))
+        # il filo non e' murato dentro un mobile: sopra la tavola, a un blocco dal pavimento
+        self.assertEqual(self.blocco(uf, 0, c.ys + 2), "air")
+
+    def test_il_filo_corre_lungo_l_asse_giusto_in_ogni_orientamento(self):
+        for dire in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            c = un_castello(dire)
+            s, tav, b = posa_su_regione(c)
+            x, z = c.punto(CS.STAZIONI_FILO[0], CS.VC)
+            f = b.proprieta(x, c.yf, z)
+            lungo = ("north", "south") if c.asse_v() == "z" else ("east", "west")
+            self.assertTrue(all(f[d] == "true" for d in lungo), (dire, f))
+            x, z = c.punto(CS.FILO_SALA_U, 0)
+            f = b.proprieta(x, c.ys + 1, z)
+            self.assertTrue(all(f[d] == "true" for d in lungo), (dire, f))
+
+    def test_i_due_nascondigli(self):
+        c = self.c
+        (u, v, y, t) = c.forzieri_locali()[7]
+        self.assertEqual(self.blocco(u, v, y), "chest")
+        # lo scaffale davanti: per arrivarci bisogna romperlo
+        self.assertEqual(self.blocco(u - 1, v, y), "bookshelf")
+        (u, v, y, t) = c.forzieri_locali()[8]
+        self.assertEqual(self.blocco(u, v, y), "chest")
+        self.assertEqual(self.blocco(u, v, y - 1), "bone_block")
+        for yy in range(y + 1, c.ys):
+            self.assertEqual(self.blocco(u, v, yy), "air")
+
+    def test_terra_bruciata_vicino_alle_brecce(self):
+        c, K = self.c, CS.K
+        visti = set()
+        for u in range(-K - 4, K + 5):
+            for v in range(-K - 4, K + 5):
+                visti.add(self.blocco(u, v, c.ys - 1))
+        self.assertTrue({"blackstone", "magma_block", "coal_block"} & visti)
+
+    def test_il_carro_rovesciato_e_i_lumi_dell_anima_nel_cortile(self):
+        c = self.c
+        self.assertEqual(self.blocco(9, 9, c.ys), "barrel")
+        self.assertEqual(self.blocco(10, 9, c.ys), "hay_block")
+        self.assertEqual(self.blocco(3, 6, c.ys), "soul_lantern")
+        self.assertEqual(self.blocco(-14, 6, c.ys), "candle")
+
+    def test_la_cripta_ha_mattoni_infestati_muschio_e_funghi(self):
+        c = self.c
+        visti = set()
+        for u in range(4, 73):
+            for v in range(CS.VC - 5, CS.VC + 6):
+                for y in range(c.yf - 1, c.yf + 6):
+                    visti.add(self.blocco(u, v, y))
+        for atteso in ("infested_block", "moss_block", "moss_carpet", "candle"):
+            self.assertIn(atteso, visti, atteso)
+        self.assertTrue({"brown_mushroom", "red_mushroom"} & visti)
+
+    def test_l_edera_cresce_dentro_le_torri(self):
+        c, K = self.c, CS.K
+        trovata = 0
+        for su in (1, -1):
+            for sv in (1, -1):
+                for a in range(K - 5, K):
+                    for b in range(K - 5, K):
+                        for y in range(c.ys + 2, c.ys + 6):
+                            if self.blocco(su * a, sv * b, y) == "vine":
+                                trovata += 1
+        self.assertGreater(trovata, 4)
+
+    def test_gli_arcieri_stanno_sul_camminamento_intero(self):
+        c = self.c
+        posti = CS.posti_sulle_mura(c)
+        self.assertEqual(len(posti), 4)
+        for (u, v) in posti:
+            self.assertEqual(self.blocco(u, v, c.ys + CS.ALTEZZA_MURA - 1), "stone_bricks")
+            self.assertEqual(self.blocco(u, v, c.ys + CS.ALTEZZA_MURA), "air")
+            self.assertEqual(self.blocco(u, v, c.ys + CS.ALTEZZA_MURA + 1), "air")
+        arcieri = [m for m in CS.combattenti([c]) if getattr(m, "y", 0) == float(c.ys + CS.ALTEZZA_MURA)
+                   and getattr(m, "specie", "") == "scheletro"]
+        self.assertEqual(len(arcieri), 4)
+
+    def test_il_luogotenente_sorveglia_il_caveau_e_i_pipistrelli_volano_nella_cripta(self):
+        c = self.c
+        m = CS.combattenti([c], [(c.x, c.z)])
+        luog = next(x for x in m if getattr(x, "nome", "") == "Il Custode del Caveau")
+        self.assertTrue(luog.capo)
+        self.assertEqual(luog.y, float(c.yf))
+        x, z = int(luog.x), int(luog.z)
+        self.assertIn(self.b(x, c.yf, z), LIBERO)
+        pip = [x for x in m if getattr(x, "specie", "") == "pipistrello"]
+        self.assertEqual(len(pip), 5)
+        for p in pip:
+            self.assertEqual(self.b(int(p.x), int(p.y), int(p.z)), "air")
+
+    def test_i_manichini_hanno_un_armatura_arrugginita_e_stanno_su_una_cella_libera(self):
+        c = self.c
+        man = [m for m in CS.combattenti([c]) if m.__class__.__name__ == "Manichino"]
+        self.assertEqual(len(man), 4)
+        for m in man:
+            n = m.nbt_tag()
+            self.assertEqual(str(n["id"]), "minecraft:armor_stand")
+            self.assertEqual(int(n["ShowArms"]), 1)
+            self.assertEqual(str(n["equipment"]["head"]["id"]), "minecraft:chainmail_helmet")
+            self.assertEqual(str(n["equipment"]["chest"]["id"]), "minecraft:chainmail_chestplate")
+            self.assertIn("mainhand", n["equipment"])
+            x, z = int(m.x), int(m.z)
+            self.assertIn(self.b(x, c.ys, z), LIBERO, (x, z))
+            self.assertIn(self.b(x, c.ys + 1, z), LIBERO, (x, z))
 
 
 class TestAbitantiEEntita(unittest.TestCase):
     def test_il_capo_e_il_seguito(self):
         c = un_castello()
         m = CS.combattenti([c], [(10, 10)])
-        capi = [x for x in m if x.capo]
-        self.assertEqual(len(capi), 1)
-        self.assertEqual(capi[0].nome, "Re Spettro Aldovrando")
+        capi = [x for x in m if getattr(x, "capo", False)]
+        self.assertEqual(len(capi), 2)                                   # il re e il luogotenente
+        re = next(x for x in capi if x.nome == "Re Spettro Aldovrando")
         u, v, y = c.posto_capo()
         x, z = c.punto(u, v)
-        self.assertEqual((int(capi[0].x), capi[0].y, int(capi[0].z)), (x, float(y), z))
-        specie = {x.specie for x in m}
-        for atteso in ("zombie", "scheletro", "ragno", "ragno_grotta", "husk", "scheletro_nero"):
+        self.assertEqual((int(re.x), re.y, int(re.z)), (x, float(y), z))
+        specie = {x.specie for x in m if hasattr(x, "specie")}
+        for atteso in ("zombie", "scheletro", "ragno", "ragno_grotta", "husk", "pipistrello",
+                       "vindicatore"):
             self.assertIn(atteso, specie)
-        self.assertGreaterEqual(len(m), 25)
+        self.assertGreaterEqual(len(m), 35)
         for x in m:
             n = x.nbt_tag()
             self.assertTrue(str(n["id"]).startswith("minecraft:"))
+        ids = {str(x.nbt_tag()["id"]) for x in m}
+        self.assertTrue({"minecraft:bat", "minecraft:armor_stand", "minecraft:husk"} <= ids)
 
     def test_lontano_dalle_citta_il_capo_e_di_diamante(self):
         c = un_castello()
@@ -372,7 +512,7 @@ class TestAbitantiEEntita(unittest.TestCase):
             for cx in range(c.bbox()[0] // 16 - 1, c.bbox()[2] // 16 + 2):
                 tutti += CS.entita_blocco([c], cx * 16, cz * 16, 0)
         tipi = sorted(b.base_name for b in tutti)
-        self.assertEqual(tipi, ["dispenser"] * 4 + ["spawner"] * 3)
+        self.assertEqual(tipi, ["dispenser"] * 6 + ["spawner"] * 3)
         sp = [b for b in tutti if b.base_name == "spawner"]
         mob = sorted(str(b.nbt.compound["utags"]["SpawnData"]["entity"]["id"]) for b in sp)
         self.assertIn("minecraft:cave_spider", mob)

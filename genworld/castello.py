@@ -50,8 +50,11 @@ U_PRIGIONI = (49, 63)
 U_CAVEAU = (64, 72)
 U_FINE = U_CAVEAU[1] + 2
 STAZIONI_FILO = (17, 24)                # u dei due fili d'inciampo
+FILO_SALA_U = CENTRO_MASCHIO + 4        # il filo della sala del trono, di traverso
 FOSSA_U = (32, 36)                      # dove manca il pavimento (con la sponda libera)
 CELLE_U = ((51, 53), (58, 60))
+# celle del cortile dove nascono soldati e manichini: niente macerie
+CORTILE_LIBERO = ((8, -4), (10, 5), (5, -9), (-5, 11), (12, 1), (-4, -11), (5, -4), (8, 8))
 
 
 @dataclass
@@ -96,6 +99,8 @@ class Castello:
             (U_SPAWNER[0] + 1, VC + 2, yf, "stanza"),
             (CELLE_U[1][1], VC - 4, yf, "stanza"),                          # in fondo a una cella
             (U_CAVEAU[1] - 1, VC, yf, "tesoro"),
+            (CENTRO_MASCHIO + MEZZO_MASCHIO, 4, self.ys, "stanza"),          # murato dietro uno scaffale
+            (6, 6, self.ys - 4, "stanza"),                                  # sul fondo del pozzo
         ]
 
     def forzieri(self) -> list[tuple[int, int, int, str]]:
@@ -115,13 +120,21 @@ class Castello:
                 (s3[0], self.yf + 1, s3[1], "cave_spider")]
 
     def distributori(self) -> list[tuple[int, int, int, str]]:
-        """(x, y, z, facing): quattro distributori di frecce nei muri."""
+        """(x, y, z, facing): i distributori di frecce nei muri: due per ognuno
+        dei due fili della cripta e due per quello della sala del trono."""
         fuori = []
         for u in STAZIONI_FILO:
             for lato in (1, -1):
                 x, z = self.punto(u, VC + 2 * lato)
                 fuori.append((x, self.yf + 1, z, self._faccia(0, -lato)))
+        for lato in (1, -1):
+            x, z = self.punto(FILO_SALA_U, MEZZO_MASCHIO * lato)
+            fuori.append((x, self.ys + 2, z, self._faccia(0, -lato)))
         return fuori
+
+    def asse_v(self) -> str:
+        """L'asse del MONDO lungo cui corre v: serve al filo d'inciampo."""
+        return "z" if self.dx else "x"
 
     def _faccia(self, du: int, dv: int) -> str:
         return FACCIA[(self.dx * du - self.dz * dv, self.dz * du + self.dx * dv)]
@@ -244,12 +257,25 @@ def combattenti(castelli: list[Castello], centri: list | None = None,
             elenco.append((uu, vv, c.ys, sp))
         for su, sv in ((1, 1), (1, -1), (-1, 1)):                  # le torri senza spawner
             elenco.append((su * (K - 3), sv * (K - 3), c.ys, "scheletro"))
+        for (uu, vv) in posti_sulle_mura(c):                       # arcieri sul camminamento
+            elenco.append((uu, vv, c.ys + ALTEZZA_MURA, "scheletro"))
         yf = c.yf
         for uu, vv, sp in ((7, VC - 2, "scheletro"), (9, VC + 2, "scheletro"),
                            (20, VC, "zombie"), (26, VC, "zombie"), (38, VC, "ragno_grotta"),
-                           (43, VC - 3, "scheletro"), (45, VC + 3, "zombie"),
-                           (U_CAVEAU[0] + 5, VC + 3, "scheletro_nero")):
+                           (43, VC - 3, "scheletro"), (45, VC + 3, "zombie")):
             elenco.append((uu, vv, yf, sp))
+        for uu, vv in ((8, VC), (44, VC - 2), (46, VC + 2), (20, VC + 1), (U_CAVEAU[0] + 6, VC - 3)):
+            elenco.append((uu, vv, yf + 2, "pipistrello"))
+        # il luogotenente: un secondo capo, con un nome, a guardia del tesoro
+        x, z = c.punto(U_CAVEAU[0] + 5, VC + 3)
+        fuori.append(TR.Combattente(x=x + 0.5, y=float(yf), z=z + 0.5, specie="vindicatore",
+                                    capo=True, nome="Il Custode del Caveau", livello=0,
+                                    seme=c.seme + 977))
+        for k, (uu, vv, ang) in enumerate(((CENTRO_MASCHIO - 1, 5, 200.0), (CENTRO_MASCHIO + 1, -5, 90.0),
+                                           (5, -4, 20.0), (8, 8, 310.0))):
+            x, z = c.punto(uu, vv)
+            fuori.append(TR.Manichino(x=x + 0.5, y=float(c.ys), z=z + 0.5, rotazione=ang,
+                                      seme=c.seme + 53 * (k + 1)))
         for (u0, u1) in CELLE_U:                                    # i prigionieri
             for lato in (1, -1):
                 elenco.append(((u0 + u1) // 2, VC + 3 * lato, yf,
@@ -314,6 +340,13 @@ class Tavolozza:
         self.falo = s.blocco("campfire", facing="north", lit="true", signal_fire="false",
                              waterlogged="false")
         self.anima = s.blocco("soul_lantern", hanging="true")
+        self.anima_su = s.blocco("soul_lantern", hanging="false")
+        self.annerito = [s.blocco("blackstone"), s.blocco("magma_block"), s.blocco("dirt", variant="coarse"),
+                         s.blocco("coal_block")]
+        self.muschio = s.blocco("moss_block")
+        self.tappeto_muschio = s.blocco("moss_carpet")
+        self.fungo = (s.blocco("brown_mushroom"), s.blocco("red_mushroom"))
+        self.infestato = s.blocco("infested_block", material="stone_bricks")
         self.candela = s.blocco("candle", color="default", candles="2", lit="true")
         self.vite = {f: s.blocco("vine", north=str(f == "north").lower(),
                                  south=str(f == "south").lower(), east=str(f == "east").lower(),
@@ -359,6 +392,34 @@ def _liscio(x: int, z: int, sale: int, lato: int = 5) -> float:
     return (a * (1 - fx) + b * fx) * (1 - fz) + (c * (1 - fx) + d * fx) * fz
 
 
+def _altezza_muro(x: int, z: int) -> int:
+    """L'altezza della cinta in una cella: 0 = breccia, 1..7 = spezzata, 8 = intera."""
+    n = _liscio(x, z, 1, 5)
+    if n < 0.16:
+        return 0
+    if n < 0.38:
+        return int(1 + (n - 0.16) / 0.22 * 6)
+    return ALTEZZA_MURA
+
+
+def posti_sulle_mura(c: Castello, quanti: int = 4) -> list[tuple[int, int]]:
+    """(u, v) di celle del camminamento ancora intere (altezza 8), distanziate: li'
+    stanno gli arcieri. Fuori dal portale."""
+    cand = []
+    for t in range(-K + 8, K - 7):
+        for (u, v) in ((t, K - 1), (-K + 1, t), (t, -K + 1)):
+            x, z = c.punto(u, v)
+            if _altezza_muro(x, z) == ALTEZZA_MURA and not (u >= K - 6 and abs(v) <= 6):
+                cand.append((u, v))
+    scelti: list[tuple[int, int]] = []
+    for (u, v) in cand:
+        if all(abs(u - a) + abs(v - b) >= 12 for a, b in scelti):
+            scelti.append((u, v))
+        if len(scelti) == quanti:
+            break
+    return scelti
+
+
 def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0: int,
          castelli: list[Castello], quali, meta: int = 0) -> None:
     """Disegna i castelli nel chunk (16, H, 16): `ox, oz` di GIOCO, i castelli di MAPPA
@@ -398,13 +459,7 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
             r = _hash(x, y, z) % 100
             return tav.crepati if r < 22 else tav.muschiosi if r < 48 else tav.mattoni
 
-        def altezza_muro(x, z):
-            n = _liscio(x, z, 1, 5)
-            if n < 0.16:
-                return 0                                       # breccia
-            if n < 0.38:
-                return int(1 + (n - 0.16) / 0.22 * 6)           # spezzato
-            return ALTEZZA_MURA
+        altezza_muro = _altezza_muro
 
         # ===================== superficie: una colonna alla volta ===================
         r = K + 3
@@ -496,6 +551,19 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
                 if interno_t:
                     for y in range(ys, ys + 12):
                         metti(x, y, z, tav.aria)
+                    # un po' di edera sulle pareti interne
+                    if abs(u) == K - 1 or abs(v) == K - 1 or abs(u) == K - 5 or abs(v) == K - 5:
+                        if abs(u) == K - 1:
+                            dd = (1 if u > 0 else -1, 0)
+                        elif abs(u) == K - 5:
+                            dd = (-1 if u > 0 else 1, 0)
+                        elif abs(v) == K - 1:
+                            dd = (0, 1 if v > 0 else -1)
+                        else:
+                            dd = (0, -1 if v > 0 else 1)
+                        if _hash(x, 14, z) % 100 < 22:
+                            for y in range(ys + 2, ys + 2 + 1 + _hash(x, 18, z) % 4):
+                                alza(u, v, y, tav.vite[faccia(*dd)])
                     if _liscio(x, z, 4, 3) > 0.45:
                         metti(x, ys + 6, z, tav.assi)                     # un solaio sopravvissuto
                     if _hash(x, 13, z) % 100 < 9:
@@ -522,7 +590,8 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
                             metti(x, y, z, tav.ragnatela)
 
                 # ---- macerie e ossa nel cortile ----------------------------------------------
-                if d <= K - 2 and not in_maschio and not in_torre:
+                if (d <= K - 2 and not in_maschio and not in_torre
+                        and not any(abs(u - a_) <= 1 and abs(v - b_) <= 1 for a_, b_ in CORTILE_LIBERO)):
                     r3 = _hash(x, 17, z) % 1000
                     if r3 < 22:
                         metti(x, ys, z, tav.ciottoli if r3 % 2 else tav.ciottoli_muschio)
@@ -637,6 +706,49 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
         if nel_chunk(x, z):
             tav.bauli.append((x, yy, z, tipo))
 
+        # ---- segni di battaglia: terra bruciata presso le brecce, un carro rovesciato ----
+        for t in range(-K + 7, K - 6):
+            for (u, v) in ((K, t), (-K, t), (t, K), (t, -K)):
+                x, z = P(u, v)
+                if _altezza_muro(x, z) != 0 or (u >= K - 1 and abs(v) <= 2):
+                    continue
+                for k in (-3, -2, -1, 1, 2, 3):
+                    du, dv = (k, 0) if abs(u) == K else (0, k)
+                    if _hash(x + du, 25, z + dv) % 100 < 45:
+                        alza(u + du, v + dv, ys - 1, tav.annerito[_hash(x + du, 26, z + dv) % 4])
+        alza(9, 9, ys, tt.barile)
+        alza(10, 9, ys, tav.fieno)
+        alza(10, 10, ys, tav.fieno)
+        alza(9, 10, ys, tav.lastra_legno)
+        alza(11, 9, ys, tav.recinto)
+        alza(9, 11, ys, tav.recinto)
+        for (uu, vv) in ((3, 6), (-3, -12), (12, -3)):
+            alza(uu, vv, ys, tav.anima_su)
+        for vv in (4, 6, 8):
+            alza(-14, vv, ys, tav.candela)
+
+        # ---- la trappola della sala del trono: un filo d'inciampo di traverso -----------
+        uf = FILO_SALA_U
+        alza(uf, MEZZO_MASCHIO - 1, ys + 1, tav.gancio[faccia(0, -1)])
+        alza(uf, -MEZZO_MASCHIO + 1, ys + 1, tav.gancio[faccia(0, 1)])
+        for vv in range(-MEZZO_MASCHIO + 2, MEZZO_MASCHIO - 1):
+            alza(uf, vv, ys + 1, tav.filo[c.asse_v()])
+        for lato in (1, -1):
+            alza(uf, MEZZO_MASCHIO * lato, ys + 1, tav.mattoni)
+            alza(uf, MEZZO_MASCHIO * lato, ys + 2, tav.distributore[faccia(0, -lato)])
+
+        # ---- i nascondigli: un forziere murato dietro lo scaffale, uno in fondo al pozzo --
+        (uu, vv, yy, tipo) = c.forzieri_locali()[7]
+        x, z = P(uu, vv)
+        metti(x, yy, z, tav.forziere[faccia(-1, 0)])
+        if nel_chunk(x, z):
+            tav.bauli.append((x, yy, z, tipo))
+        (uu, vv, yy, tipo) = c.forzieri_locali()[8]
+        x, z = P(uu, vv)
+        metti(x, yy, z, tav.forziere[faccia(1, 0)])
+        if nel_chunk(x, z):
+            tav.bauli.append((x, yy, z, tipo))
+
         # ===================== la cripta ==========================================================
         _cripta(c, tav, metti, nel_chunk, P, faccia, alza, ys, yf)
 
@@ -661,6 +773,8 @@ def _cripta(c: Castello, tav: Tavolozza, metti, nel_chunk, P, faccia, alza, ys: 
 
     def mattone(x, y, z):
         r = _hash(x, y, z) % 100
+        if r < 3:
+            return tav.infestato          # un mattone che sembra come gli altri: dentro c'e' un lepisma
         return tav.crepati if r < 24 else tav.muschiosi if r < 46 else tav.mattoni
 
     # ---- gusci ---------------------------------------------------------------
@@ -738,11 +852,26 @@ def _cripta(c: Castello, tav: Tavolozza, metti, nel_chunk, P, faccia, alza, ys: 
         if tipo in ("trappola", "fossa", "prigioni"):
             for uu in range(u0 + 3, u1, 6):
                 alza(uu, VC, y1_, tav.anima)
+        if tipo in ("anticamera", "spawner", "caveau", "prigioni"):
+            # muschio e funghi sul pavimento, un lume di candele in un angolo
+            for u in range(u0, u1 + 1):
+                for v in range(v0, v1 + 1):
+                    x, z = P(u, v)
+                    if not nel_chunk(x, z):
+                        continue
+                    r = _hash(x, 43, z) % 100
+                    if r < 9:
+                        metti(x, y0_ - 1, z, tav.muschio)
+                        if _hash(x, 44, z) % 100 < 60:
+                            metti(x, y0_, z, tav.tappeto_muschio)
+                    elif r < 12:
+                        metti(x, y0_, z, tav.fungo[r % 2])
+            alza(u0 + 2, v0 + 2, y0_, tav.candela)
     # -- trappola 1: due fili d'inciampo con i distributori di frecce ---------------------
     for u in STAZIONI_FILO:
         alza(u, VC + 1, yf, tav.gancio[faccia(0, -1)])
         alza(u, VC - 1, yf, tav.gancio[faccia(0, 1)])
-        alza(u, VC, yf, tav.filo["z"])
+        alza(u, VC, yf, tav.filo[c.asse_v()])
         for lato in (1, -1):
             # il distributore e' appoggiato al blocco di muro a cui e' attaccato il gancio
             alza(u, VC + 2 * lato, yf + 1, tav.distributore[faccia(0, -lato)])
@@ -789,7 +918,7 @@ def _cripta(c: Castello, tav: Tavolozza, metti, nel_chunk, P, faccia, alza, ys: 
         alza(uc, v, yf - 1, tav.tnt)
         alza(uc, v, yf, tav.trappola[faccia(-1, 0)])
     # -- i forzieri veri della cripta (gli ultimi cinque) -----------------------------------------
-    for (uu, vv, yy, tipo) in c.forzieri_locali()[3:]:
+    for (uu, vv, yy, tipo) in c.forzieri_locali()[3:7]:
         x, z = P(uu, vv)
         metti(x, yy, z, tav.forziere[faccia(-1, 0)])
         if nel_chunk(x, z):

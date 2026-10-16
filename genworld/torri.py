@@ -31,7 +31,7 @@ FACCIA = {(1, 0): "east", (-1, 0): "west", (0, 1): "south", (0, -1): "north"}
 # nome nostro -> id di gioco
 SPECIE = {"zombie": "zombie", "scheletro": "skeleton", "vindicatore": "vindicator",
           "scheletro_nero": "wither_skeleton", "ragno": "spider",
-          "ragno_grotta": "cave_spider", "husk": "husk"}
+          "ragno_grotta": "cave_spider", "husk": "husk", "pipistrello": "bat"}
 NOMI_CAPO = ("Aldric il Cupo", "Brenna Mano di Ferro", "Corvo Nero", "Dagan l'Esule",
              "Edrik Spezzaossa", "Fenna la Vedetta", "Garrick Senzaterra",
              "Hilda Cuordipietra", "Ivor il Custode", "Kael Lamarotta")
@@ -124,6 +124,42 @@ class Combattente:
             base["drop_chances"] = CompoundTag({
                 s: FloatTag(0.6) for s in ("head", "chest", "legs", "feet", "mainhand")})
         return CompoundTag(base)
+
+
+@dataclass
+class Manichino:
+    """Un `armor_stand` con un'armatura arrugginita: stessa interfaccia di
+    `Combattente` (`x/y/z` e `nbt_tag()`), cosi' si scrive con gli altri abitanti."""
+    x: float
+    y: float
+    z: float
+    rotazione: float = 0.0
+    seme: int = 0
+
+    def nbt_tag(self):
+        from amulet_nbt import (ByteTag, CompoundTag, DoubleTag, FloatTag, IntTag,
+                                ListTag, StringTag)
+
+        from .entita import _uuid
+        equip = {"head": _pila("chainmail_helmet"), "chest": _pila("chainmail_chestplate"),
+                 "mainhand": _pila("iron_sword" if self.seme % 2 else "stone_axe")}
+        if self.seme % 3 == 0:
+            equip["legs"] = _pila("chainmail_leggings")
+        return CompoundTag({
+            "id": StringTag("minecraft:armor_stand"),
+            "Pos": ListTag([DoubleTag(self.x), DoubleTag(self.y), DoubleTag(self.z)]),
+            "Motion": ListTag([DoubleTag(0.0), DoubleTag(0.0), DoubleTag(0.0)]),
+            "Rotation": ListTag([FloatTag(self.rotazione), FloatTag(0.0)]),
+            "UUID": _uuid(self.seme),
+            "Air": IntTag(300),
+            "Fire": IntTag(-1),
+            "FallDistance": FloatTag(0.0),
+            "Invulnerable": ByteTag(0),
+            "OnGround": ByteTag(1),
+            "ShowArms": ByteTag(1),
+            "NoBasePlate": ByteTag(0),
+            "equipment": CompoundTag(equip),
+        })
 
 
 ARMA = {
