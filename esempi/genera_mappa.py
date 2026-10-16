@@ -143,6 +143,9 @@ def main() -> None:
                          "citta'), 'quadrato', 'rettangolo', 'ovale', 'tondo', oppure un "
                          "elenco separato da virgole (es. tondo,ovale,rettangolo,quadrato) "
                          "percorso in ordine dalle citta' murate")
+    ap.add_argument("--processi", type=int, default=1, metavar="N",
+                    help="scrive i chunk con N processi (0 = uno per core, al massimo 8; "
+                         "1 = come prima). Non si combina con --chunk-per-lotto")
     ap.add_argument("--fuori-mappa", choices=("naturale", "vuoto"), default="naturale",
                     help="cosa c'e' oltre la mappa: 'naturale' (terreno normale di "
                          "Minecraft generato al volo, nessun bordo) o 'vuoto' (aria)")
@@ -197,8 +200,12 @@ def main() -> None:
             print(n)
 
     quanti = a.chunk_per_lotto
-    st = scrivi(op, analisi, piano, da=a.lotto * quanti if quanti else 0,
-                quanti=quanti)
+    if a.processi != 1 and not quanti:
+        from genworld.parallelo import scrivi_parallelo
+        st = scrivi_parallelo(op, analisi, piano, processi=a.processi)
+    else:
+        st = scrivi(op, analisi, piano, da=a.lotto * quanti if quanti else 0,
+                    quanti=quanti)
     da = a.lotto * quanti if quanti else 0
     print(f"lotto {a.lotto}: {st['chunk']} chunk da {da} di {st['totale']} "
           f"in {time.time() - t0:.0f}s ({st['restano']} rimanenti)")

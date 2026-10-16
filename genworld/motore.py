@@ -2272,8 +2272,14 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
 def scrivi(op: Opzioni, a: Analisi, piano: Piano,
            avanza: Avanzamento = _nulla,
            da: int = 0, quanti: int = 0,
-           ferma: Callable[[], bool] | None = None) -> dict:
+           ferma: Callable[[], bool] | None = None,
+           indici: list[int] | None = None, lavoratore: bool = False) -> dict:
     """Scrive i chunk. `da`/`quanti` servono alla CLI a lavorare a lotti.
+
+    `indici` (posizioni nella lista dei chunk) e `lavoratore` servono a
+    `parallelo.py`: un processo scrive solo quei chunk in un mondo di lavoro e
+    NON fa i passaggi finali (abitanti, bordo, elenco), che toccano al
+    processo principale quando tutti hanno finito.
 
     `ferma` e' interrogato a ogni chunk: la finestra deve poter annullare una
     generazione lunga senza chiudere il programma.
@@ -2387,6 +2393,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                     if a.biomi is not None else None)
         tutti = list(m.chunk_coords())
         fino = len(tutti) if quanti <= 0 else min(da + quanti, len(tutti))
+        lista = tutti[da:fino] if indici is None else [tutti[k] for k in indici]
         if da >= len(tutti):
             return {"chunk": 0, "totale": len(tutti), "restano": 0,
                     "secondi": 0.0, "interrotto": False}
@@ -2399,8 +2406,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
         caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
-        n = max(1, fino - da)
-        for i, (cx, cz) in enumerate(tutti[da:fino]):
+        n = max(1, len(lista))
+        for i, (cx, cz) in enumerate(lista):
             if ferma is not None and ferma():
                 interrotto = True
                 break
@@ -2559,14 +2566,27 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             if i % 25 == 0 or i == n - 1:
                 avanza((i + 1) / n, f"chunk {da + i + 1} di {len(tutti)}")
 
+    if lavoratore:
+        return {"chunk": scritti, "totale": len(tutti), "restano": 0,
+                "secondi": time.time() - t0, "interrotto": interrotto, "lavoratore": True}
     restano = len(tutti) - (da + scritti)
     fuori = {"chunk": scritti, "totale": len(tutti), "restano": restano,
              "secondi": time.time() - t0, "interrotto": interrotto}
 
+    if restano == 0 and not interrotto:
+        passaggi_finali(op, piano, fuori)
+    return fuori
+
+
+def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
+    """Cio' che si fa una volta sola, a mondo scritto: abitanti, bordo
+    naturale, elenco dei luoghi, verifica del level.dat. Aggiorna e ritorna
+    `fuori`. Lo usa anche `parallelo.scrivi_parallelo`."""
+    from .livello_dat import verifica
     # Gli abitanti si scrivono ALLA FINE e da soli: `ScrittoreMondo` cancella
     # la cartella `entities/` a ogni chiusura, perche' amulet la scrive rotta.
     # Quella che mettiamo noi deve arrivare dopo l'ultima chiusura.
-    if restano == 0 and not interrotto and piano.abitanti:
+    if piano.abitanti:
         from dataclasses import replace as _replace
 
         from .livello_dat import ImpostazioniMondo as _Imp
@@ -2587,18 +2607,17 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                                _Imp(versione=op.versione).data_version)
         fuori["abitanti"] = st["abitanti"]
 
-    if restano == 0 and not interrotto and op.fuori_mappa == "naturale":
+    if op.fuori_mappa == "naturale":
         # il terreno che il gioco genera oltre il bordo si raccorda al nostro
         fuori["sfumatura"] = SF.segna_bordo(op.uscita)
 
-    if restano == 0 and not interrotto and piano.luoghi:
+    if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
                                  extra_md=IC.sezione_elenco(piano.incarichi))
         fuori["luoghi"] = md
 
-    if restano == 0 and not interrotto:
-        fuori["level_dat"] = "valido" if not verifica(
-            os.path.join(op.uscita, "level.dat")) else "PROBLEMI"
+    fuori["level_dat"] = "valido" if not verifica(
+        os.path.join(op.uscita, "level.dat")) else "PROBLEMI"
     return fuori
 
 
