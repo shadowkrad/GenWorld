@@ -684,11 +684,16 @@ def conta_file(cartelle: str) -> int:
 
 
 def carica_cartelle(percorsi: list[str], versione=(1, 21, 4)) -> list[Modello]:
-    """Come `carica_cartella`, ma unendo piu' cartelle in un unico catalogo."""
-    fuori: list[Modello] = []
-    for percorso in percorsi:
-        fuori.extend(carica_cartella(percorso, versione))
-    return fuori
+    """Come `carica_cartella`, ma unendo piu' cartelle in un unico catalogo.
+    Il risultato si tiene su disco (vedi `compilati.py`)."""
+    from . import compilati
+
+    def produci() -> list[Modello]:
+        fuori: list[Modello] = []
+        for percorso in percorsi:
+            fuori.extend(carica_cartella(percorso, versione))
+        return fuori
+    return compilati.con_cache("cartelle", list(percorsi), versione, produci)
 
 
 # --------------------------------------------------------------------------

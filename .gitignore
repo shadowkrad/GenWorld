@@ -68,5 +68,6 @@ templates/navi/*
 templates/navi_inutilizzate/*
 templates/moli/*
 templates/fari/*
+templates/_compilati/
 !templates/*/.gitkeep
 !templates/*/LEGGIMI.md
