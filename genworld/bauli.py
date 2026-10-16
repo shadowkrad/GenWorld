@@ -226,8 +226,11 @@ def componenti_oggetto(spec: dict) -> dict:
     """I componenti (formato 1.21) di un oggetto d'incarico: nome, descrizione e
     un'etichetta `custom_data` con cui un villager lo riconosce in uno scambio.
     `spec` = {"id", "nome", "lore": [..], "uid"}."""
-    return {"custom_name": spec["nome"], "lore": list(spec.get("lore", [])),
+    comp = {"custom_name": spec["nome"], "lore": list(spec.get("lore", [])),
             "custom_data": {"incarico": spec["uid"]}}
+    if "map_id" in spec:                  # una mappa: il numero del suo file (vedi `mappe.py`)
+        comp["map_id"] = int(spec["map_id"])
+    return comp
 
 
 def _voce(v):

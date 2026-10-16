@@ -39,6 +39,7 @@ from . import entita as EN
 from . import incarichi as IC
 from . import fortezze as FZ
 from . import luoghi as LU
+from . import mappe as MP
 from . import fauna as FA
 from . import fiumi as R
 from . import insediamenti as I
@@ -622,6 +623,7 @@ class Piano:
     libri: dict = field(default_factory=dict)
     incarichi: list = field(default_factory=list)
     oggetti_incarico: dict = field(default_factory=dict)
+    mappe: list = field(default_factory=list)
     libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
@@ -1500,26 +1502,37 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         cartelli = cartelli + LU.cartelli_bivi(tipo_strada > 0, luoghi, meta_l)
     ind = LU.indizi(luoghi)
     libri: dict = {}
+    sedi: dict = {}           # (tipo, x, z) del luogo -> forziere col libro, per le mappe
     for d in dungeon:
         libro = ind["tappe"].get(("rovina", d.x - meta_l, d.z - meta_l))
         x, y, z, _ = d.forzieri()[2]
+        sedi[("rovina", d.x - meta_l, d.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     for t in torri:
         libro = ind["tappe"].get(("torre", t.x - meta_l, t.z - meta_l))
         x, y, z, _ = t.forzieri()[1]
+        sedi[("torre", t.x - meta_l, t.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     for fz in fortezze:
         libro = ind["tappe"].get(("fortezza", fz.x - meta_l, fz.z - meta_l))
         x, y, z, _ = fz.maschio().forzieri()[1]
+        sedi[("fortezza", fz.x - meta_l, fz.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
     for cs in castelli_rovina:
         libro = ind["tappe"].get(("castello", cs.x - meta_l, cs.z - meta_l))
         x, y, z, _ = cs.forzieri()[6]
+        sedi[("castello", cs.x - meta_l, cs.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    mappe_tesoro = MP.pianifica(luoghi, sedi, meta_l)
+    oggetti_forzieri = IC.oggetti_forziere(incarichi)
+    for m in mappe_tesoro:
+        oggetti_forzieri.setdefault(m["chiave"], []).append(m["oggetto"])
+    if mappe_tesoro:
+        note.append(f"mappe del tesoro: {len(mappe_tesoro)}")
     libro_citta = None
     if ind["inizio"] is not None:
         c0, libro0 = ind["inizio"]
@@ -1544,7 +1557,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
-                 incarichi=incarichi, oggetti_incarico=IC.oggetti_forziere(incarichi),
+                 incarichi=incarichi, oggetti_incarico=oggetti_forzieri, mappe=mappe_tesoro,
                  castelli_rovina=castelli_rovina,
                  indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
                                          if castelli_rovina else {}),
@@ -2762,6 +2775,13 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
     if op.fuori_mappa == "naturale":
         # il terreno che il gioco genera oltre il bordo si raccorda al nostro
         fuori["sfumatura"] = SF.segna_bordo(op.uscita)
+
+    if piano.mappe:
+        from .livello_dat import ImpostazioniMondo
+        fuori["mappe"] = MP.scrivi_tutte(
+            op.uscita, piano.mappe, piano.cls, piano.h, piano.livello, op.lato // 2,
+            ImpostazioniMondo(versione=op.versione).data_version,
+            piano.edifici, piano.tipo_strada)
 
     if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
