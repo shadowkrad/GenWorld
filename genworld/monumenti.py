@@ -338,6 +338,13 @@ def _piede_a_gradoni(celle: np.ndarray, gy: int, tavolozza: list, piede: int,
 
 
 def carica_porti(moli: str, fari: str, versione=(1, 21, 4)) -> tuple[list, list]:
+    """Con il disco come cache (vedi `compilati.py`): i fari da mondo sono lenti."""
+    from . import compilati
+    return compilati.con_cache("porti", _cartelle(moli) + _cartelle(fari), versione,
+                               lambda: _carica_porti(moli, fari, versione))
+
+
+def _carica_porti(moli: str, fari: str, versione=(1, 21, 4)) -> tuple[list, list]:
     """(moli, fari) da schema: i moli da `.schematic`/`.schem`/`.nbt`, i fari da
     schemi o da mondi (cartelle con `level.dat`). Un file rotto non ferma gli altri."""
     fuori_m: list[TM.Modello] = []
@@ -380,6 +387,13 @@ def carica_porti(moli: str, fari: str, versione=(1, 21, 4)) -> tuple[list, list]
 
 
 def carica(castelli: str, navi: str, versione=(1, 21, 4)) -> tuple[list, list]:
+    """Con il disco come cache (vedi `compilati.py`)."""
+    from . import compilati
+    return compilati.con_cache("monumenti", _cartelle(castelli) + _cartelle(navi), versione,
+                               lambda: _carica_monumenti(castelli, navi, versione))
+
+
+def _carica_monumenti(castelli: str, navi: str, versione=(1, 21, 4)) -> tuple[list, list]:
     """(castelli, navi): i modelli, con `_escluso` fra gli stili cosi' che
     nessun lotto e nessuna casa isolata li scelga."""
     fuori_c: list[TM.Modello] = []
