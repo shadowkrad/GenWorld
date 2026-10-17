@@ -7,8 +7,8 @@ Per ogni punto: `/tp @s x y z` in creativa o spettatore, guarda, segna OK o dife
 Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, due forzieri; cartello davanti.
 
 - [ ] **Torre di Aldric il Cupo** - `/tp @s -338 75 -110` (capo: Aldric il Cupo)
-- [ ] **Torre di Corvo Nero** - `/tp @s 452 87 210` (capo: Corvo Nero)
-- [ ] **Torre di Garrick Senzaterra** - `/tp @s 83 84 281` (capo: Garrick Senzaterra)
+- [ ] **Torre di Corvo Nero** - `/tp @s -125 74 -55` (capo: Corvo Nero)
+- [ ] **Torre di Fenna la Vedetta** - `/tp @s -130 85 157` (capo: Fenna la Vedetta)
 - [ ] **Torre di Ivor il Custode** - `/tp @s -175 77 -319` (capo: Ivor il Custode)
 - [ ] **Torre di Kael Lamarotta** - `/tp @s 43 75 -227` (capo: Kael Lamarotta)
 
@@ -18,10 +18,10 @@ Un abitante con il nome sopra la testa, su una strada vicino alla piazza. Per 1 
 
 - [ ] **Notaio Corvino** (Rivabella) - `/tp @s 321 100 -147` - recupera a Tomba del Re Smarrito (`/tp @s 219 100 -237`), oggetto «Reliquia di Tomba del Re Smarrito», ricompensa 18 emerald
 - [ ] **Dama Fiammetta** (Pietrafonda) - `/tp @s 259 100 -318` - recupera a Cripta dell'Osso (`/tp @s 43 100 -334`), oggetto «Reliquia di Cripta dell'Osso», ricompensa 22 emerald
-- [ ] **Scriba Almerico** (Villabianca) - `/tp @s 318 100 -6` - uccidi a Torre di Corvo Nero (`/tp @s 452 100 210`), oggetto «Sigillo di Torre di Corvo Nero», ricompensa 24 emerald
+- [ ] **Scriba Almerico** (Villabianca) - `/tp @s 318 100 -6` - recupera a Isola delle Due Palme (`/tp @s 344 100 114`), oggetto «Reliquia di Isola delle Due Palme», ricompensa 18 emerald
 - [ ] **Cancelliere Orsino** (Granvalle) - `/tp @s 155 100 -88` - uccidi a Torre di Kael Lamarotta (`/tp @s 43 100 -227`), oggetto «Sigillo di Torre di Kael Lamarotta», ricompensa 20 emerald
-- [ ] **Dama Berenice** (Valdargento) - `/tp @s 363 100 -247` - uccidi a Fortezza di Signore di Roccanera (`/tp @s -128 100 -74`), oggetto «Sigillo di Fortezza di Signore di Roccanera», ricompensa 6 diamond
-- [ ] **Madonna Isotta** (Monteverde) - `/tp @s -59 100 59` - recupera a Rovine di Altomuro (`/tp @s -207 100 -78`), oggetto «Reliquia di Rovine di Altomuro», ricompensa 22 emerald
+- [ ] **Dama Berenice** (Valdargento) - `/tp @s 363 100 -247` - uccidi a Torre di Corvo Nero (`/tp @s -125 100 -55`), oggetto «Sigillo di Torre di Corvo Nero», ricompensa 6 diamond
+- [ ] **Madonna Isotta** (Monteverde) - `/tp @s -59 100 59` - uccidi a Torre di Fenna la Vedetta (`/tp @s -130 100 157`), oggetto «Sigillo di Torre di Fenna la Vedetta», ricompensa 18 emerald
 - [ ] **Podesta' Tebaldo** (Colledoro) - `/tp @s 50 100 -407` - uccidi a Torre di Ivor il Custode (`/tp @s -175 100 -319`), oggetto «Sigillo di Torre di Ivor il Custode», ricompensa 24 emerald
 
 ## Cascate
@@ -33,6 +33,40 @@ Dove un fiume scende di 3+ blocchi: colonna d'acqua in caduta con pareti di rocc
 - [ ] salto di 9 blocchi - `/tp @s 195 79 -75`
 - [ ] salto di 9 blocchi - `/tp @s 24 79 67`
 - [ ] salto di 9 blocchi - `/tp @s -87 79 147`
+
+## Isole del tesoro
+
+In mare aperto, lontano dalle coste (vedi la sezione Isole del tesoro di `luoghi.md`): un'isola di sabbia con il cuore d'erba, due palme di giungla e una croce di sabbia rossa. Sotto il centro della croce, a due blocchi di profondita', un forziere con oro e gemme (e il libro/la mappa della tappa successiva). Sono tappe della catena degli indizi: la mappa del forziere precedente mostra la croce.
+
+- [ ] l'isola si vede dal mare, con la spiaggia e il fianco dolce, senza muri d'acqua o buchi;
+- [ ] la croce e' una X di sabbia rossa; scavando al centro, a due blocchi, c'e' il forziere;
+- [ ] le palme hanno la chioma e non sono tagliate.
+
+## Megaliti e ruderi
+
+Sulle colline e nelle pianure, lontano da paesi e strade (nelle note della generazione: `ruderi antichi`): cerchi di pietre con un trilite e una candela al centro, templi in rovina con colonne spezzate a quote diverse e dolmen con la lastra sopra, tutti con muschio.
+
+- [ ] si vedono come ruderi antichi, non come blocchi sparsi; le pietre poggiano a terra e non sono sospese;
+- [ ] i muschi e le pietre non coprono alberi o altre strutture.
+
+## Lungo le strade
+
+- [ ] Pietre miliari (un pilastrino di mattoni) ogni cinquanta blocchi circa fuori dai paesi.
+- [ ] Santelle: un'edicola di pietra aperta verso la strada, con candela e lanterna.
+- [ ] Carovane: un carro con il carico, un fuoco acceso e un mercante ambulante con due lama.
+- [ ] Ponti di pietra ad archi (se ci sono ponti alti): piloni ogni sette celle e archi a tutto sesto.
+
+## Campagna
+
+- [ ] Vigneti: filari di staccionata con azalea fiorita sopra; uliveti con olivi bassi. Sulle colline vicine ai paesi.
+- [ ] Lucciole (cespugli) nei boschi scuri e nelle paludi; fiori selvatici nei prati.
+
+## Abitanti e forzieri
+
+- [ ] I villager stanno dentro le case, in piedi e non nei muri o sotto il pavimento.
+- [ ] I forzieri non sono piu' vuoti, nemmeno quelli doppi e le botti; il bottino segue il mestiere della bottega (il fabbro ha ferro e picconi, il falegname assi e asce...).
+- [ ] Forni, fornaci e affumicatoi hanno il carbone.
+- [ ] Mini quest: in ogni abitato 2-3 popolani con un nome, due richieste ciascuno (materiali in cambio di attrezzi con nome e incantesimi). Elenco in `luoghi.md`.
 
 ## Altro da controllare
 
@@ -62,19 +96,13 @@ Cinta con brecce e torri spezzate, portale sfondato, cortile invaso da erba, mac
 
 - [ ] **Rocca delle Ombre** - `/tp @s -316 75 -152` (in rovina, signore: Il Castellano Senzavolto)
 
-## Fortezze
-
-Cinta di pietra 29x29 con quattro torri d'angolo (scala a pioli, arciere sul tetto), portale con saracinesca alzata, camminamento con merli (scale d'accesso sul lato di fondo), cortile con pozzo, fucina con cassa, stalla, bracieri, lampioni e stendardi; il maschio al centro e' una torre curata con il capo (nome, armatura) e quattro soldati nel cortile.
-
-- [ ] **Fortezza di Signore di Roccanera** - `/tp @s -128 74 -74` (capo: Signore di Roccanera)
-
 ## Rovine con cripta
 
 Rovina in superficie, scala di 14 blocchi, anticamera, sala dello spawner, tesoro con due forzieri-trappola sul TNT. Cartello davanti. Lo spawner sta circa 41 blocchi dalla rovina.
 
 - [ ] **Cripta dell'Osso** - `/tp @s 43 78 -334` (cripta con skeleton)
 - [ ] **Cripta della Veglia** - `/tp @s -425 78 -20` (cripta con skeleton)
-- [ ] **Cripta di Orrenda** - `/tp @s -237 74 -357` (cripta con zombie)
+- [ ] **Cripta di Orrenda** - `/tp @s -213 75 -359` (cripta con zombie)
 - [ ] **Rovine di Altomuro** - `/tp @s -207 74 -78` (cripta con skeleton)
 - [ ] **Sepolcro dei Cento** - `/tp @s 43 86 286` (cripta con zombie)
 - [ ] **Tomba del Re Smarrito** - `/tp @s 219 74 -237` (cripta con skeleton)
@@ -83,28 +111,28 @@ Rovina in superficie, scala di 14 blocchi, anticamera, sala dello spawner, tesor
 
 Imbocco con cartello, collina del posto, binari. Nell'ultimo piano: camera finale con pozza.
 
-- [ ] **Miniera dei Due Fratelli** - `/tp @s -206 76 -302`
+- [ ] **Miniera dei Due Fratelli** - `/tp @s 80 72 72`
 - [ ] **Miniera dei Sospiri** - `/tp @s 421 83 312`
-- [ ] **Miniera dei Tre Pozzi** - `/tp @s 48 91 -465`
+- [ ] **Miniera dei Tre Pozzi** - `/tp @s 66 91 -470`
 - [ ] **Miniera del Carbone** - `/tp @s -145 76 -3`
 - [ ] **Miniera del Cinghiale** - `/tp @s 111 84 313`
-- [ ] **Miniera del Corvo** - `/tp @s -39 78 263`
+- [ ] **Miniera del Corvo** - `/tp @s -201 76 -271`
 - [ ] **Miniera del Cristallo** - `/tp @s -296 84 138`
-- [ ] **Miniera del Falco** - `/tp @s 321 80 -399`
-- [ ] **Miniera del Ghiaccio** - `/tp @s -420 75 -167`
-- [ ] **Miniera del Gufo** - `/tp @s -100 84 166`
-- [ ] **Miniera del Re Cieco** - `/tp @s 244 77 -164`
-- [ ] **Miniera del Sale** - `/tp @s -294 77 -257`
-- [ ] **Miniera del Salice** - `/tp @s -390 82 -326`
-- [ ] **Miniera del Vento** - `/tp @s -111 78 -153`
-- [ ] **Miniera dell'Argento Nero** - `/tp @s -285 102 -412`
-- [ ] **Miniera dell'Ultima Vena** - `/tp @s 358 67 -316`
-- [ ] **Miniera della Lanterna** - `/tp @s 11 73 -235`
-- [ ] **Miniera della Luna Cava** - `/tp @s -250 84 285`
-- [ ] **Miniera della Pioggia** - `/tp @s 212 85 299`
+- [ ] **Miniera del Falco** - `/tp @s -68 76 145`
+- [ ] **Miniera del Ghiaccio** - `/tp @s -235 73 -356`
+- [ ] **Miniera del Gufo** - `/tp @s 472 84 212`
+- [ ] **Miniera del Re Cieco** - `/tp @s -159 73 -103`
+- [ ] **Miniera del Sale** - `/tp @s 323 66 275`
+- [ ] **Miniera del Salice** - `/tp @s 358 67 -316`
+- [ ] **Miniera del Vento** - `/tp @s -237 81 253`
+- [ ] **Miniera dell'Argento Nero** - `/tp @s -408 83 -324`
+- [ ] **Miniera dell'Ultima Vena** - `/tp @s -420 75 -167`
+- [ ] **Miniera della Lanterna** - `/tp @s -54 81 -135`
+- [ ] **Miniera della Luna Cava** - `/tp @s 422 70 -191`
+- [ ] **Miniera della Pioggia** - `/tp @s 79 73 -84`
 - [ ] **Miniera dello Stagno** - `/tp @s -304 73 -76`
 - [ ] **Miniera di Ferrovecchio** - `/tp @s -191 85 127`
-- [ ] **Miniera di Pietrabuia** - `/tp @s 111 83 -362`
+- [ ] **Miniera di Pietrabuia** - `/tp @s 376 67 -59`
 
 ## Citta'
 
@@ -122,21 +150,21 @@ Piazza con fontana (parafulmine), campana, 2 stendardi, 2 bracieri, lampioni di 
 
 Cerchio calpestato, falo', predone con balestra, cavalli.
 
-- [ ] **Accampamento del Lupo** - `/tp @s 163 83 261`
-- [ ] **Accampamento delle Ceneri** - `/tp @s 180 77 -316`
-- [ ] **Bivacco dell'Esule** - `/tp @s 4 85 -201`
-- [ ] **Campo dei Predoni** - `/tp @s -250 74 -91`
-- [ ] **Campo dei Senzanome** - `/tp @s -65 80 -319`
-- [ ] **Campo dei Senzanome 3** - `/tp @s -221 82 -283`
-- [ ] **Campo del Corvo** - `/tp @s 484 85 316`
+- [ ] **Accampamento del Lupo** - `/tp @s -250 74 -91`
+- [ ] **Accampamento del Lupo 8** - `/tp @s -221 82 -283`
+- [ ] **Accampamento delle Ceneri** - `/tp @s 4 85 -201`
+- [ ] **Bivacco dell'Esule** - `/tp @s -65 80 -319`
+- [ ] **Campo dei Predoni** - `/tp @s 180 77 -316`
+- [ ] **Campo dei Senzanome** - `/tp @s 484 85 316`
+- [ ] **Campo del Corvo** - `/tp @s 163 83 261`
 
 ## Cimiteri
 
 Forzieri con ossa e refurtiva; scheletro (stray sulla neve).
 
-- [ ] **Camposanto dei Dimenticati** - `/tp @s 460 84 154`
-- [ ] **Cimitero degli Impiccati** - `/tp @s -377 85 -284`
-- [ ] **Cimitero del Silenzio** - `/tp @s 106 92 -375`
+- [ ] **Cimitero degli Impiccati** - `/tp @s 460 84 154`
+- [ ] **Cimitero di Valdoro** - `/tp @s 106 92 -375`
+- [ ] **Giardino dei Pianti** - `/tp @s -377 85 -284`
 
 ## Biomi
 
