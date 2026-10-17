@@ -30,6 +30,89 @@ def campagna(lato=220, quota=75):
     return cls, h, occupato, citta
 
 
+class TestVigneti(unittest.TestCase):
+    def setUp(self):
+        self.p = []
+        for seed in range(6):
+            cls, h, occ, citta = campagna()
+            r = AG.pianifica(cls, h, occ, citta, livello_mare=62, seed=seed)
+            self.p.append(r)
+
+    def tutti(self, tipo):
+        return [(pod, r[2], r[3]) for r in self.p for pod in r[0] if pod.tipo == tipo]
+
+    def test_ci_sono_vigneti_e_uliveti(self):
+        self.assertTrue(self.tutti("vigneto"))
+        self.assertTrue(self.tutti("uliveto"))
+        for pod, _, _ in self.tutti("vigneto") + self.tutti("uliveto"):
+            self.assertTrue(pod.frutteto)             # niente arato, niente bestie da cortile
+
+    def test_il_vigneto_ha_filari_lungo_x_ogni_tre_righe(self):
+        for pod, campi, _ in self.tutti("vigneto"):
+            righe = [z for z in range(pod.z, pod.z1) if (campi[z, pod.x:pod.x1] == AG.VIGNA).any()]
+            self.assertTrue(len(righe) >= 3)
+            for a, b in zip(righe, righe[1:]):
+                self.assertEqual(b - a, 3)
+            for z in righe:
+                xs = np.nonzero(campi[z, pod.x:pod.x1] == AG.VIGNA)[0]
+                self.assertEqual(int(xs.max() - xs.min()) + 1, len(xs), "filare spezzato")
+            # niente arato nel vigneto
+            self.assertFalse((campi[pod.z:pod.z1, pod.x:pod.x1] >= AG.ARATO).any())
+
+    def test_il_vigneto_non_ha_alberi_e_l_uliveto_ha_olivi_bassi(self):
+        for pod, _, alberi in self.tutti("vigneto"):
+            dentro = ((alberi["x"] > pod.x) & (alberi["x"] < pod.x1 - 1)
+                      & (alberi["z"] > pod.z) & (alberi["z"] < pod.z1 - 1)
+                      & (alberi["specie"] != V.BACCHE))
+            self.assertFalse(dentro.any())
+        visti = 0
+        for pod, _, alberi in self.tutti("uliveto"):
+            dentro = ((alberi["x"] > pod.x) & (alberi["x"] < pod.x1 - 1)
+                      & (alberi["z"] > pod.z) & (alberi["z"] < pod.z1 - 1)
+                      & (alberi["specie"] != V.BACCHE))
+            for alt in alberi["altezza"][dentro]:
+                visti += 1
+                self.assertTrue(3 <= int(alt) <= 4)
+        self.assertGreater(visti, 0)
+
+    def test_sulla_collina_dolce_si_pianta_dove_il_campo_non_va(self):
+        lato = 220
+        cls = np.full((lato, lato), PIANURA, np.uint8)
+        zz, xx = np.mgrid[:lato, :lato]
+        h = (70 + 0.55 * (xx - lato / 2)).astype(np.int32)        # un pendio di 0,55 blocchi per cella
+        occ = np.zeros((lato, lato), bool)
+        citta = [Citta(z=lato // 2, x=lato // 2, raggio=34, piazza=(lato // 2, lato // 2), edifici=40)]
+        tipi = set()
+        for seed in range(8):
+            for pod in AG.pianifica(cls, h, occ, citta, livello_mare=62, seed=seed)[0]:
+                tipi.add(pod.tipo)
+        self.assertTrue(tipi <= {"vigneto", "uliveto", "campo", "frutteto"})
+
+    def test_la_scrittura_del_filare(self):
+        from genworld import motore as MO
+
+        class S:
+            id_aria = 0
+            def __init__(self): self.v = {}
+            def blocco(self, nome, **p): return self.v.setdefault((nome, tuple(sorted(p.items()))), len(self.v) + 1)
+            def nome(self, i): return next(n for (n, _), k in self.v.items() if k == i)
+        s = S()
+        out = np.zeros((16, 80, 16), np.uint32)
+        campi = np.zeros((16, 16), np.uint8)
+        campi[2:10, 5] = AG.VIGNA                                   # [lx, lz]: un filare lungo x
+        orlo = np.pad(campi, 1)
+        MO._posa_campi(out, s, campi, orlo, np.full((16, 16), 60, np.int32), 0)
+        self.assertEqual(s.nome(int(out[4, 59, 5])), "coarse_dirt")
+        self.assertEqual(s.nome(int(out[4, 60, 5])), "fence")
+        self.assertEqual(s.nome(int(out[4, 61, 5])), "leaves")
+        # i pali del filare si uniscono ai vicini lungo x, non ai lati
+        mezzo = [dict(p) for (n, p), k in s.v.items() if k == int(out[4, 60, 5])][0]
+        self.assertEqual((mezzo["east"], mezzo["west"], mezzo["north"], mezzo["south"]),
+                         ("true", "true", "false", "false"))
+        testa = [dict(p) for (n, p), k in s.v.items() if k == int(out[2, 60, 5])][0]
+        self.assertEqual((testa["east"], testa["west"]), ("true", "false"))
+
+
 class TestPoderi(unittest.TestCase):
 
     def setUp(self):

@@ -19,6 +19,9 @@ Tre elementi, ognuno con la sua ragione:
   frutteto anche visto da lontano.
 * **la siepe** - cespugli di bacche lungo il recinto, che chiudono il campo e
   danno qualcosa da raccogliere.
+* **il vigneto e l'uliveto** - sulle colline attorno ai paesi: filari di viti (un
+  palo di staccionata con la chioma di azalea fiorita) e olivi bassi, sul
+  pendio piu' dolce, in un ripiano spianato come i campi.
 
 I poderi si SPIANANO, come i lotti delle case: un campo in pendenza perde
 l'acqua e si vede.
@@ -40,7 +43,7 @@ from .mappa import FORESTA, PIANURA, PRATERIA, SPIAGGIA
 # Prima la sceglievo dalla posizione della cella e veniva fuori una
 # scacchiera di grano, carote e patate dentro lo stesso campo: bella da
 # vedere e agricolturalmente assurda.
-NIENTE, CANALE, SENTIERO, RECINTO, PRATO = range(5)
+NIENTE, CANALE, SENTIERO, RECINTO, PRATO, VIGNA = range(6)
 ARATO = 8                      # ARATO + indice della coltura
 
 COLTURE = ("wheat", "carrots", "potatoes", "beetroots")
@@ -59,9 +62,10 @@ class Podere:
     lato: int
     base: int
     coltura: str = "wheat"
-    frutteto: bool = False
+    frutteto: bool = False       # vero anche per vigneti e uliveti: niente arato, niente bestie
     specie: int = V.MELO
     seme: int = 0
+    tipo: str = "campo"          # campo | frutteto | vigneto | uliveto
 
     @property
     def x1(self) -> int: return self.x + self.lato
@@ -112,6 +116,8 @@ def pianifica(
 
     pend = np.hypot(*np.gradient(gaussian_filter(h.astype(np.float32), 1.5)))
     buono = (np.isin(cls, COLTIVABILI) & (h > livello_mare + 1) & (pend < 0.9))
+    # vigneti e uliveti accettano un pendio piu' dolce di un campo: e' la loro collina
+    collina = (np.isin(cls, COLTIVABILI) & (h > livello_mare + 1) & (pend < 1.5))
     preso = occupato.copy()
 
     alberi_x: list[int] = []
@@ -130,7 +136,10 @@ def pianifica(
         for _ in range(quanti * 60):
             if messi >= quanti:
                 break
-            frutteto = rng.random() < 0.33
+            tipo = "campo"
+            if rng.random() < 0.42:
+                tipo = ("frutteto", "uliveto", "vigneto")[int(rng.choice(3, p=[0.5, 0.25, 0.25]))]
+            frutteto = tipo != "campo"
             lato = (LATO_FRUTTETO if frutteto else LATO_PODERE) + 2
             ang = rng.random() * 2 * np.pi
             d = c.raggio * 0.75 + rng.random() * (raggio - c.raggio * 0.75)
@@ -138,25 +147,27 @@ def pianifica(
             x0 = int(round(c.x + d * np.cos(ang))) - lato // 2
             if x0 < 2 or z0 < 2 or x0 + lato >= W - 2 or z0 + lato >= H - 2:
                 continue
-            fetta_b = buono[z0:z0 + lato, x0:x0 + lato]
+            fetta_b = (collina if tipo in ("vigneto", "uliveto") else buono)[z0:z0 + lato, x0:x0 + lato]
             if not fetta_b.all() or preso[z0 - 1:z0 + lato + 1,
                                          x0 - 1:x0 + lato + 1].any():
                 continue
             quote = h[z0:z0 + lato, x0:x0 + lato]
-            if int(np.percentile(quote, 90) - np.percentile(quote, 10)) > 4:
+            if int(np.percentile(quote, 90) - np.percentile(quote, 10)) > (
+                    7 if tipo in ("vigneto", "uliveto") else 4):
                 continue
 
             base = int(np.median(quote))
             _spiana(h, x0, z0, lato, base)
             p = Podere(x=x0, z=z0, lato=lato, base=base,
                        coltura=COLTURE[int(rng.integers(0, len(COLTURE)))],
-                       frutteto=frutteto,
+                       frutteto=frutteto, tipo=tipo,
                        specie=V.CILIEGIO if rng.random() < 0.35 else V.MELO,
                        seme=int(rng.integers(0, 2 ** 31 - 1)))
             _disegna_podere(campi, p)
-            if frutteto:
+            if tipo in ("frutteto", "uliveto"):
                 _pianta_filari(p, h, rng, alberi_x, alberi_z, alberi_y,
-                               alberi_sp, alberi_alt, alberi_seme)
+                               alberi_sp, alberi_alt, alberi_seme,
+                               altezza=(3, 4) if tipo == "uliveto" else None)
             _siepe(p, h, rng, alberi_x, alberi_z, alberi_y,
                    alberi_sp, alberi_alt, alberi_seme)
             preso[z0 - 1:z0 + lato + 1, x0 - 1:x0 + lato + 1] = True
@@ -185,6 +196,10 @@ def _disegna_podere(campi: np.ndarray, p: Podere) -> None:
     campi[z0:z0 + l, x0:x0 + l] = RECINTO
     campi[z0 + 1:z0 + l - 1, x0 + 1:x0 + l - 1] = (
         PRATO if p.frutteto else ARATO + COLTURE.index(p.coltura))
+    if p.tipo == "vigneto":
+        # un filare ogni tre righe, lungo x, lasciando un passo libero ai lati
+        for z in range(z0 + 2, z0 + l - 2, 3):
+            campi[z, x0 + 2:x0 + l - 2] = VIGNA
     if not p.frutteto:
         # Il canale nel mezzo. E' QUI che sta la regola: la terra arata resta
         # bagnata entro quattro blocchi dall'acqua, quindi un campo largo
@@ -196,14 +211,14 @@ def _disegna_podere(campi: np.ndarray, p: Podere) -> None:
 
 
 def _pianta_filari(p: Podere, h: np.ndarray, rng, ax, az, ay, asp, aalt,
-                   aseme) -> None:
+                   aseme, altezza: tuple | None = None) -> None:
     """Alberi a filari: reticolo di quattro, con un po' di disordine.
 
     Un frutteto e' regolare - e' la sua firma vista dall'alto - ma non e' una
     scacchiera perfetta: quella si legge come generata, esattamente come il
     cono del vulcano senza valloni.
     """
-    lo, hi = V.ALTEZZA[p.specie]
+    lo, hi = altezza or V.ALTEZZA[p.specie]
     # passo 5, non 4: la chioma di una latifoglia e' larga cinque blocchi, e
     # a quattro di distanza i filari si saldano in un bosco unico
     for gz in range(p.z + 3, p.z + p.lato - 2, 5):

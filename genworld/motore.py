@@ -1927,6 +1927,9 @@ def _posa_campi(out, s, campi, campi_orlo, h_c, y0):
     acqua = s.blocco("water", level="0")
     sentiero = s.blocco("grass_path")
     semi = [s.blocco(n, age="7") for n in AG.COLTURE]
+    terra_vigna = s.blocco("coarse_dirt")
+    vite = s.blocco("leaves", material="flowering_azalea", distance="1", persistent="true",
+                    check_decay="false")
 
     def connesso(lx: int, lz: int) -> bool:
         return int(campi_orlo[lx, lz]) == AG.RECINTO
@@ -1959,6 +1962,17 @@ def _posa_campi(out, s, campi, campi_orlo, h_c, y0):
                 out[lx, y + 1, lz] = palo
             elif c == AG.PRATO:
                 out[lx, y + 1, lz] = aria
+            elif c == AG.VIGNA:
+                # un filare: terra battuta, un palo di staccionata (unito ai vicini del
+                # filare) e sopra la chioma di azalea fiorita, che da' i grappoli
+                out[lx, y, lz] = terra_vigna
+                est = int(campi_orlo[lx + 2, lz + 1]) == AG.VIGNA
+                ovest = int(campi_orlo[lx, lz + 1]) == AG.VIGNA
+                out[lx, y + 1, lz] = s.blocco(
+                    "fence", material="oak", north="false", south="false",
+                    east="true" if est else "false", west="true" if ovest else "false")
+                if y + 2 < H:
+                    out[lx, y + 2, lz] = vite
 
 
 ALTEZZA_MURA = 7
