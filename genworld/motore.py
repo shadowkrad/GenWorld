@@ -34,6 +34,7 @@ from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
 from . import cascate as CAS
+from . import commissioni as CM
 from . import castello as CS
 from . import entita as EN
 from . import incarichi as IC
@@ -624,6 +625,7 @@ class Piano:
     incarichi: list = field(default_factory=list)
     oggetti_incarico: dict = field(default_factory=dict)
     mappe: list = field(default_factory=list)
+    commissioni: list = field(default_factory=list)
     libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
@@ -1540,8 +1542,15 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         raggio0 = next((c.raggio for c in citta if c.x - meta_l == c0.x and c.z - meta_l == c0.z), 30)
         libro_citta = (c0.x, c0.z, raggio0, libro0)
     abitanti = LU.offerte_bottega(abitanti, luoghi, meta_l)
-    if incarichi:
-        abitanti = abitanti + IC.abitanti(incarichi, tipo_strada, h, citta, meta_l, seed=op.seed)
+    commissioni: list = []
+    if op.incarichi and citta:
+        committenti = IC.abitanti(incarichi, tipo_strada, h, citta, meta_l, seed=op.seed) if incarichi else []
+        occupati = {(int(a.x), int(a.z)) for a in committenti}
+        commissioni = CM.pianifica(citta, luoghi, tipo_strada, h, meta_l, occupati, seed=op.seed)
+        abitanti = abitanti + committenti + commissioni
+        if commissioni:
+            note.append(f"commissioni dei popolani: {len(commissioni)} abitanti, "
+                        f"{sum(len(a.offerte) for a in commissioni)} richieste")
     if luoghi:
         note.append(f"luoghi con nome: {len(luoghi)}, cartelli: {len(cartelli)}, "
                     f"libri di indizi: {len(libri) + (1 if libro_citta else 0)}")
@@ -1559,6 +1568,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
                  incarichi=incarichi, oggetti_incarico=oggetti_forzieri, mappe=mappe_tesoro,
+                 commissioni=commissioni,
                  castelli_rovina=castelli_rovina,
                  indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
                                          if castelli_rovina else {}),
@@ -2824,7 +2834,7 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
 
     if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
-                                 extra_md=IC.sezione_elenco(piano.incarichi))
+                                 extra_md=IC.sezione_elenco(piano.incarichi) + CM.sezione_elenco(piano.commissioni))
         fuori["luoghi"] = md
 
     fuori["level_dat"] = "valido" if not verifica(

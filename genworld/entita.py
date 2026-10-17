@@ -136,7 +136,9 @@ def _scambio(o: dict):
             d["components"] = _tag({f"minecraft:{k}": v for k, v in spec[2].items()})
         return CompoundTag(d)
 
+    esteso = {"buyB": pila(o["compra2"])} if o.get("compra2") else {}
     return CompoundTag({
+        **esteso,
         "buy": pila(o["compra"]), "sell": pila(o["vende"]),
         "maxUses": IntTag(int(o.get("usi", 3))), "uses": IntTag(0),
         "xp": IntTag(5), "rewardExp": ByteTag(1), "demand": IntTag(0),
