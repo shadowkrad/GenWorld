@@ -31,7 +31,9 @@ FACCIA = {(1, 0): "east", (-1, 0): "west", (0, 1): "south", (0, -1): "north"}
 # nome nostro -> id di gioco
 SPECIE = {"zombie": "zombie", "scheletro": "skeleton", "vindicatore": "vindicator",
           "scheletro_nero": "wither_skeleton", "ragno": "spider",
-          "ragno_grotta": "cave_spider", "husk": "husk", "pipistrello": "bat"}
+          "ragno_grotta": "cave_spider", "husk": "husk", "pipistrello": "bat",
+          # il predone (pillager) e' immune al sole: l'arciere ideale all'aperto
+          "predone": "pillager"}
 NOMI_CAPO = ("Aldric il Cupo", "Brenna Mano di Ferro", "Corvo Nero", "Dagan l'Esule",
              "Edrik Spezzaossa", "Fenna la Vedetta", "Garrick Senzaterra",
              "Hilda Cuordipietra", "Ivor il Custode", "Kael Lamarotta")
@@ -102,6 +104,8 @@ class Combattente:
         elif self.specie in ("zombie", "scheletro", "vindicatore"):
             equip["mainhand"] = _pila(ARMA[self.specie][0])
             equip["head"] = _pila("chainmail_helmet")
+        elif self.specie == "predone":
+            equip["mainhand"] = _pila("crossbow")
         base = {
             "id": StringTag(f"minecraft:{gioco}"),
             "Pos": ListTag([DoubleTag(self.x), DoubleTag(self.y), DoubleTag(self.z)]),
@@ -181,6 +185,7 @@ ARMA = {
     "scheletro": ("bow", "bow"),
     "vindicatore": ("iron_axe", "diamond_axe"),
     "scheletro_nero": ("stone_sword", "diamond_sword"),
+    "predone": ("crossbow", "crossbow"),
 }
 
 

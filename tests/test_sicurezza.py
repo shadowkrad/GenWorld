@@ -131,8 +131,91 @@ class TestSicurezza(unittest.TestCase):
         self.assertEqual(fuori[0].x, 5.5)
 
     def test_lista_vuota(self):
-        self.assertEqual(SI.rendi_sicure(self.w, []), ([], {"controllate": 0, "spostate": 0,
-                                                              "irrecuperabili": 0}))
+        fuori, st = SI.rendi_sicure(self.w, [])
+        self.assertEqual(fuori, [])
+        self.assertEqual((st["controllate"], st["spostate"], st["irrecuperabili"],
+                          st["al_coperto"], st["convertite"]), (0, 0, 0, 0, 0))
+
+
+def mondo_con_riparo(d):
+    """Come `mondo`, piu' un riparo: una stanza 7 x 7 x 3 con il tetto in (x=8..14, z=8..14,
+    y=60..62, tetto a 63), dentro vuota. Pareti di pietra, un'apertura niente."""
+    w = os.path.join(d, "w2")
+    with ScrittoreMondo(w, ImpostazioniMondo(versione=(26, 2, 0)), lato_blocchi=32, crea=True) as m:
+        for cx in (-1, 0):
+            for cz in (-1, 0):
+                out = np.full((16, 384, 16), m.id_aria, np.uint32)
+                out[:, 0:SUOLO + 64, :] = m.blocco("stone")
+                if (cx, cz) == (0, 0):
+                    out[8:15, SUOLO + 64:SUOLO + 67, 8:15] = m.blocco("stone_bricks")      # blocco pieno
+                    out[9:14, SUOLO + 64:SUOLO + 66, 9:14] = m.id_aria                      # la stanza dentro
+                    out[8, SUOLO + 64:SUOLO + 66, 11] = m.id_aria                            # la porta
+                m.scrivi_chunk(cx, cz, out)
+    return w
+
+
+@unittest.skipUnless(AMULET, "amulet non disponibile")
+class TestSole(unittest.TestCase):
+    """I non-morti normali bruciano al sole: al coperto o, se non c'e', un'altra specie."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.d = tempfile.TemporaryDirectory()
+        cls.w = mondo_con_riparo(cls.d.name)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.d.cleanup()
+
+    def un(self, e):
+        fuori, st = SI.rendi_sicure(self.w, [e])
+        return fuori[0], st
+
+    def test_uno_zombi_all_aperto_va_al_riparo_se_c_e(self):
+        e = Combattente(x=5.5, y=float(SUOLO), z=11.5, specie="zombie")          # all'aperto, vicino alla stanza
+        n, st = self.un(e)
+        self.assertEqual(n.specie, "zombie")
+        self.assertEqual(st["al_coperto"], 1)
+        self.assertTrue(8 <= n.x <= 15 and 8 <= n.z <= 15, (n.x, n.z))
+        s = SI.Sicurezza(self.w)
+        try:
+            self.assertTrue(s.valida(int(n.x), int(n.y), int(n.z)))
+            self.assertTrue(s.al_coperto(int(n.x), int(n.y), int(n.z)))
+        finally:
+            s.chiudi()
+
+    def test_lontano_da_ogni_riparo_cambia_specie(self):
+        casi = {"zombie": "husk", "scheletro": "predone", "stray": "predone"}
+        for specie, atteso in casi.items():
+            e = Combattente(x=-10.5, y=float(SUOLO), z=-10.5, specie=specie)       # a 18 blocchi dalla stanza (oltre il raggio di 14)
+            n, st = self.un(e)
+            self.assertEqual(n.specie, atteso, specie)
+            self.assertEqual(st["convertite"], 1)
+
+    def test_chi_non_brucia_non_si_tocca(self):
+        for specie in ("husk", "predone", "vindicatore", "scheletro_nero", "ragno"):
+            e = Combattente(x=-10.5, y=float(SUOLO), z=-10.5, specie=specie)
+            n, st = self.un(e)
+            self.assertEqual((n.specie, st["convertite"], st["al_coperto"]), (specie, 0, 0), specie)
+
+    def test_il_capo_non_cambia_specie(self):
+        e = Combattente(x=-10.5, y=float(SUOLO), z=-10.5, specie="zombie", capo=True, nome="Re")
+        n, st = self.un(e)
+        self.assertEqual(n.specie, "zombie")
+        self.assertEqual(st["convertite"], 0)
+
+    def test_chi_e_gia_al_coperto_resta(self):
+        e = Combattente(x=11.5, y=float(SUOLO), z=11.5, specie="zombie")         # dentro la stanza
+        n, st = self.un(e)
+        self.assertEqual((n.x, n.y, n.z), (11.5, float(SUOLO), 11.5))
+        self.assertEqual(st["al_coperto"], 0)
+
+    def test_il_predone_e_una_specie_vera(self):
+        from genworld.torri import SPECIE
+        t = Combattente(x=1.5, y=70.0, z=1.5, specie="predone").nbt_tag()
+        self.assertEqual(str(t["id"]), "minecraft:pillager")
+        self.assertEqual(str(t["equipment"]["mainhand"]["id"]), "minecraft:crossbow")
+        self.assertIn("predone", SPECIE)
 
 
 if __name__ == "__main__":

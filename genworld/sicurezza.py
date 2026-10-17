@@ -36,6 +36,13 @@ PASSABILI = frozenset({
 })
 LIQUIDI = frozenset({"water", "lava", "flowing_water", "flowing_lava", "bubble_column"})
 
+# Chi brucia alla luce del giorno (i non-morti normali) e in cosa si ripiega se non c'e'
+# un posto al coperto: lo zombi diventa husk, lo scheletro e lo stray un predone (balestra),
+# che non brucia. L'elmo non basta: in pochi secondi di sole si spacca.
+BRUCIANO = frozenset({"zombie", "scheletro", "stray"})
+CONVERSIONE = {"zombie": "husk", "scheletro": "predone", "stray": "predone"}
+RAGGIO_COPERTURA = 14
+
 # chi non si sposta
 SPECIE_LIBERE = frozenset({"pipistrello", "merluzzo", "salmone", "pesce_tropicale", "calamaro",
                            "delfino", "pesce_palla", "calamaro_luminoso", "tartaruga", "ape",
@@ -72,6 +79,21 @@ class _Chunk:
         if not (0 <= i < self.ids.shape[1]):
             return None
         return int(self.ids[lx, i, lz])
+
+    def coperto(self, lx: int, y: int, lz: int) -> bool:
+        """C'e' un blocco pieno (o liquido) sopra la testa, a y + 2 o piu' in alto: il sole
+        non arriva. Le foglie contano (fermano il cielo come un tetto)."""
+        if not hasattr(self, "_pieni"):
+            lut = np.zeros(int(self.ids.max()) + 1, bool)
+            for b, libero in self.passabile.items():
+                lut[b] = not libero
+            pieno = lut[self.ids]
+            # quanti blocchi pieni stanno da qui in su
+            self._pieni = np.flip(np.cumsum(np.flip(pieno, axis=1), axis=1), axis=1)
+        i = y + 2 - Y_MIN
+        if i >= self._pieni.shape[1]:
+            return False
+        return bool(self._pieni[lx, i, lz] > 0)
 
 
 class Sicurezza:
@@ -111,20 +133,29 @@ class Sicurezza:
         ch, bid = sotto
         return (not ch.passabile[bid]) and (not ch.liquido[bid])
 
-    def trova(self, x: int, y: int, z: int, raggio: int = 3, su: int = 24):
-        """La cella valida piu' vicina a (x, y, z), o None."""
-        if self.valida(x, y, z):
+    def al_coperto(self, x: int, y: int, z: int) -> bool:
+        ch = self.chunk(x // 16, z // 16)
+        return ch is not None and ch.coperto(x % 16, y, z % 16)
+
+    def trova(self, x: int, y: int, z: int, raggio: int = 3, su: int = 24, coperto: bool = False):
+        """La cella valida piu' vicina a (x, y, z), o None. Con `coperto` anche al riparo
+        dal sole."""
+        def buona(a, b, c):
+            return self.valida(a, b, c) and (not coperto or self.al_coperto(a, b, c))
+        if buona(x, y, z):
             return (x, y, z)
         migliore = None
-        for dy in range(-6, 7):
+        for dy in range(-6 if not coperto else -8, 7 if not coperto else 9):
             for dx, dz in itertools.product(range(-raggio, raggio + 1), repeat=2):
                 costo = abs(dy) * 2 + (dx * dx + dz * dz) ** 0.5
                 if migliore is not None and costo >= migliore[0]:
                     continue
-                if self.valida(x + dx, y + dy, z + dz):
+                if buona(x + dx, y + dy, z + dz):
                     migliore = (costo, (x + dx, y + dy, z + dz))
         if migliore is not None:
             return migliore[1]
+        if coperto:
+            return None
         for dy in range(7, su + 1):                              # verso l'alto, nella stessa colonna
             if self.valida(x, y + dy, z):
                 return (x, y + dy, z)
@@ -134,7 +165,7 @@ class Sicurezza:
 def rendi_sicure(percorso_mondo: str, entita: list) -> tuple[list, dict]:
     """Ritorna (entita' con le posizioni corrette, statistiche). Coordinate di
     GIOCO. Le entita' sono dataclass con x, y, z; le altre non si toccano."""
-    st = {"controllate": 0, "spostate": 0, "irrecuperabili": 0}
+    st = {"controllate": 0, "spostate": 0, "irrecuperabili": 0, "al_coperto": 0, "convertite": 0}
     controllo = [i for i, e in enumerate(entita) if _libera_da_spostare(e)]
     if not controllo:
         return list(entita), st
@@ -147,14 +178,26 @@ def rendi_sicure(percorso_mondo: str, entita: list) -> tuple[list, dict]:
             if s.chunk(x // 16, z // 16) is None:
                 continue
             st["controllate"] += 1
-            if s.valida(x, y, z):
-                continue
-            nuova = s.trova(x, y, z)
-            if nuova is None:
-                st["irrecuperabili"] += 1
-                continue
-            fuori[i] = dataclasses.replace(e, x=nuova[0] + 0.5, y=float(nuova[1]), z=nuova[2] + 0.5)
-            st["spostate"] += 1
+            corrente = e
+            if not s.valida(x, y, z):
+                nuova = s.trova(x, y, z)
+                if nuova is None:
+                    st["irrecuperabili"] += 1
+                    continue
+                x, y, z = nuova
+                corrente = dataclasses.replace(e, x=x + 0.5, y=float(y), z=z + 0.5)
+                fuori[i] = corrente
+                st["spostate"] += 1
+            # i non-morti bruciano al sole: devono stare al coperto (torre, sala, cripta)
+            if getattr(corrente, "specie", None) in BRUCIANO and not s.al_coperto(x, y, z):
+                riparo = s.trova(x, y, z, raggio=RAGGIO_COPERTURA, coperto=True)
+                if riparo is not None:
+                    fuori[i] = dataclasses.replace(corrente, x=riparo[0] + 0.5, y=float(riparo[1]),
+                                                   z=riparo[2] + 0.5)
+                    st["al_coperto"] += 1
+                elif not getattr(corrente, "capo", False):
+                    fuori[i] = dataclasses.replace(corrente, specie=CONVERSIONE[corrente.specie])
+                    st["convertite"] += 1
     finally:
         s.chiudi()
     return fuori, st
