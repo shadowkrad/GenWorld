@@ -64,7 +64,9 @@ def main() -> None:
 
     sezione("Torri con un capo", "torre",
             "Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, "
-            "due forzieri; cartello davanti.")
+            "due forzieri; cartello davanti. Alcune sono TORRI DEL MAGO: capo evocatore (senza armatura), "
+            "streghe di guardia, alambicchi e calderoni al primo piano, librerie e tavoli per gli incantesimi "
+            "al secondo, forzieri con pozioni, libri incantati e roba da alchimista.")
     # Incarichi: dal `luoghi.md` scritto dalla generazione
     md = os.path.join(a.mondo, "luoghi.md")
     if os.path.exists(md):
@@ -177,10 +179,14 @@ def main() -> None:
             "con pozzo, fucina con cassa, stalla, bracieri, lampioni e stendardi; il maschio al centro e' "
             "una torre curata con il capo (nome, armatura) e quattro soldati nel cortile.")
     sezione("Rovine con cripta", "rovina",
-            "Rovina in superficie, scala di 14 blocchi, anticamera, sala dello spawner, tesoro con due "
-            "forzieri-trappola sul TNT. Cartello davanti. Lo spawner sta circa 41 blocchi dalla rovina.")
+            "Rovina in superficie, scala di 14 blocchi, corridoi con snodi e 0-3 stanze laterali (cunicoli), "
+            "sala dello spawner (ora piu' mite: pochi mob, si puo' arrivare al tesoro), trappole varie nei "
+            "corridoi (dardi, fossa, ragnatele, magma, muri infestati, piastre sul TNT), tesoro con due "
+            "forzieri-trappola. Cartello davanti. Lo spawner sta circa 41 blocchi dalla rovina.")
     sezione("Miniere", "miniera",
-            "Imbocco con cartello, collina del posto, binari. Nell'ultimo piano: camera finale con pozza.")
+            "Imbocco con cartello, collina del posto, binari. Gallerie con piu' svolte e diramazioni, sale di "
+            "sosta 5x5 agli incroci (pali, lanterna, arnesi), lanterne alte: NON si deve sbattere la testa "
+            "sulle rampe. Nell'ultimo piano: camera finale con pozza.")
     sezione("Citta'", "citta",
             "Piazza con fontana (parafulmine), campana, 2 stendardi, 2 bracieri, lampioni di rame; "
             "giardini con zucche e alveari; legno degli arredi del bioma; gatti sulle strade; "
