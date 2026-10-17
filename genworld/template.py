@@ -665,6 +665,70 @@ def carica_cartella(percorso: str, versione=(1, 21, 4),
     return fuori
 
 
+# Blocchi in cui un abitante puo' stare (non pieni): aria, tappeti, torce, cartelli,
+# piante. Tutto il resto, porte e mobili compresi, e' un ingombro.
+_PASSABILI = frozenset({"air", "cave_air", "void_air", "carpet", "moss_carpet", "torch",
+                        "wall_torch", "soul_torch", "redstone_torch", "wall_banner", "wall_sign",
+                        "button", "lever", "pressure_plate", "plant", "tall_grass", "snow",
+                        "candle", "string", "vine", "cobweb"})
+_STANZA_MAX = 10           # quanti strati sopra la testa si cercano per dire "e' al coperto"
+
+
+def posti_in_piedi(m: Modello, quarti: int) -> list[tuple[int, int, int]]:
+    """Dove un abitante puo' stare DENTRO una casa da template: celle (x, y, z)
+    del modello girato di `quarti`, ordinate dal centro in fuori.
+
+    Il centro dell'impronta e' spesso un muro, un mobile o la lastra del pavimento
+    (e il pavimento non e' sempre allo strato `affondo`: dipende da come l'autore
+    ha salvato il modello), quindi non si indovina: si cerca. Una cella va bene se
+    e' libera e sopra c'e' un'altra cella libera (due blocchi d'altezza), ha del
+    pieno sotto, e sopra la testa c'e' un soffitto (e' al coperto). Si tiene il
+    piano piu' basso sopra il terreno (con uno strato di tolleranza, per una
+    soglia o un gradino). Se nessuna cella e' al coperto (un portico, un banco),
+    si accettano anche quelle all'aperto. Lista vuota se non c'e' nessun posto."""
+    c = m.celle
+    for _ in range(quarti % 4):
+        c = np.rot90(c, k=-1, axes=(2, 0))
+    dx, dy, dz = c.shape
+    passabile = np.array([n in _PASSABILI for n, _ in m.tavolozza] + [True])
+    affondo = m.affondo
+    # -1 (non toccare): sopra il terreno e' aria, sotto e' terreno
+    ys = np.arange(dy)[None, :, None]
+    libera = np.where(c >= 0, passabile[np.where(c >= 0, c, len(passabile) - 1)],
+                      ys >= affondo)
+    piena = ~libera
+    ok = np.zeros(c.shape, bool)
+    ok[:, 1:dy - 1, :] = libera[:, 1:dy - 1, :] & libera[:, 2:, :] & piena[:, :dy - 2, :]
+    ok &= ys >= affondo
+    coperta = np.zeros(c.shape, bool)
+    for k in range(2, min(_STANZA_MAX, dy - 1) + 1):
+        coperta[:, :dy - k, :] |= piena[:, k:, :]
+    scelte = ok & coperta
+    if not scelte.any():
+        # niente al coperto: un portico, un banco. Ma non il tetto: solo vicino al terreno
+        scelte = ok & (ys <= affondo + 2)
+    if not scelte.any():
+        return []
+    xs, yy, zs = np.nonzero(scelte)
+    piano = int(yy.min())
+    tieni = yy <= piano + 1
+    xs, yy, zs = xs[tieni], yy[tieni], zs[tieni]
+    ordine = np.lexsort((yy, (xs - (dx - 1) / 2.0) ** 2 + (zs - (dz - 1) / 2.0) ** 2))
+    return [(int(xs[i]), int(yy[i]), int(zs[i])) for i in ordine]
+
+
+def celle_di_casa(m: Modello, quarti: int, ed) -> list[tuple[int, int, int]]:
+    """I `posti_in_piedi` di una casa gia' piazzata nel suo lotto, in coordinate
+    ASSOLUTE (x, y, z) di mappa: x e z della cella, y del suo pavimento libero.
+    Usa lo stesso posizionamento di `costruisci`: centrato nel lotto, strato
+    `affondo` alla quota `ed.base`."""
+    ix, iz = m.ingombro(quarti)
+    px = ed.x + (ed.larghezza - ix) // 2
+    pz = ed.z + (ed.profondita - iz) // 2
+    base_c = ed.base - m.affondo
+    return [(px + x, base_c + y, pz + z) for x, y, z in posti_in_piedi(m, quarti)]
+
+
 AVVISO_SENZA_CASE = (
     "Nessun template di casa trovato in templates/strutture: i villaggi avranno "
     "solo le strade e gli arredi, senza case. I template di casa sono file .nbt "
