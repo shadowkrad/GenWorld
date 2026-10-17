@@ -35,6 +35,7 @@ from . import dungeon as DG
 from . import torri as TR
 from . import bordostrada as BS
 from . import ruderi as RUD
+from . import sicurezza as SIC
 from . import cascate as CAS
 from . import commissioni as CM
 from . import castello as CS
@@ -2926,6 +2927,10 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
         meta = op.lato // 2
         in_gioco = [_replace(a, x=a.x - meta, z=a.z - meta)
                     for a in piano.abitanti]
+        # Rete di sicurezza: ogni creatura si controlla sui blocchi VERI e si sposta
+        # se e' nata in un muro o sotto terra (vedi `sicurezza.py`).
+        in_gioco, sicure = SIC.rendi_sicure(op.uscita, in_gioco)
+        fuori["creature_spostate"] = sicure
         # `_Imp()` da solo darebbe sempre il DataVersion di 1.21.4 di
         # default, non quello scelto in `op.versione` - level.dat e le
         # entita' finirebbero con due DataVersion diversi.
