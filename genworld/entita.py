@@ -20,6 +20,7 @@ rilegge con un parser proprio per essere sicuri.
 
 from __future__ import annotations
 
+import math
 import os
 import zlib
 from dataclasses import dataclass
@@ -133,7 +134,8 @@ def _scambio(o: dict):
     def pila(spec):
         d = {"id": StringTag(f"minecraft:{spec[0]}"), "count": IntTag(int(spec[1]))}
         if len(spec) > 2 and spec[2]:
-            d["components"] = _tag({f"minecraft:{k}": v for k, v in spec[2].items()})
+            from .bauli import limita_libro
+            d["components"] = _tag({f"minecraft:{k}": v for k, v in limita_libro(spec[2]).items()})
         return CompoundTag(d)
 
     esteso = {"buyB": pila(o["compra2"])} if o.get("compra2") else {}
@@ -146,16 +148,33 @@ def _scambio(o: dict):
     })
 
 
-def _chunk_nbt(cx: int, cz: int, entita: list, data_version: int) -> bytes:
+def _senza_doppioni(tag, visti: set, contatore: list):
+    """Un UUID e' unico in tutto il mondo: se due entita' hanno lo stesso (due
+    carrelli con lo stesso seme), il gioco ne scarta una con 'Entity uuid already
+    exists'. Il secondo si rifa' deterministicamente."""
+    chiave = tuple(int(v) for v in tag["UUID"])
+    while chiave in visti:
+        contatore[0] += 1
+        seme = (sum((v & 0xFFFFFFFF) << (8 * i) for i, v in enumerate(chiave)) + contatore[0] * 7919) & 0x7FFFFFFF
+        tag["UUID"] = _uuid(seme)
+        chiave = tuple(int(v) for v in tag["UUID"])
+    visti.add(chiave)
+    return tag
+
+
+def _chunk_nbt(cx: int, cz: int, entita: list, data_version: int,
+               visti: set | None = None, contatore: list | None = None) -> bytes:
     from amulet_nbt import (CompoundTag, IntArrayTag, IntTag, ListTag,
                             NamedTag)
+    visti = set() if visti is None else visti
+    contatore = [0] if contatore is None else contatore
     radice = CompoundTag({
         "DataVersion": IntTag(data_version),
         # QUESTO e' il campo che mancava nei file scritti da amulet, ed e' da
         # qui che nasceva l'ArrayIndexOutOfBoundsException: Minecraft legge
         # pos[0] e trovava un array vuoto.
         "Position": IntArrayTag([cx, cz]),
-        "Entities": ListTag([e.nbt_tag() for e in entita]),
+        "Entities": ListTag([_senza_doppioni(e.nbt_tag(), visti, contatore) for e in entita]),
     })
     return NamedTag(radice, "").save_to(compressed=False)
 
@@ -174,7 +193,9 @@ def scrivi_regioni(percorso_mondo: str, abitanti: list, data_version: int) -> di
 
     per_chunk: dict[tuple[int, int], list] = {}
     for a in abitanti:
-        chiave = (int(a.x) >> 4, int(a.z) >> 4)
+        # floor, non int(): int(-64.5) vale -64 e finiva nel chunk accanto, e il gioco
+        # avvisa 'Root entity ... is outside of serialized chunk'
+        chiave = (math.floor(a.x) >> 4, math.floor(a.z) >> 4)
         per_chunk.setdefault(chiave, []).append(a)
 
     per_regione: dict[tuple[int, int], dict] = {}
@@ -189,14 +210,17 @@ def scrivi_regioni(percorso_mondo: str, abitanti: list, data_version: int) -> di
     else:
         cartella = os.path.join(percorso_mondo, "entities")
     os.makedirs(cartella, exist_ok=True)
-    for (rx, rz), chunk in per_regione.items():
+    visti: set = set()
+    contatore = [0]
+    for (rx, rz), chunk in sorted(per_regione.items()):
         _scrivi_regione(os.path.join(cartella, f"r.{rx}.{rz}.mca"),
-                        chunk, data_version)
+                        chunk, data_version, visti, contatore)
     return {"abitanti": len(abitanti), "chunk": len(per_chunk),
             "regioni": len(per_regione)}
 
 
-def _scrivi_regione(percorso: str, chunk: dict, data_version: int) -> None:
+def _scrivi_regione(percorso: str, chunk: dict, data_version: int,
+                    visti: set | None = None, contatore: list | None = None) -> None:
     """Un file region: 4096 byte di posizioni, 4096 di date, poi i settori."""
     posizioni = bytearray(SETTORE)
     date = bytearray(SETTORE)
@@ -204,7 +228,7 @@ def _scrivi_regione(percorso: str, chunk: dict, data_version: int) -> None:
     settore = 2                      # i primi due sono l'intestazione
 
     for (cx, cz), abitanti in sorted(chunk.items()):
-        dati = zlib.compress(_chunk_nbt(cx, cz, abitanti, data_version))
+        dati = zlib.compress(_chunk_nbt(cx, cz, abitanti, data_version, visti, contatore))
         blocco = len(dati) + 5       # 4 di lunghezza + 1 di compressione
         quanti = (blocco + SETTORE - 1) // SETTORE
         corpo += (len(dati) + 1).to_bytes(4, "big") + b"\x02" + dati

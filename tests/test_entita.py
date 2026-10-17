@@ -11,6 +11,7 @@ faceva scorrere all'infinito "Caricamento del chunk non riuscito".
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 import tempfile
@@ -128,8 +129,8 @@ class TestScrittura(unittest.TestCase):
                     self.assertEqual(list(c["Position"]), [cx, cz])
                     for e in c["Entities"]:
                         x, _, z = (float(v) for v in e["Pos"])
-                        self.assertEqual(int(x) >> 4, cx, f"x {x} nel chunk {cx}")
-                        self.assertEqual(int(z) >> 4, cz, f"z {z} nel chunk {cz}")
+                        self.assertEqual(math.floor(x) >> 4, cx, f"x {x} nel chunk {cx}")
+                        self.assertEqual(math.floor(z) >> 4, cz, f"z {z} nel chunk {cz}")
                         trovati += 1
         self.assertEqual(trovati, len(ab))
 

@@ -343,6 +343,25 @@ def componenti_oggetto(spec: dict) -> dict:
     return comp
 
 
+TITOLO_LIBRO_MAX = 32          # oltre, il gioco scarta TUTTA la pila ('too long: 36, expected [0-32]')
+
+
+def limita_libro(comp: dict | None) -> dict | None:
+    """Una copia dei componenti con il titolo di un libro scritto al massimo di 32
+    caratteri. Chi lo supera fa fallire la lettura dell'inventario, e il libro sparisce."""
+    if not comp or "written_book_content" not in comp:
+        return comp
+    c = dict(comp)
+    wb = dict(c["written_book_content"])
+    t = wb.get("title")
+    if isinstance(t, dict) and isinstance(t.get("raw"), str):
+        wb["title"] = {**t, "raw": t["raw"][:TITOLO_LIBRO_MAX]}
+    elif isinstance(t, str):
+        wb["title"] = t[:TITOLO_LIBRO_MAX]
+    c["written_book_content"] = wb
+    return c
+
+
 def _voce(v):
     """Una pila come CompoundTag; il quarto elemento, se c'e', sono i componenti."""
     from amulet_nbt import ByteTag, CompoundTag, IntTag, StringTag
@@ -350,7 +369,7 @@ def _voce(v):
     d = {"Slot": ByteTag(s), "id": StringTag(f"minecraft:{nome}"),
          "count": IntTag(quanti)}
     if len(v) > 3 and v[3]:
-        d["components"] = _tag({f"minecraft:{k}": x for k, x in v[3].items()})
+        d["components"] = _tag({f"minecraft:{k}": x for k, x in limita_libro(v[3]).items()})
     return CompoundTag(d)
 
 
