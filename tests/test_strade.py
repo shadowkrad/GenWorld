@@ -142,3 +142,22 @@ class TestStradaVicinoAllAcqua(unittest.TestCase):
         sponda = quota[30, 26]
         self.assertEqual(int(sponda), 75, "la strada sulla riva deve stare a quota piana")
         self.assertEqual(int(quota[30, 29]), int(sponda), "l'impalcato a quota della strada")
+
+
+class TestAsseDeiPonti(unittest.TestCase):
+    def test_un_ponte_lungo_x_e_uno_lungo_z(self):
+        t = np.zeros((40, 40), np.uint8)
+        t[5:9, 3:25] = S.PONTE              # lungo x (22 contro 4)
+        t[15:38, 30:34] = S.PARAPETTO       # lungo z
+        asse = S.asse_ponti(t)
+        self.assertTrue((asse[5:9, 3:25] == 1).all())
+        self.assertTrue((asse[15:38, 30:34] == 2).all())
+        self.assertEqual(int(asse[0, 0]), 0)
+
+    def test_niente_ponti_niente_asse(self):
+        t = np.full((10, 10), S.STRADA, np.uint8)
+        self.assertFalse(S.asse_ponti(t).any())
+
+
+if __name__ == "__main__":
+    unittest.main()

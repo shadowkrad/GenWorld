@@ -30,6 +30,26 @@ from .mappa import ACQUA, MONTAGNA, NEVE
 NIENTE, STRADA, PONTE, PARAPETTO, LASTRICATO = 0, 1, 2, 3, 4
 
 
+def asse_ponti(tipo: np.ndarray) -> np.ndarray:
+    """Per ogni cella di ponte l'asse lungo cui corre: 1 = x, 2 = z, 0 = non e'
+    un ponte. Un ponte e' un gruppo connesso di celle PONTE/PARAPETTO; corre
+    lungo l'asse in cui e' piu' lungo. Serve agli archi (vedi `motore._posa_strada`),
+    che si disegnano lungo la luce del ponte."""
+    from scipy.ndimage import find_objects, label
+    ponte = np.isin(tipo, (PONTE, PARAPETTO))
+    fuori = np.zeros(tipo.shape, np.uint8)
+    if not ponte.any():
+        return fuori
+    lab, n = label(ponte, structure=np.ones((3, 3), bool))
+    for k, sl in enumerate(find_objects(lab), start=1):
+        if sl is None:
+            continue
+        dz = sl[0].stop - sl[0].start
+        dx = sl[1].stop - sl[1].start
+        fuori[sl][lab[sl] == k] = 1 if dx >= dz else 2
+    return fuori
+
+
 def griglia_costo(cls: np.ndarray, altezze: np.ndarray,
                   costo_acqua: float = 16.0, peso_pendenza: float = 6.0,
                   costo_montagna: float = 3.0,

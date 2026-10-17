@@ -1820,7 +1820,7 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   manto_c=None, scarpata_c=None, sponda_c=None,
                   campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
                   piazze=None, piede_c=None, biomi_c=None, caduta_c=None,
-                  parete_acqua_c=None):
+                  parete_acqua_c=None, asse_ponte_c=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -1871,7 +1871,8 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                     else np.pad(np.asarray(tipo_c), 1))
         _posa_strada(out, scrittore, np.asarray(tipo_c), tipo_orlo,
                      np.asarray(quota_c).astype(np.int32),
-                     np.asarray(h_c).astype(np.int32), ox, oz, y0)
+                     np.asarray(h_c).astype(np.int32), ox, oz, y0,
+                     asse=asse_ponte_c)
     if piazze:
         _posa_piazze(out, scrittore, piazze, np.asarray(h_c).astype(np.int32),
                      ox, oz, y0)
@@ -2289,7 +2290,34 @@ def _posa_piazze(out, s, piazze, h_c, ox, oz, y0):
 LUCE_PONTE_PIETRA = 8
 
 
-def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
+LUCE_ARCO = 7            # passo dei piloni di un ponte di pietra: sei celle fra uno e l'altro
+RAGGIO_ARCO = (LUCE_ARCO - 2) / 2.0
+
+
+def _arco_ponte(out, y: int, fondo: int, u: int, lx: int, lz: int, blocco: int) -> bool:
+    """La colonna (lx, lz) di un ponte di pietra ad archi. `u` e' la coordinata di
+    MONDO lungo il ponte, `y` l'impalcato, `fondo` il terreno o il fondale sotto.
+
+    Ogni sette celle un pilone pieno, e fra due piloni un arco a tutto sesto: il
+    soffitto sale dall'imposta (RAGGIO_ARCO blocchi sotto l'impalcato) fino alla
+    chiave, un blocco sotto l'impalcato; sopra l'arco la muratura e' piena. Sotto
+    l'arco resta il vuoto (o l'acqua). Ritorna vero se ha disegnato la colonna;
+    falso se il vuoto e' troppo basso per un arco (resta il pilone di prima)."""
+    import math
+    if y - 1 - RAGGIO_ARCO - fondo < 1.0:
+        return False
+    a = u % LUCE_ARCO
+    if a == 0:
+        out[lx, fondo:y, lz] = blocco                 # il pilone, dal terreno all'impalcato
+        return True
+    t = a - LUCE_ARCO / 2.0
+    soffitto = y - 1 - RAGGIO_ARCO + math.sqrt(max(0.0, RAGGIO_ARCO ** 2 - t * t))
+    primo_pieno = int(math.ceil(soffitto))
+    out[lx, primo_pieno:y, lz] = blocco               # i pennacchi sopra l'arco
+    return True
+
+
+def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0, asse=None):
     """Sede stradale, impalcati, pilastri e parapetti.
 
     Il ponte non e' un oggetto piazzato: e' il tratto di strada che si trova
@@ -2342,9 +2370,13 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
 
             fondo_pil = max(0, int(h_c[lx, lz]) - 1 - y0)
             pietra = (y - fondo_pil) >= LUCE_PONTE_PIETRA
+            ad_arco = False
             if pietra:
                 hv = ((ox + lx) * 73856093) ^ ((oz + lz) * 19349663)
                 out[lx, y, lz] = mattone_muschio if hv % 100 < 10 else mattone
+                if asse is not None and int(asse[lx, lz]) > 0:
+                    ad_arco = _arco_ponte(out, y, fondo_pil, ox + lx if int(asse[lx, lz]) == 1 else oz + lz,
+                                          lx, lz, mattone_muschio if hv % 100 < 10 else mattone)
             else:
                 out[lx, y, lz] = assi                # impalcato
             out[lx, y + 1:min(y + 5, H), lz] = aria  # luce sopra
@@ -2368,7 +2400,7 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
             # mezzo al prato - il caso tipico e' un ponte quasi a raso, sopra
             # un laghetto poco profondo o un avvallamento lieve del terreno.
             gx, gz = ox + lx, oz + lz
-            if gx % 5 == 0 and gz % 5 == 0:
+            if not ad_arco and gx % 5 == 0 and gz % 5 == 0:
                 fondo = max(0, int(h_c[lx, lz]) - 1 - y0)
                 if fondo < y - 1:
                     out[lx, fondo:y, lz] = mattone if pietra else pilastro
@@ -2641,6 +2673,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
         caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
+        asse_ponte_m = (ST.asse_ponti(piano.tipo_strada) if piano.tipo_strada is not None
+                        else None)
         n = max(1, len(lista))
         for i, (cx, cz) in enumerate(lista):
             if ferma is not None and ferma():
@@ -2667,6 +2701,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 sponda_c=fetta(sponda_m, sx, sz),
                 caduta_c=fetta(caduta_m, sx, sz),
                 parete_acqua_c=fetta(parete_acqua_m, sx, sz),
+                asse_ponte_c=(fetta(asse_ponte_m, sx, sz) if asse_ponte_m is not None else None),
                 campi_orlo_c=(fetta_orlo(piano.campi, sx, sz)
                              if piano.campi is not None else None),
                 tipo_orlo_c=(fetta_orlo(piano.tipo_strada, sx, sz)

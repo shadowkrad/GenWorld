@@ -896,6 +896,94 @@ class TestPilastriPonte(unittest.TestCase):
         self.assertGreater(int((out == pilastro).sum()), 0)
 
 
+class TestArchiPonte(unittest.TestCase):
+    """Un ponte di pietra alto ha i piloni ogni sette celle e archi a tutto sesto
+    fra l'uno e l'altro (vedi motore._arco_ponte)."""
+
+    QUOTA = 80          # impalcato: la sede e' a QUOTA, il blocco dell'impalcato a QUOTA - 1
+    FONDO = 60
+
+    def ponte(self, asse_valore=1, ox=0, oz=0):
+        s = FintoScrittore()
+        h_c = np.full((16, 16), self.FONDO, np.int32)
+        cls_c = np.full((16, 16), M.PIANURA, np.uint8)
+        tipo_c = np.zeros((16, 16), np.uint8)
+        tipo_c[:, 6:10] = ST.PONTE                       # [lx, lz]: una fascia lunga x
+        quota_c = np.full((16, 16), self.QUOTA, np.int32)
+        asse = np.zeros((16, 16), np.uint8)
+        asse[:, 6:10] = asse_valore
+        out = blocchi_chunk(s, h_c, cls_c, tipo_c=tipo_c, quota_c=quota_c, ox=ox, oz=oz,
+                            asse_ponte_c=asse)
+        return out, s
+
+    def colonna(self, out, lx, lz=7):
+        y = self.QUOTA - 1 + 64                           # l'impalcato
+        return y, out[lx, :, lz]
+
+    def test_il_pilone_e_pieno_dal_terreno_all_impalcato(self):
+        out, s = self.ponte()
+        y, col = self.colonna(out, 7)                     # 7 % 7 == 0
+        self.assertTrue((col[self.FONDO + 64:y] != 0).all())
+
+    def test_fra_i_piloni_il_vuoto_dell_arco(self):
+        out, s = self.ponte()
+        y, col = self.colonna(out, 10)                    # a = 3: vicino alla chiave
+        self.assertNotEqual(int(col[y - 1]), 0)           # la muratura sotto l'impalcato
+        self.assertEqual(int(col[y - 2]), 0)              # sotto, l'apertura
+        self.assertEqual(int(col[y - 8]), 0)
+        y, col = self.colonna(out, 8)                     # a = 1: all'imposta, l'arco e' basso
+        self.assertNotEqual(int(col[y - 3]), 0)
+        self.assertEqual(int(col[y - 5]), 0)
+
+    def test_l_arco_sale_verso_il_centro(self):
+        out, s = self.ponte()
+        y = self.QUOTA - 1 + 64
+        piano = []
+        for lx in range(8, 14):                           # fra due piloni: a = 1..6
+            col = out[lx, :, 7]
+            piano.append(int(np.nonzero(col[self.FONDO + 64:y] != 0)[0].min()
+                             if (col[self.FONDO + 64:y] != 0).any() else y))
+        # il primo pieno e' il soffitto dell'arco: piu' alto al centro che ai lati
+        alti = [y - (self.FONDO + 64) - q for q in piano]
+        self.assertTrue(alti[0] <= alti[2] and alti[5] <= alti[3], alti)
+
+    def test_lungo_z_gli_archi_seguono_z(self):
+        out, s = self.ponte(asse_valore=2, oz=0)
+        # con asse z il pilone sta dove gz % 7 == 0: z = 7 e' un pilone per ogni x
+        y = self.QUOTA - 1 + 64
+        self.assertTrue((out[3, self.FONDO + 64:y, 7] != 0).all())
+
+    def test_i_confini_dei_chunk_non_cambiano_il_disegno(self):
+        a, _ = self.ponte(ox=0)
+        b, _ = self.ponte(ox=7)                           # stesso schema spostato di 7: identico
+        self.assertTrue(np.array_equal(a != 0, b != 0))
+
+    def test_senza_asse_resta_il_ponte_di_prima(self):
+        s = FintoScrittore()
+        h_c = np.full((16, 16), self.FONDO, np.int32)
+        cls_c = np.full((16, 16), M.PIANURA, np.uint8)
+        tipo_c = np.zeros((16, 16), np.uint8)
+        tipo_c[:, 6:10] = ST.PONTE
+        out = blocchi_chunk(s, h_c, cls_c, tipo_c=tipo_c,
+                            quota_c=np.full((16, 16), self.QUOTA, np.int32), ox=0, oz=0)
+        y = self.QUOTA - 1 + 64
+        # niente arco: sotto l'impalcato, fra i pilastri, e' vuoto anche subito sotto
+        self.assertEqual(int(out[10, y - 1, 7]), 0)
+
+    def test_un_ponte_basso_non_ha_archi(self):
+        s = FintoScrittore()
+        h_c = np.full((16, 16), 74, np.int32)
+        cls_c = np.full((16, 16), M.PIANURA, np.uint8)
+        tipo_c = np.zeros((16, 16), np.uint8)
+        tipo_c[:, 6:10] = ST.PONTE
+        asse = np.zeros((16, 16), np.uint8)
+        asse[:, 6:10] = 1
+        out = blocchi_chunk(s, h_c, cls_c, tipo_c=tipo_c,
+                            quota_c=np.full((16, 16), 80, np.int32), ox=0, oz=0, asse_ponte_c=asse)
+        assi = s.blocco("planks", material="dark_oak")
+        self.assertTrue((out[:, 80 - 1 + 64, 6:10] == assi).all())        # di legno
+
+
 if __name__ == "__main__":
     unittest.main()
 
