@@ -77,7 +77,8 @@ class TestPianifica(unittest.TestCase):
     def esegui(self, **kw):
         cls, h, strade, citta = mondo()
         ris = AR.Risultato()
-        occ = np.zeros(cls.shape, bool)
+        # come nel motore: `protetto` contiene gia' le strade
+        occ = strade > 0
         c = BS.pianifica(ris, strade, citta, h, cls, occ, VER, seed=kw.get("seed", 1))
         return ris, c, strade, citta
 

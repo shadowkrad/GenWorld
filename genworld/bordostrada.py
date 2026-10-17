@@ -155,9 +155,12 @@ def pianifica(ris, tipo_strada: np.ndarray | None, citta: list, h: np.ndarray,
         return conteggio
     H, W = h.shape
     rng = np.random.default_rng(seed * 7727 + 31)
-    occ = np.zeros((H, W), bool) if occupato is None else occupato.copy()
-    occ |= np.isin(cls, M.ACQUA)
     strada = tipo_strada > 0
+    # `occupato` (di solito `protetto`) contiene GIA' le strade: toglierle, altrimenti
+    # non resterebbe nessuna cella di strada da cui partire. Il margine dalla strada
+    # lo controlla `libero` con la maschera `strada`.
+    occ = np.zeros((H, W), bool) if occupato is None else (occupato & ~strada)
+    occ |= np.isin(cls, M.ACQUA)
     # il paese e i suoi dintorni
     zz, xx = np.mgrid[0:H, 0:W]
     for c in citta:
