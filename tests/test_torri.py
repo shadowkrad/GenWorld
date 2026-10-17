@@ -390,7 +390,45 @@ class TestCombattenti(unittest.TestCase):
 
     def test_ogni_specie_che_puo_essere_capo_ha_un_arma(self):
         for sp in TR.CAPO_PER_ZONA:
-            self.assertIn(sp, TR.ARMA)
+            if sp not in TR.MAGHI:
+                self.assertIn(sp, TR.ARMA)
+
+
+class TestMago(unittest.TestCase):
+    def mago(self):
+        return TR.Torre(x=150, z=150, ys=90, dx=1, dz=0, specie="evocatore",
+                        nome="Teofrasto", seme=3)
+
+    def test_capo_evocatore_con_guardie_streghe_e_senza_armatura(self):
+        t = self.mago()
+        c = TR.combattenti([t], [(t.x, t.z)])
+        capo = next(x for x in c if x.capo)
+        n = capo.nbt_tag()
+        self.assertEqual(str(n["id"]), "minecraft:evoker")
+        self.assertEqual(str(n["CustomName"]), "Teofrasto")
+        self.assertNotIn("head", n.get("equipment", {}))
+        for g in (x for x in c if not x.capo):
+            self.assertEqual(g.specie, "strega")
+            self.assertEqual(str(g.nbt_tag()["id"]), "minecraft:witch")
+
+    def test_il_nome_del_mago_viene_dalla_sua_lista(self):
+        for s in range(40):
+            torri = TR.pianifica(*terreno(), densita=12.0, seed=s)
+            maghi = [t for t in torri if t.specie == "evocatore"]
+            for t in maghi[:len(TR.NOMI_MAGO)]:
+                self.assertIn(t.nome, TR.NOMI_MAGO)
+
+    def test_laboratorio_e_biblioteca(self):
+        t = self.mago()
+        s, tav, blocco = posa_su_regione(t)
+        nomi = {s.nome(i) for i in range(len(s.ids))}
+        self.assertTrue({"brewing_stand", "cauldron", "enchanting_table", "bookshelf"} <= nomi, nomi)
+
+    def test_i_forzieri_sono_del_mago(self):
+        t = self.mago()
+        s, tav, blocco = posa_su_regione(t)
+        self.assertTrue(tav.bauli)
+        self.assertTrue(all(tipo.startswith("mago_") for *_, tipo in tav.bauli))
 
 
 class TestIndiceEMaschera(unittest.TestCase):

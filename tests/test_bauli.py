@@ -356,5 +356,23 @@ class TestPersistenzaSuMondoVero(unittest.TestCase):
                 lv.close()
 
 
+class TestBottinoMago(unittest.TestCase):
+    def test_pozioni_e_libri_incantati(self):
+        for seme in range(30):
+            rng = np.random.default_rng(seme)
+            c = BA._oggetti_mago(rng, "mago_tesoro", True)
+            slot = [v[0] for v in c]
+            self.assertEqual(len(slot), len(set(slot)))
+            self.assertTrue(all(0 <= x < 27 for x in slot))
+            nomi = [v[1] for v in c]
+            self.assertIn("enchanted_book", nomi)
+            self.assertIn("potion", nomi)
+            self.assertGreaterEqual(len(c), 6)
+
+    def test_dispatch_dal_tipo(self):
+        c = BA._oggetti_dungeon(np.random.default_rng(1), "mago_stanza", False)
+        self.assertTrue(any(v[1] in ("potion", "enchanted_book") for v in c))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -33,11 +33,16 @@ SPECIE = {"zombie": "zombie", "scheletro": "skeleton", "vindicatore": "vindicato
           "scheletro_nero": "wither_skeleton", "ragno": "spider",
           "ragno_grotta": "cave_spider", "husk": "husk", "pipistrello": "bat",
           # il predone (pillager) e' immune al sole: l'arciere ideale all'aperto
-          "predone": "pillager"}
+          "predone": "pillager",
+          # la torre del mago: il capo e' un evocatore, le guardie streghe
+          "evocatore": "evoker", "strega": "witch"}
+MAGHI = ("evocatore", "strega")
 NOMI_CAPO = ("Aldric il Cupo", "Brenna Mano di Ferro", "Corvo Nero", "Dagan l'Esule",
              "Edrik Spezzaossa", "Fenna la Vedetta", "Garrick Senzaterra",
              "Hilda Cuordipietra", "Ivor il Custode", "Kael Lamarotta")
-CAPO_PER_ZONA = ("vindicatore", "scheletro", "zombie", "scheletro_nero")
+NOMI_MAGO = ("Malachia il Grigio", "Ysolda della Nebbia", "Teofrasto", "Elwyn Occhio di Gufo",
+             "Morgause", "Baldassarre il Cieco", "Selene Ombraviva", "Ottavian Cenere")
+CAPO_PER_ZONA = ("vindicatore", "scheletro", "zombie", "scheletro_nero", "evocatore")
 
 
 @dataclass
@@ -96,11 +101,12 @@ class Combattente:
         equip: dict = {}
         if self.capo:
             vita = 60.0 if self.livello == 0 else 100.0
-            mat = "iron" if self.livello == 0 else "diamond"
-            for slot, pezzo in (("head", "helmet"), ("chest", "chestplate"),
-                                ("legs", "leggings"), ("feet", "boots")):
-                equip[slot] = _pila(f"{mat}_{pezzo}", incantato=self.livello > 0)
-            equip["mainhand"] = _pila(ARMA[self.specie][self.livello], incantato=self.livello > 0)
+            if self.specie not in MAGHI:        # un mago non porta armatura ne' arma
+                mat = "iron" if self.livello == 0 else "diamond"
+                for slot, pezzo in (("head", "helmet"), ("chest", "chestplate"),
+                                    ("legs", "leggings"), ("feet", "boots")):
+                    equip[slot] = _pila(f"{mat}_{pezzo}", incantato=self.livello > 0)
+                equip["mainhand"] = _pila(ARMA[self.specie][self.livello], incantato=self.livello > 0)
         elif self.specie in ("zombie", "scheletro", "vindicatore"):
             equip["mainhand"] = _pila(ARMA[self.specie][0])
             equip["head"] = _pila("chainmail_helmet")
@@ -213,6 +219,7 @@ def pianifica(altezze: np.ndarray, acqua: np.ndarray, evita: np.ndarray | None =
     quanti = int(max(0, round(H * W / celle_per * densita)))
     fuori: list[Torre] = []
     nomi_liberi = list(NOMI_CAPO)
+    nomi_maghi = list(NOMI_MAGO)
     tentativi, limite = 0, quanti * 80 + 80
     while len(fuori) < quanti and tentativi < limite:
         tentativi += 1
@@ -232,9 +239,10 @@ def pianifica(altezze: np.ndarray, acqua: np.ndarray, evita: np.ndarray | None =
         if evita is not None and evita[z - r:z + r + 1, x - r:x + r + 1].any():
             continue
         dx, dz = ((1, 0), (-1, 0), (0, 1), (0, -1))[int(rng.integers(0, 4))]
-        fuori.append(Torre(x=x, z=z, ys=ys, dx=dx, dz=dz,
-                           specie=CAPO_PER_ZONA[int(rng.integers(0, len(CAPO_PER_ZONA)))],
-                           nome=_nome_unico(rng, nomi_liberi),
+        specie = CAPO_PER_ZONA[int(rng.integers(0, len(CAPO_PER_ZONA)))]
+        nome = (_nome_unico(rng, nomi_maghi) if specie == "evocatore" and nomi_maghi
+                else _nome_unico(rng, nomi_liberi))
+        fuori.append(Torre(x=x, z=z, ys=ys, dx=dx, dz=dz, specie=specie, nome=nome,
                            seme=int(rng.integers(0, 2 ** 31 - 1))))
     return fuori
 
@@ -283,7 +291,8 @@ def combattenti(torri: list[Torre], centri: list | None = None, seed: int = 0,
                                  trofeo=(trofei or {}).get((t.x, t.z))))
         rng = np.random.default_rng(t.seme + seed)
         for k in (1, 2):
-            sp = "scheletro" if rng.random() < 0.4 else "zombie"
+            sp = ("strega" if t.specie == "evocatore"
+                  else "scheletro" if rng.random() < 0.4 else "zombie")
             ux, vz = t.punto(*CELLE_GUARDIE[k])
             fuori.append(Combattente(x=ux + 0.5, y=float(t.piano(k)), z=vz + 0.5,
                                      specie=sp, seme=t.seme + 11 * (k + 1) + i))
@@ -346,6 +355,11 @@ class Tavolozza:
         self.stendardo = {(c, f): s.blocco("wall_banner", color=c, facing=f)
                           for c in STENDARDI for f in facce}
         self.barile = s.blocco("barrel", facing="up", open="false")
+        # la torre del mago: alambicchi, calderoni, un tavolo per gli incantesimi
+        self.alambicco = s.blocco("brewing_stand", has_bottle_0="true", has_bottle_1="false",
+                                  has_bottle_2="true")
+        self.calderone = s.blocco("cauldron", cauldron_liquid="water", level="3")
+        self.incantesimi = s.blocco("enchanting_table")
         self.parafulmine = s.blocco("lightning_rod", facing="up", material="copper",
                                     powered="false")
         self.banco_lavoro = s.blocco("crafting_table")
@@ -543,26 +557,42 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
         alza(3, -2, y + 2, tav.torcia[faccia(-1, 0)])
         alza(3, 2, y + 2, tav.torcia[faccia(-1, 0)])
 
-        # ---- primo piano: la camerata ---------------------------------------------------
+        # ---- primo piano: la camerata (o, dal mago, il laboratorio di alchimia) -------------
         y = t.piano(1)
         testa = faccia(0, -1)                              # i letti hanno la testata contro il muro
-        for u in (-2, 0, 2):
-            alza(u, -3, y, tav.letto[(testa, "head")])
-            alza(u, -2, y, tav.letto[(testa, "foot")])
-        alza(3, -3, y, tav.barile)
-        alza(3, -2, y, tav.barile)
+        if t.specie == "evocatore":
+            for u in (-2, 0, 2):
+                alza(u, -3, y, tav.libreria)
+                alza(u, -3, y + 1, tav.libreria)
+                alza(u, -2, y, tav.alambicco)
+            alza(3, -3, y, tav.calderone)
+            alza(3, -2, y, tav.calderone)
+        else:
+            for u in (-2, 0, 2):
+                alza(u, -3, y, tav.letto[(testa, "head")])
+                alza(u, -2, y, tav.letto[(testa, "foot")])
+            alza(3, -3, y, tav.barile)
+            alza(3, -2, y, tav.barile)
         alza(-3, -1, y + 2, tav.torcia[faccia(1, 0)])        # non davanti alle feritoie
         alza(3, 1, y + 2, tav.torcia[faccia(-1, 0)])
         alza(-1, 0, y, tav.lastra_legno)
         alza(-1, 0, y + 1, tav.candela)
 
-        # ---- secondo piano: l'armeria ----------------------------------------------------
+        # ---- secondo piano: l'armeria (dal mago, la biblioteca degli incantesimi) ---------
         y = t.piano(2)
-        alza(-3, -3, y, tav.fletcher)
-        alza(-3, -2, y, tav.fucina)
-        alza(-3, -1, y, tav.mola[faccia(1, 0)])
-        alza(-3, 0, y, tav.incudine[faccia(0, 1)])
-        alza(-3, 1, y, tav.cartografo)
+        if t.specie == "evocatore":
+            for v in (-3, -2, -1, 1):
+                alza(-3, v, y, tav.libreria)
+                alza(-3, v, y + 1, tav.libreria)
+            alza(-3, 0, y, tav.leggio[faccia(1, 0)])
+            alza(0, -1, y, tav.incantesimi)
+            alza(0, 1, y, tav.incantesimi)
+        else:
+            alza(-3, -3, y, tav.fletcher)
+            alza(-3, -2, y, tav.fucina)
+            alza(-3, -1, y, tav.mola[faccia(1, 0)])
+            alza(-3, 0, y, tav.incudine[faccia(0, 1)])
+            alza(-3, 1, y, tav.cartografo)
         alza(2, -3, y + 2, tav.stendardo[(colore, faccia(0, 1))])
         alza(2, 3, y + 2, tav.stendardo[(colore, faccia(0, -1))])
         alza(-2, 3, y + 2, tav.torcia[faccia(0, -1)])
@@ -586,4 +616,5 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
         for (fx, fy, fz, tipo) in t.forzieri():
             metti(fx, fy, fz, tav.forziere[fuori])
             if nel_chunk(fx, fz):
-                tav.bauli.append((fx, fy, fz, tipo))
+                # nella torre di un mago il bottino e' di un mago (vedi `bauli.BOTTINO_MAGO`)
+                tav.bauli.append((fx, fy, fz, f"mago_{tipo}" if t.specie == "evocatore" else tipo))
