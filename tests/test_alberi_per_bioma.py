@@ -28,6 +28,8 @@ class Finta:
         self.tappeto_muschio = 960
         self.secca, self.secca_alta = 970, 971
         self.brocca = (975, 976)
+        self.lucciole = 977
+        self.selvatici = {(f, n): 1100 + 10 * i + n for i, f in enumerate(('north', 'south', 'east', 'west')) for n in (1, 2, 3, 4)}
         self.lettiera = {(f, n): 980 + 10 * i + n for i, f in enumerate(('north', 'south', 'east', 'west')) for n in (1, 2, 3, 4)}
         self.fungo = {V.FUNGO_MARRONE: 961, V.FUNGO_ROSSO: 962}
         self.doppio = {sp: (300 + sp, 400 + sp) for sp in V.DOPPI}
@@ -135,7 +137,7 @@ class TestPianteNuove(unittest.TestCase):
             self.assertIn(attese, set(a["specie"].tolist()), nome)
 
     def test_ogni_specie_ha_altezza_e_nome(self):
-        for sp in range(39):
+        for sp in range(41):
             self.assertIn(sp, V.ALTEZZA)
             self.assertIn(sp, V.NOMI_SPECIE)
 
@@ -170,6 +172,24 @@ class TestSeccoELettiera(unittest.TestCase):
         out = disegnato(V.BROCCA, 2)
         self.assertEqual(int((out == 975).sum()), 1)
         self.assertEqual(int((out == 976).sum()), 1)
+
+    def test_lucciole_e_fiori_selvatici_per_bioma(self):
+        h = np.full((200, 200), 80, np.int32)
+        cls = np.full((200, 200), M.FORESTA, np.uint8)
+        for nome, attesa in (("dark_forest", V.LUCCIOLE), ("mangrove_swamp", V.LUCCIOLE),
+                             ("meadow", V.FIORI_SELVATICI)):
+            biomi = np.full((200, 200), B.INDICE[nome], np.uint8)
+            a = V.semina(cls, h, livello_mare=62, seed=3, biomi=biomi, scala_densita=3.0)
+            self.assertIn(attesa, set(a["specie"].tolist()), nome)
+        prato = np.full((200, 200), M.PRATERIA, np.uint8)
+        a = V.semina(prato, h, livello_mare=62, seed=3, scala_densita=4.0)
+        self.assertIn(V.FIORI_SELVATICI, set(a["specie"].tolist()))
+
+    def test_si_disegnano_lucciole_e_fiori_selvatici(self):
+        self.assertEqual(int((disegnato(V.LUCCIOLE, 1) == 977).sum()), 1)
+        out = disegnato(V.FIORI_SELVATICI, 1)
+        n = sum(int((out == v).sum()) for v in set(Finta().selvatici.values()))
+        self.assertTrue(1 <= n <= 6)
 
     def test_si_disegnano(self):
         self.assertEqual(int((disegnato(V.SECCA, 1) == 970).sum()), 1)
