@@ -33,6 +33,7 @@ from . import citta as CT
 from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
+from . import bordostrada as BS
 from . import cascate as CAS
 from . import commissioni as CM
 from . import castello as CS
@@ -864,6 +865,12 @@ def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
             a.riservato if a.riservato is not None else False),
         legno=((lambda x, z: B.legno_di(a.biomi[z, x]))
                if a.biomi is not None else None))
+    # pietre miliari, santelle e carovane lungo le strade di campagna
+    if tipo_strada is not None:
+        bordo = BS.pianifica(arredi_r, tipo_strada, citta, h, a.cls, protetto,
+                             TM.traduttore(op.versione), seed=op.seed, densita=op.arredi)
+        if any(bordo.values()):
+            note.append("lungo le strade: " + ", ".join(f"{k} {v}" for k, v in bordo.items() if v))
     if arredi_r.arredi:
         protetto |= AR.maschera(arredi_r.arredi, a.cls.shape)
     for b in arredi_r.banchi:
