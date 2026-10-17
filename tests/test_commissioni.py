@@ -58,7 +58,8 @@ class TestPianifica(unittest.TestCase):
         a = CM.pianifica(citta, luoghi, strade, h, META, seed=3)
         b = CM.pianifica(citta, luoghi, strade, h, META, seed=3)
         self.assertEqual([(x.x, x.z, x.nome) for x in a], [(x.x, x.z, x.nome) for x in b])
-        self.assertEqual(len(a), 5)                  # 3 nella citta' murata, 2 nell'altra
+        # popolani 5 (murata) + 3 (altra), acquirenti 3 + 2
+        self.assertEqual(len(a), 5 + 3 + 3 + 2)
 
     def test_su_una_strada_lontano_dalla_piazza_e_distinti(self):
         citta, luoghi, strade, h = mondo()
@@ -74,10 +75,14 @@ class TestPianifica(unittest.TestCase):
         citta, luoghi, strade, h = mondo()
         popolani = CM.pianifica(citta, luoghi, strade, h, META, seed=2)
         self.assertEqual(len({p.nome for p in popolani}), len(popolani))
+        titoli_acq = tuple(t for _, t, _ in CM.ACQUIRENTI.values())
         for p in popolani:
-            self.assertTrue(p.nome.startswith(CM.Q[p.mestiere][0]))
             self.assertEqual(p.livello, 5)
-            self.assertEqual(len(p.offerte), 2)
+            if p.nome.startswith(titoli_acq):
+                self.assertEqual(p.offerte[0]["usi"], 16)
+            else:
+                self.assertTrue(p.nome.startswith(CM.Q[p.mestiere][0]))
+                self.assertEqual(len(p.offerte), 3)
 
     def test_evita_le_celle_occupate(self):
         citta, luoghi, strade, h = mondo()
@@ -92,35 +97,85 @@ class TestPianifica(unittest.TestCase):
 
 
 class TestNbt(unittest.TestCase):
-    def test_il_villager_ha_nome_e_scambi_con_due_richieste(self):
+    def test_il_villager_ha_nome_e_tre_richieste(self):
         citta, luoghi, strade, h = mondo()
-        p = CM.pianifica(citta, luoghi, strade, h, META, seed=1)[0]
+        popolani = CM.pianifica(citta, luoghi, strade, h, META, seed=1)
+        p = next(x for x in popolani if x.offerte[0]["usi"] == 1)
         tag = p.nbt_tag()
         self.assertEqual(str(tag["CustomName"]), p.nome)
         ricette = tag["Offers"]["Recipes"]
-        self.assertEqual(len(ricette), 2)
+        self.assertEqual(len(ricette), 3)
         for r in ricette:
             self.assertEqual(int(r["maxUses"]), 1)
             self.assertTrue(str(r["sell"]["id"]).startswith("minecraft:"))
+        # la prima e' la semplice: smeraldi veri, senza nome (si impilano)
+        self.assertEqual(str(ricette[0]["sell"]["id"]), "minecraft:emerald")
+        self.assertNotIn("components", ricette[0]["sell"])
+        for r in list(ricette)[1:]:
             comp = r["sell"]["components"]
             self.assertIn("minecraft:custom_name", comp)
             self.assertIn("minecraft:lore", comp)
 
     def test_la_seconda_pila_da_portare_va_in_buyB(self):
         o = CM.offerte("fabbro", "Aldona", "Fabbro Ugo")
-        tag = EN._scambio(o[0])
+        tag = EN._scambio(o[1])                       # la prima e' la semplice: una pila sola
         self.assertIn("buyB", tag)
         self.assertEqual(str(tag["buy"]["id"]), "minecraft:coal")
         self.assertEqual(str(tag["buyB"]["id"]), "minecraft:iron_ingot")
-        solo = EN._scambio(CM.offerte("macellaio", "x", "y")[0])
+        solo = EN._scambio(CM.offerte("macellaio", "x", "y")[1])
         self.assertIn("buyB", solo)
-        una = EN._scambio(CM.offerte("fabbro", "x", "y")[0] | {"compra2": None})
+        una = EN._scambio(CM.offerte("fabbro", "x", "y")[1] | {"compra2": None})
         self.assertNotIn("buyB", una)
+        semplice = EN._scambio(CM.offerte("fabbro", "x", "y")[0])
+        self.assertNotIn("buyB", semplice)
 
     def test_gli_incantesimi_sono_nel_formato_del_gioco(self):
-        tag = EN._scambio(CM.offerte("fabbro", "x", "y")[0])
+        tag = EN._scambio(CM.offerte("fabbro", "x", "y")[1])
         ench = tag["sell"]["components"]["minecraft:enchantments"]
         self.assertEqual(int(ench["minecraft:efficiency"]), 2)
+
+
+class TestSemplici(unittest.TestCase):
+    def test_ogni_mestiere_ha_la_sua_commissione_semplice(self):
+        self.assertEqual(set(CM.SEMPLICI), set(CM.Q))
+        for m, (cosa, quanti, smeraldi, frase) in CM.SEMPLICI.items():
+            self.assertTrue(quanti >= 8 and 2 <= smeraldi <= 6 and frase, m)
+            o = CM.offerte(m, "Aldona", "Tizio")[0]
+            self.assertEqual(o["vende"][0], "emerald")
+            self.assertEqual(o["compra"], (cosa, quanti))
+
+
+class TestAcquirenti(unittest.TestCase):
+    def test_tabella(self):
+        for tipo, (mestiere, titolo, voci) in CM.ACQUIRENTI.items():
+            self.assertIn(mestiere, EN.MESTIERI)
+            self.assertTrue(6 <= len(voci) <= 12, tipo)       # un villager mostra al massimo dodici scambi
+            cose = [c for c, _, _ in voci]
+            self.assertEqual(len(cose), len(set(cose)), tipo)
+            for cosa, quanti, smeraldi in voci:
+                self.assertGreaterEqual(quanti, 1)
+                self.assertGreaterEqual(smeraldi, 1)
+
+    def test_si_vende_il_proprio_con_scambi_ripetibili(self):
+        for tipo in CM.ACQUIRENTI:
+            for o in CM.offerte_acquirente(tipo):
+                self.assertEqual(o["vende"][0], "emerald")
+                self.assertEqual(o["usi"], 16)
+                t = EN._scambio(o)
+                self.assertEqual(int(t["maxUses"]), 16)
+                self.assertNotIn("components", t["sell"])
+
+    def test_i_prezzi_sono_ragionevoli(self):
+        # nessuno regala smeraldi: un diamante vale piu' di una pila di carbone
+        voci = {c: (q, e) for c, q, e in CM.ACQUIRENTI["minerali"][2]}
+        self.assertGreater(voci["diamond"][1] / voci["diamond"][0], voci["coal"][1] / voci["coal"][0])
+
+    def test_nell_elenco(self):
+        citta, luoghi, strade, h = mondo()
+        popolani = CM.pianifica(citta, luoghi, strade, h, META, seed=1)
+        md = CM.sezione_elenco(popolani)
+        self.assertIn("compra:", md)
+        self.assertIn("smeraldi", md)
 
 
 class TestElenco(unittest.TestCase):

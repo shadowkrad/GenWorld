@@ -122,29 +122,95 @@ Q = {
 }
 
 
+# Le commissioni SEMPLICI: portare una quantita' di roba comune, in cambio di smeraldi. Una per
+# mestiere, sempre la prima dell'elenco di chi le offre: servono a chi comincia e a chi ha
+# solo cio' che raccoglie lungo la strada. mestiere -> (cosa, quanti, smeraldi, frase)
+SEMPLICI = {
+    "fabbro": ("coal", 20, 4, "Il forno non ha carbone: venti pezzi e ti pago in smeraldi."),
+    "armaiolo": ("flint", 12, 3, "Selce per le punte delle frecce: dodici pezzi."),
+    "corazzaio": ("iron_ingot", 10, 4, "Dieci lingotti di ferro per la fucina."),
+    "falegname": ("oak_planks", 32, 3, "Trentadue assi di quercia per una consegna."),
+    "scalpellino": ("cobblestone", 64, 4, "Un carico di ciottoli per un muro."),
+    "macellaio": ("beef", 12, 4, "Dodici bistecche crude: la bottega e' vuota."),
+    "pescatore": ("cod", 16, 4, "Sedici merluzzi per il mercato del venerdi'."),
+    "fruttivendolo": ("carrot", 24, 3, "Ventiquattro carote, fresche."),
+    "pastore": ("white_wool", 12, 4, "Dodici di lana bianca per le coperte."),
+    "libraio": ("paper", 8, 2, "Otto fogli di carta per copiare i registri."),
+    "cartografo": ("paper", 10, 3, "Dieci fogli di carta per le mappe."),
+    "conciatore": ("leather", 10, 3, "Dieci pelli per la bottega."),
+    "speziale": ("sugar", 12, 3, "Dodici di zucchero per gli sciroppi."),
+}
+
+# Gli ACQUIRENTI: comprano quello che il giocatore ha in tasca, a prezzo fisso, tutte le volte
+# che vuole (16 scambi). tipo -> (mestiere, titolo, [(cosa, quanti, smeraldi)])
+ACQUIRENTI = {
+    "minerali": ("scalpellino", "Compratore di minerali", [
+        ("coal", 16, 1), ("raw_iron", 8, 1), ("iron_ingot", 6, 1), ("raw_copper", 12, 1),
+        ("copper_ingot", 9, 1), ("raw_gold", 6, 1), ("gold_ingot", 4, 1), ("redstone", 12, 1),
+        ("lapis_lazuli", 10, 1), ("amethyst_shard", 3, 1), ("diamond", 1, 4), ("cobblestone", 48, 1)]),
+    "bottino": ("armaiolo", "Compratore di bottino", [
+        ("bone", 12, 1), ("rotten_flesh", 10, 1), ("spider_eye", 6, 1), ("gunpowder", 6, 1),
+        ("string", 8, 1), ("arrow", 16, 1), ("ender_pearl", 1, 3), ("blaze_rod", 2, 2),
+        ("ghast_tear", 1, 4), ("nautilus_shell", 1, 5), ("phantom_membrane", 3, 2)]),
+    "pelli": ("conciatore", "Compratore di pelli", [
+        ("leather", 8, 1), ("rabbit_hide", 8, 1), ("feather", 12, 1), ("white_wool", 12, 1),
+        ("ink_sac", 8, 1), ("glow_ink_sac", 4, 2), ("honeycomb", 6, 1), ("honey_bottle", 3, 1)]),
+    "raccolto": ("fruttivendolo", "Compratore di raccolto", [
+        ("wheat", 20, 1), ("carrot", 16, 1), ("potato", 16, 1), ("beetroot", 16, 1),
+        ("melon_slice", 16, 1), ("pumpkin", 6, 1), ("apple", 10, 1), ("sweet_berries", 14, 1),
+        ("glow_berries", 10, 1), ("sugar_cane", 20, 1)]),
+    "pesca": ("pescatore", "Compratore di pesce", [
+        ("cod", 10, 1), ("salmon", 8, 1), ("tropical_fish", 4, 1), ("pufferfish", 3, 1),
+        ("kelp", 24, 1), ("lily_pad", 12, 1), ("prismarine_shard", 6, 1), ("nautilus_shell", 1, 5)]),
+    "legname": ("falegname", "Compratore di legname", [
+        ("oak_log", 16, 1), ("spruce_log", 16, 1), ("birch_log", 16, 1), ("acacia_log", 16, 1),
+        ("dark_oak_log", 16, 1), ("jungle_log", 16, 1), ("stick", 32, 1), ("bamboo", 24, 1)]),
+    "curiosita": ("libraio", "Antiquario", [
+        ("music_disc_13", 1, 4), ("music_disc_cat", 1, 4), ("name_tag", 1, 3), ("saddle", 1, 3),
+        ("book", 6, 1), ("paper", 20, 1), ("compass", 1, 2), ("clock", 1, 2), ("spyglass", 1, 3),
+        ("golden_apple", 1, 4), ("experience_bottle", 4, 2)]),
+}
+
+
 def _offerta(tit: str, citta: str, nome_pnj: str, r: dict) -> dict:
     """Uno scambio nel formato di `entita._scambio`."""
     id_, quanti, comp = r["vende"]
     comp = dict(comp or {})
-    comp["custom_name"] = r["nome"]
-    comp["lore"] = [r["frase"][:60], f"Commissione di {nome_pnj}, {citta}"[:60]]
+    if id_ != "emerald":                    # gli smeraldi restano smeraldi veri, si impilano
+        comp["custom_name"] = r["nome"]
+        comp["lore"] = [r["frase"][:60], f"Commissione di {nome_pnj}, {citta}"[:60]]
     offerta = {"compra": r["compra"][0],
-               "vende": (id_, quanti, comp), "usi": 1}
+               "vende": (id_, quanti, comp or None), "usi": 1}
     if len(r["compra"]) > 1:
         offerta["compra2"] = r["compra"][1]
     return offerta
 
 
+def _semplice(mestiere: str) -> dict:
+    cosa, quanti, smeraldi, frase = SEMPLICI[mestiere]
+    return {"compra": [(cosa, quanti)], "vende": ("emerald", smeraldi, None),
+            "nome": "Smeraldi", "frase": frase}
+
+
 def offerte(mestiere: str, citta: str, nome_pnj: str) -> tuple:
+    """Tre richieste: la semplice (smeraldi) e le due con attrezzo."""
     tit, righe = Q[mestiere]
-    return tuple(_offerta(tit, citta, nome_pnj, r) for r in righe)
+    return tuple(_offerta(tit, citta, nome_pnj, r) for r in [_semplice(mestiere), *righe])
+
+
+def offerte_acquirente(tipo: str) -> tuple:
+    """Gli scambi di un acquirente: la merce del giocatore contro smeraldi, ripetibili."""
+    _m, _t, voci = ACQUIRENTI[tipo]
+    return tuple({"compra": (cosa, quanti), "vende": ("emerald", smeraldi, None), "usi": 16}
+                 for cosa, quanti, smeraldi in voci)
 
 
 def pianifica(citta: list, luoghi: list, strade, altezze, meta: int, occupati: set | None = None,
-              seed: int = 0, per_citta: tuple = (2, 3)) -> list:
-    """Gli abitanti-commissione. `citta`: oggetti Citta (x, z, piazza, murata);
-    `luoghi`: per i nomi delle citta' (coordinate di gioco); `strade`: tipo_strada;
-    `occupati`: celle (x, z) di mappa gia' prese da altri abitanti."""
+              seed: int = 0, per_citta: tuple = (3, 5), acquirenti: tuple = (2, 3)) -> list:
+    """Gli abitanti-commissione e gli acquirenti. `citta`: oggetti Citta (x, z, piazza,
+    murata); `luoghi`: per i nomi delle citta' (coordinate di gioco); `strade`:
+    tipo_strada; `occupati`: celle (x, z) di mappa gia' prese da altri abitanti.
+    Per citta' da 3 a 5 popolani con commissioni e da 2 a 3 acquirenti."""
     from .entita import Abitante
     fuori: list = []
     if strade is None:
@@ -167,9 +233,15 @@ def pianifica(citta: list, luoghi: list, strade, altezze, meta: int, occupati: s
         if ok.size == 0:
             continue
         quanti = per_citta[1] if c.murata else per_citta[0]
-        scelti = [mestieri[int(i)] for i in rng.choice(len(mestieri), size=quanti, replace=False)]
-        for mestiere in scelti:
-            for _ in range(20):                          # una cella di strada non gia' presa
+        scelti = [("commissione", mestieri[int(i)])
+                  for i in rng.choice(len(mestieri), size=quanti, replace=False)]
+        n_acq = acquirenti[1] if c.murata else acquirenti[0]
+        tipi = list(ACQUIRENTI)
+        scelti += [("acquirente", tipi[int(i)])
+                   for i in rng.choice(len(tipi), size=min(n_acq, len(tipi)), replace=False)]
+        for genere, chiave in scelti:
+            mestiere = chiave if genere == "commissione" else ACQUIRENTI[chiave][0]
+            for _ in range(30):                          # una cella di strada non gia' presa
                 k = int(ok[int(rng.integers(0, ok.size))])
                 z, x = int(zz[k]) + z0, int(xx[k]) + x0
                 if all((x + dx, z + dz) not in occ for dx in (-1, 0, 1) for dz in (-1, 0, 1)):
@@ -178,12 +250,14 @@ def pianifica(citta: list, luoghi: list, strade, altezze, meta: int, occupati: s
                 continue
             occ.add((x, z))
             proprio = liberi.pop(int(rng.integers(0, len(liberi)))) if liberi else "Anonimo"
-            titolo = Q[mestiere][0]
+            titolo = Q[mestiere][0] if genere == "commissione" else ACQUIRENTI[chiave][1]
             nome = f"{titolo} {proprio}"
             fuori.append(Abitante(
                 x=x + 0.5, y=float(altezze[z, x]), z=z + 0.5, mestiere=mestiere, livello=5,
                 seme=(seed * 6271 + n_c * 104729 + len(fuori) * 7919 + 29) & 0x7FFFFFFF,
-                nome=nome, offerte=offerte(mestiere, nome_citta, nome)))
+                nome=nome,
+                offerte=(offerte(mestiere, nome_citta, nome) if genere == "commissione"
+                         else offerte_acquirente(chiave))))
     return fuori
 
 
@@ -193,6 +267,10 @@ def sezione_elenco(abitanti: list) -> str:
         return ""
     righe = ["", "## Commissioni dei popolani", ""]
     for a in abitanti:
+        if a.offerte and a.offerte[0].get("usi", 1) > 1:                  # un acquirente
+            righe.append(f"- **{a.nome}** compra: " + ", ".join(
+                f"{o['compra'][1]} {o['compra'][0]} per {o['vende'][1]} smeraldi" for o in a.offerte))
+            continue
         for o in a.offerte:
             comp = o["vende"][2] or {}
             chiede = " + ".join(f"{n} {i}" for i, n in
