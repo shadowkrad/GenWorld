@@ -584,7 +584,7 @@ def indice_banchi(banchi: list[Banco], passo: int = 16) -> dict:
 
 
 def posto_di_lavoro(out: np.ndarray, y0: int, ox: int, oz: int,
-                    ed: "Edificio", tav: TavolozzaEdilizia) -> None:
+                    ed: "Edificio", tav: TavolozzaEdilizia, cella: tuple | None = None) -> None:
     """Mette il banco del mestiere dentro una casa di template.
 
     Una casa disegnata a mano non sa niente dei nostri mestieri, ma il banco
@@ -601,6 +601,13 @@ def posto_di_lavoro(out: np.ndarray, y0: int, ox: int, oz: int,
         return
     banco = _arredo(tav, nome[0], NORD)
     H = out.shape[1]
+    if cella is not None:
+        # una cella gia' scelta dentro la casa (vedi `template.posti_in_piedi`): niente ricerca
+        wx, wy, wz = cella
+        lx, ly, lz = wx - ox, wy - y0, wz - oz
+        if 0 <= lx < 16 and 0 <= lz < 16 and 1 <= ly < H and out[lx, ly, lz] == tav.aria:
+            out[lx, ly, lz] = banco
+        return
     cx, cz = (ed.x + ed.x1) // 2, (ed.z + ed.z1) // 2
     ly = ed.base - y0
     if not (1 <= ly < H):

@@ -1265,11 +1265,22 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"case: {len(scelte)} su {len(edifici)} lotti hanno una "
                     f"casa ({len({k for k, _ in scelte.values()})} modelli "
                     f"diversi su {len(modelli_case)})")
+    def _dove_sta(i: int, e) -> tuple[float, float, float]:
+        """Dentro la casa da template, in una cella libera e al coperto (non nel
+        muro, non sotto il pavimento); senza posto, in mezzo all'impronta."""
+        if i in scelte:
+            mi, quarti = scelte[i]
+            posti = TM.celle_di_casa(modelli_case[mi], quarti, e)
+            if posti:
+                x, y, z = posti[0]
+                return (x + 0.5, y + 0.0, z + 0.5)
+        return E.punto_lavoro(e)
+
     abitanti = [EN.Abitante(x=px, y=py + 0.0, z=pz, mestiere=e.mestiere,
                             seme=e.seme)
                 for i, e in enumerate(edifici)
                 if not modelli_case or i in scelte
-                for px, py, pz in (E.punto_lavoro(e),)]
+                for px, py, pz in (_dove_sta(i, e),)]
     # (i venditori dei banchi si creano dopo, a terreno definitivo)
     if edifici:
         st = CT.statistiche(edifici, vie, muro, citta, banchi)
@@ -2476,7 +2487,10 @@ def _posa_costruzioni(blocchi: np.ndarray, piano: Piano, sx: int, sz: int,
                 TM.costruisci(blocchi, -64, sx, sz, cat, mi, quarti,
                               px, pz, base_c, vietato=vietato_c)
                 if ed.mestiere:
-                    E.posto_di_lavoro(blocchi, -64, sx, sz, ed, tav_ed)
+                    posti = TM.celle_di_casa(modelli[mi], quarti, ed)
+                    # il banco nella seconda cella libera: la prima e' dell'abitante
+                    E.posto_di_lavoro(blocchi, -64, sx, sz, ed, tav_ed,
+                                      cella=posti[1] if len(posti) > 1 else None)
             # se il lotto non e' in `scelte` resta senza casa: se ne
             # occupano gli arredi (`arredi.py`), non un generatore
             # parametrico di riserva, che non esiste piu'.
