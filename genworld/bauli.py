@@ -243,6 +243,12 @@ BOTTINO_ZONA: dict[str, tuple] = {
              ("fishing_rod", 1, 1), ("spyglass", 1, 1), ("lantern", 1, 3),
              ("iron_ingot", 2, 5), ("emerald", 1, 3), ("glass_bottle", 2, 6),
              ("bread", 2, 5), ("paper", 3, 8)),
+    # il tesoro di un'isola in mare aperto: oro, gemme e roba da marinaio
+    "isola": (("gold_ingot", 6, 18), ("emerald", 3, 9), ("diamond", 2, 5),
+              ("golden_apple", 1, 2), ("compass", 1, 1), ("spyglass", 1, 1),
+              ("name_tag", 1, 2), ("ender_pearl", 1, 3), ("heart_of_the_sea", 1, 1),
+              ("music_disc_wait", 1, 1), ("experience_bottle", 4, 12), ("nautilus_shell", 1, 2),
+              ("saddle", 1, 1), ("gold_block", 1, 2), ("iron_ingot", 4, 12)),
     # le botteghe del paese: il bottino segue il mestiere di chi ci abita
     "fabbro": (("iron_ingot", 3, 10), ("coal", 4, 16), ("iron_pickaxe", 1, 1),
                ("iron_axe", 1, 1), ("iron_shovel", 1, 1), ("iron_hoe", 1, 1),
@@ -305,6 +311,12 @@ def _oggetti_zona(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
     contenuto = [(s, tabella[int(t)][0],
                   int(rng.integers(tabella[int(t)][1], tabella[int(t)][2] + 1)))
                  for s, t in zip(slot, tipi)]
+    if tipo == "isola":
+        # un tesoro vero: sempre oro e almeno una gemma, qualunque sia il resto
+        contenuto[0] = (contenuto[0][0], "gold_ingot", int(rng.integers(6, 19)))
+        if len(contenuto) > 1:
+            contenuto[1] = (contenuto[1][0], "diamond" if rng.random() < 0.5 else "emerald",
+                            int(rng.integers(2, 6)))
     if lontano:
         contenuto = _aggiungi_tesori(contenuto, rng, 1)
     return contenuto

@@ -44,9 +44,12 @@ ACCAMPAMENTI = ("Campo dei Predoni", "Accampamento del Lupo", "Campo dei Senzano
                 "Bivacco dell'Esule", "Campo del Corvo", "Accampamento delle Ceneri")
 CIMITERI = ("Cimitero degli Impiccati", "Camposanto dei Dimenticati", "Cimitero di Valdoro",
             "Giardino dei Pianti", "Cimitero del Silenzio")
+ISOLE = ("Isola del Corvo Bianco", "Isola dei Naufraghi", "Scoglio del Capitano",
+         "Isola della Croce Rossa", "Isola di Sabbia Nera", "Isolotto del Pirata Muto",
+         "Isola delle Due Palme", "Secca del Tesoro")
 PORTALI = ("Portale Antico", "Il Varco Spezzato", "Portale delle Ceneri", "Arco del Confine")
 
-TIPI_AVVENTURA = ("rovina", "torre", "fortezza", "castello")
+TIPI_AVVENTURA = ("rovina", "torre", "fortezza", "castello", "isola")
 
 # otto direzioni, a partire da est, in senso orario guardando la mappa dall'alto
 # (+x est, +z sud)
@@ -95,7 +98,7 @@ def _scegli(rng: np.random.Generator, elenco: tuple, usati: set) -> str:
 
 def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: list,
              meta: int, seed: int = 0, fortezze: list | None = None,
-             castelli: list | None = None) -> list[Luogo]:
+             castelli: list | None = None, isole: list | None = None) -> list[Luogo]:
     """Dà un nome a ogni luogo e lo mette in coordinate di gioco."""
     rng = np.random.default_rng(seed + 8888)
     usati: set = set()
@@ -119,6 +122,9 @@ def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: 
     for cs in castelli or []:
         fuori.append(Luogo(cs.nome, "castello", cs.x - meta, cs.z - meta, cs.ys,
                            nota=f"in rovina, signore: {cs.capo}"))
+    for isl in isole or []:
+        fuori.append(Luogo(_scegli(rng, ISOLE, usati), "isola", isl.x - meta, isl.z - meta, isl.cima,
+                           nota="una croce rossa sulla sabbia: il forziere e' sotto"))
     for av in avamposti:
         tab = {"campo": ("accampamento", ACCAMPAMENTI), "cimitero": ("cimitero", CIMITERI),
                "portale": ("portale", PORTALI)}[av.tipo]
@@ -134,9 +140,9 @@ def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "",
                   extra_md: str = "") -> tuple[str, str]:
     """Scrive `luoghi.md` e `luoghi.json` in `cartella`. Ritorna i due percorsi."""
     os.makedirs(cartella, exist_ok=True)
-    ordine = ("citta", "torre", "fortezza", "castello", "rovina", "miniera", "accampamento", "cimitero", "portale")
+    ordine = ("citta", "torre", "fortezza", "castello", "isola", "rovina", "miniera", "accampamento", "cimitero", "portale")
     titoli = {"citta": "Citta'", "torre": "Torri con un capo", "fortezza": "Fortezze",
-              "castello": "Castelli in rovina", "rovina": "Rovine con cripta",
+              "castello": "Castelli in rovina", "isola": "Isole del tesoro", "rovina": "Rovine con cripta",
               "miniera": "Miniere", "accampamento": "Accampamenti", "cimitero": "Cimiteri",
               "portale": "Portali"}
     righe = [f"# Luoghi{(' di ' + nome_mondo) if nome_mondo else ''}", "",
@@ -381,7 +387,7 @@ def cartelli_bivi(strada: np.ndarray, luoghi: list[Luogo], meta: int,
     for x, z in trova_bivi(strada)[:massimo]:
         gx, gz = x - meta, z - meta
         qui = Luogo("", "", gx, gz)
-        vicini = sorted((l for l in luoghi if 25 < distanza(qui, l) < 600),
+        vicini = sorted((l for l in luoghi if 25 < distanza(qui, l) < 600 and l.tipo != "isola"),
                         key=lambda l: distanza(qui, l))[:2]
         if not vicini:
             continue

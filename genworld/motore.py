@@ -39,6 +39,7 @@ from . import commissioni as CM
 from . import castello as CS
 from . import entita as EN
 from . import incarichi as IC
+from . import isole as ISO
 from . import fortezze as FZ
 from . import luoghi as LU
 from . import mappe as MP
@@ -148,6 +149,8 @@ class Opzioni:
     # Un committente per citta' con un incarico verso un luogo d'avventura
     # (vedi `incarichi.py`). Serve almeno una citta' e un luogo.
     incarichi: bool = True
+    # Isole del tesoro in mare aperto, con la croce di sabbia rossa (vedi `isole.py`).
+    isole: float = 1.0
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -627,6 +630,8 @@ class Piano:
     oggetti_incarico: dict = field(default_factory=dict)
     mappe: list = field(default_factory=list)
     commissioni: list = field(default_factory=list)
+    isole: list = field(default_factory=list)
+    indice_isole: dict = field(default_factory=dict)
     libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
@@ -1457,10 +1462,24 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"ragni nelle miniere: {len(ragni)}")
         abitanti = abitanti + ragni
 
+    # ISOLE DEL TESORO. Per ultime: alzano il fondale in mare aperto, e tutto il
+    # resto (alberi, fauna, abitati) e' gia' stato deciso sul mare com'era.
+    isole: list = []
+    cls_piano = a.cls
+    if op.isole > 0:
+        isole = ISO.pianifica(a.cls, h, LIVELLO_MARE, protetto, densita=op.isole, seed=op.seed)
+        if isole:
+            h = h.copy()
+            cls_piano = a.cls.copy()
+            ISO.applica(h, cls_piano, isole, LIVELLO_MARE)
+            protetto = protetto | ISO.maschera(isole, a.cls.shape, margine=2)
+            note.append(f"isole del tesoro: {len(isole)} a "
+                        + ", ".join(f"({i.x - op.lato // 2}, {i.z - op.lato // 2})" for i in isole))
+
     # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
     meta_l = op.lato // 2
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
-                         fortezze=fortezze, castelli=castelli_rovina)
+                         fortezze=fortezze, castelli=castelli_rovina, isole=isole)
 
     # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
     incarichi: list = []
@@ -1478,6 +1497,9 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             x, y, z, _ = cs.forzieri()[5]
             strutture[("castello", cs.x - meta_l, cs.z - meta_l)] = (
                 (cs.x, cs.z), (x - meta_l, y, z - meta_l))
+        for isl in isole:
+            x, y, z, _ = isl.forzieri()[0]
+            strutture[("isola", isl.x - meta_l, isl.z - meta_l)] = (None, (x - meta_l, y, z - meta_l))
         incarichi = IC.pianifica(citta, luoghi, strutture, meta_l, seed=op.seed)
         if incarichi:
             note.append(f"incarichi: {len(incarichi)} (" + ", ".join(
@@ -1537,6 +1559,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         sedi[("castello", cs.x - meta_l, cs.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    for isl in isole:
+        libro = ind["tappe"].get(("isola", isl.x - meta_l, isl.z - meta_l))
+        x, y, z, _ = isl.forzieri()[0]
+        sedi[("isola", isl.x - meta_l, isl.z - meta_l)] = (x - meta_l, y, z - meta_l)
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
     mappe_tesoro = MP.pianifica(luoghi, sedi, meta_l)
     oggetti_forzieri = IC.oggetti_forziere(incarichi)
     for m in mappe_tesoro:
@@ -1564,7 +1592,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 
     avanza(1.0, "pianificazione completata")
     return Piano(h=h, edifici=edifici, indice_edifici=indice_ed,
-                 cls=a.cls, livello=a.livello,
+                 cls=cls_piano, livello=a.livello,
+                 isole=isole, indice_isole=ISO.indice_per_chunk(isole) if isole else {},
                  tipo_strada=tipo_strada, quota_strada=quota_strada,
                  alberi=alberi, indice_alberi=indice, muro=muro,
                  scarpata=scarpata,
@@ -2578,6 +2607,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_tr = TR.Tavolozza(m) if piano.torri else None
         tav_fz = FZ.Tavolozza(m) if piano.fortezze else None
         tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
+        tav_is = ISO.Tavolozza(m) if piano.isole else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2646,7 +2676,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         else:
             modelli, confini = _modelli_e_confini(op, piano)
         zone_g = ((zone_bottino(piano, confini, op.lato // 2) if piano.isolate else [])
-                  + zone_mestieri(piano.edifici, op.lato // 2))
+                  + zone_mestieri(piano.edifici, op.lato // 2)
+                  + [(i.x - op.lato // 2 - 3, i.z - op.lato // 2 - 3,
+                      i.x - op.lato // 2 + 4, i.z - op.lato // 2 + 4, "isola")
+                     for i in piano.isole])
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
@@ -2758,6 +2791,9 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         piano.fortezze, _dal_chunk(piano.indice_fortezze, sx, sz), meta=meta)
                 dungeon_g.update({(x - meta, y, z - meta): tipo
                                   for x, y, z, tipo in tav_fz.bauli + tav_fz.torre.bauli})
+            if tav_is is not None:
+                ISO.posa(blocchi, tav_is, fetta(piano.h, sx, sz), ox, oz, -64, piano.isole,
+                        _dal_chunk(piano.indice_isole, sx, sz), meta=meta)
             if tav_cs is not None:
                 tav_cs.bauli.clear()
                 CS.posa(blocchi, tav_cs, fetta(piano.h, sx, sz), ox, oz, -64,
