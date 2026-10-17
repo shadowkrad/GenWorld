@@ -120,6 +120,12 @@ def main() -> None:
         "- [ ] l'isola si vede dal mare, con la spiaggia e il fianco dolce, senza muri d'acqua o buchi;",
         "- [ ] la croce e' una X di sabbia rossa; scavando al centro, a due blocchi, c'e' il forziere;",
         "- [ ] le palme hanno la chioma e non sono tagliate.", "",
+        "## Megaliti e ruderi", "",
+        "Sulle colline e nelle pianure, lontano da paesi e strade (nelle note della generazione: `ruderi antichi`): "
+        "cerchi di pietre con un trilite e una candela al centro, templi in rovina con colonne spezzate a quote "
+        "diverse e dolmen con la lastra sopra, tutti con muschio.", "",
+        "- [ ] si vedono come ruderi antichi, non come blocchi sparsi; le pietre poggiano a terra e non sono sospese;",
+        "- [ ] i muschi e le pietre non coprono alberi o altre strutture.", "",
         "## Lungo le strade", "",
         "- [ ] Pietre miliari (un pilastrino di mattoni) ogni cinquanta blocchi circa fuori dai paesi.",
         "- [ ] Santelle: un'edicola di pietra aperta verso la strada, con candela e lanterna.",

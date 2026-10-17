@@ -34,6 +34,7 @@ from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
 from . import bordostrada as BS
+from . import ruderi as RUD
 from . import cascate as CAS
 from . import commissioni as CM
 from . import castello as CS
@@ -876,6 +877,11 @@ def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
                              TM.traduttore(op.versione), seed=op.seed, densita=op.arredi)
         if any(bordo.values()):
             note.append("lungo le strade: " + ", ".join(f"{k} {v}" for k, v in bordo.items() if v))
+    # megaliti e ruderi antichi sulle colline, lontano da paesi e strade
+    ruderi = RUD.pianifica(arredi_r, a.cls, h, tipo_strada, citta, protetto,
+                           TM.traduttore(op.versione), seed=op.seed, densita=op.arredi)
+    if any(ruderi.values()):
+        note.append("ruderi antichi: " + ", ".join(f"{k} {v}" for k, v in ruderi.items() if v))
     if arredi_r.arredi:
         protetto |= AR.maschera(arredi_r.arredi, a.cls.shape)
     for b in arredi_r.banchi:
