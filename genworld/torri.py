@@ -240,6 +240,8 @@ def pianifica(altezze: np.ndarray, acqua: np.ndarray, evita: np.ndarray | None =
             continue
         dx, dz = ((1, 0), (-1, 0), (0, 1), (0, -1))[int(rng.integers(0, 4))]
         specie = CAPO_PER_ZONA[int(rng.integers(0, len(CAPO_PER_ZONA)))]
+        if len(fuori) == 2:                 # almeno una torre del mago ogni tre, se ce ne sono
+            specie = "evocatore"
         nome = (_nome_unico(rng, nomi_maghi) if specie == "evocatore" and nomi_maghi
                 else _nome_unico(rng, nomi_liberi))
         fuori.append(Torre(x=x, z=z, ys=ys, dx=dx, dz=dz, specie=specie, nome=nome,
