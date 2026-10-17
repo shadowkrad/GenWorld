@@ -6,7 +6,7 @@ from types import SimpleNamespace as NS
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from genworld.motore import zone_bottino  # noqa: E402
+from genworld.motore import zone_bottino, zone_mestieri  # noqa: E402
 
 
 class TestZone(unittest.TestCase):
@@ -22,6 +22,11 @@ class TestZone(unittest.TestCase):
         self.assertEqual(zone, [(-300, -200, -260, -170, "castello"),
                                 (-450, -440, -430, -432, "nave"),
                                 (-100, -90, -91, -81, "faro")])
+
+    def test_le_botteghe_hanno_il_mestiere(self):
+        case = [NS(x=10, z=20, x1=18, z1=29, mestiere="fabbro"),
+                NS(x=30, z=40, x1=36, z1=46, mestiere="")]
+        self.assertEqual(zone_mestieri(case, 5), [(5, 15, 13, 24, "fabbro")])
 
     def test_senza_confini_nessuna_zona(self):
         self.assertEqual(zone_bottino(NS(isolate=[NS(modello=0, x=1, z=1, larghezza=1, profondita=1)]),

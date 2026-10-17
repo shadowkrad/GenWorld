@@ -112,6 +112,35 @@ def main() -> None:
                              f" blocchi - `/tp @s {sx - m0} {y} {sz - m0}`")
             righe.append("")
     righe.extend([
+        "## Isole del tesoro", "",
+        "In mare aperto, lontano dalle coste (vedi la sezione Isole del tesoro di `luoghi.md`): un'isola di "
+        "sabbia con il cuore d'erba, due palme di giungla e una croce di sabbia rossa. Sotto il centro della "
+        "croce, a due blocchi di profondita', un forziere con oro e gemme (e il libro/la mappa della tappa "
+        "successiva). Sono tappe della catena degli indizi: la mappa del forziere precedente mostra la croce.", "",
+        "- [ ] l'isola si vede dal mare, con la spiaggia e il fianco dolce, senza muri d'acqua o buchi;",
+        "- [ ] la croce e' una X di sabbia rossa; scavando al centro, a due blocchi, c'e' il forziere;",
+        "- [ ] le palme hanno la chioma e non sono tagliate.", "",
+        "## Megaliti e ruderi", "",
+        "Sulle colline e nelle pianure, lontano da paesi e strade (nelle note della generazione: `ruderi antichi`): "
+        "cerchi di pietre con un trilite e una candela al centro, templi in rovina con colonne spezzate a quote "
+        "diverse e dolmen con la lastra sopra, tutti con muschio.", "",
+        "- [ ] si vedono come ruderi antichi, non come blocchi sparsi; le pietre poggiano a terra e non sono sospese;",
+        "- [ ] i muschi e le pietre non coprono alberi o altre strutture.", "",
+        "## Lungo le strade", "",
+        "- [ ] Pietre miliari (un pilastrino di mattoni) ogni cinquanta blocchi circa fuori dai paesi.",
+        "- [ ] Santelle: un'edicola di pietra aperta verso la strada, con candela e lanterna.",
+        "- [ ] Carovane: un carro con il carico, un fuoco acceso e un mercante ambulante con due lama.",
+        "- [ ] Ponti di pietra ad archi (se ci sono ponti alti): piloni ogni sette celle e archi a tutto sesto.", "",
+        "## Campagna", "",
+        "- [ ] Vigneti: filari di staccionata con azalea fiorita sopra; uliveti con olivi bassi. Sulle colline vicine ai paesi.",
+        "- [ ] Lucciole (cespugli) nei boschi scuri e nelle paludi; fiori selvatici nei prati.", "",
+        "## Abitanti e forzieri", "",
+        "- [ ] I villager stanno dentro le case, in piedi e non nei muri o sotto il pavimento.",
+        "- [ ] I forzieri non sono piu' vuoti, nemmeno quelli doppi e le botti; il bottino segue il mestiere "
+        "della bottega (il fabbro ha ferro e picconi, il falegname assi e asce...).",
+        "- [ ] Forni, fornaci e affumicatoi hanno il carbone.",
+        "- [ ] Mini quest: in ogni abitato 2-3 popolani con un nome, due richieste ciascuno (materiali in "
+        "cambio di attrezzi con nome e incantesimi). Elenco in `luoghi.md`.", "",
         "## Altro da controllare", "",
         "- [ ] Grotte lussureggianti: oltre alle pozze, ruscelli sinuosi di acqua ferma in un solco di una cella, "
         "chiusi dalla roccia (non scorrono e non si svuotano); si interrompono ai gradini del pavimento.",

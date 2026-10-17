@@ -33,10 +33,15 @@ from . import citta as CT
 from . import edifici as E
 from . import dungeon as DG
 from . import torri as TR
+from . import bordostrada as BS
+from . import ruderi as RUD
+from . import sicurezza as SIC
 from . import cascate as CAS
+from . import commissioni as CM
 from . import castello as CS
 from . import entita as EN
 from . import incarichi as IC
+from . import isole as ISO
 from . import fortezze as FZ
 from . import luoghi as LU
 from . import mappe as MP
@@ -146,6 +151,8 @@ class Opzioni:
     # Un committente per citta' con un incarico verso un luogo d'avventura
     # (vedi `incarichi.py`). Serve almeno una citta' e un luogo.
     incarichi: bool = True
+    # Isole del tesoro in mare aperto, con la croce di sabbia rossa (vedi `isole.py`).
+    isole: float = 1.0
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -624,6 +631,9 @@ class Piano:
     incarichi: list = field(default_factory=list)
     oggetti_incarico: dict = field(default_factory=dict)
     mappe: list = field(default_factory=list)
+    commissioni: list = field(default_factory=list)
+    isole: list = field(default_factory=list)
+    indice_isole: dict = field(default_factory=dict)
     libro_citta: tuple | None = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
@@ -862,6 +872,17 @@ def _pianifica_arredi(op: Opzioni, a: Analisi, h: np.ndarray, edifici: list,
             a.riservato if a.riservato is not None else False),
         legno=((lambda x, z: B.legno_di(a.biomi[z, x]))
                if a.biomi is not None else None))
+    # pietre miliari, santelle e carovane lungo le strade di campagna
+    if tipo_strada is not None:
+        bordo = BS.pianifica(arredi_r, tipo_strada, citta, h, a.cls, protetto,
+                             TM.traduttore(op.versione), seed=op.seed, densita=op.arredi)
+        if any(bordo.values()):
+            note.append("lungo le strade: " + ", ".join(f"{k} {v}" for k, v in bordo.items() if v))
+    # megaliti e ruderi antichi sulle colline, lontano da paesi e strade
+    ruderi = RUD.pianifica(arredi_r, a.cls, h, tipo_strada, citta, protetto,
+                           TM.traduttore(op.versione), seed=op.seed, densita=op.arredi)
+    if any(ruderi.values()):
+        note.append("ruderi antichi: " + ", ".join(f"{k} {v}" for k, v in ruderi.items() if v))
     if arredi_r.arredi:
         protetto |= AR.maschera(arredi_r.arredi, a.cls.shape)
     for b in arredi_r.banchi:
@@ -1459,10 +1480,24 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         note.append(f"ragni nelle miniere: {len(ragni)}")
         abitanti = abitanti + ragni
 
+    # ISOLE DEL TESORO. Per ultime: alzano il fondale in mare aperto, e tutto il
+    # resto (alberi, fauna, abitati) e' gia' stato deciso sul mare com'era.
+    isole: list = []
+    cls_piano = a.cls
+    if op.isole > 0:
+        isole = ISO.pianifica(a.cls, h, LIVELLO_MARE, protetto, densita=op.isole, seed=op.seed)
+        if isole:
+            h = h.copy()
+            cls_piano = a.cls.copy()
+            ISO.applica(h, cls_piano, isole, LIVELLO_MARE)
+            protetto = protetto | ISO.maschera(isole, a.cls.shape, margine=2)
+            note.append(f"isole del tesoro: {len(isole)} a "
+                        + ", ".join(f"({i.x - op.lato // 2}, {i.z - op.lato // 2})" for i in isole))
+
     # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
     meta_l = op.lato // 2
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
-                         fortezze=fortezze, castelli=castelli_rovina)
+                         fortezze=fortezze, castelli=castelli_rovina, isole=isole)
 
     # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
     incarichi: list = []
@@ -1480,6 +1515,9 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             x, y, z, _ = cs.forzieri()[5]
             strutture[("castello", cs.x - meta_l, cs.z - meta_l)] = (
                 (cs.x, cs.z), (x - meta_l, y, z - meta_l))
+        for isl in isole:
+            x, y, z, _ = isl.forzieri()[0]
+            strutture[("isola", isl.x - meta_l, isl.z - meta_l)] = (None, (x - meta_l, y, z - meta_l))
         incarichi = IC.pianifica(citta, luoghi, strutture, meta_l, seed=op.seed)
         if incarichi:
             note.append(f"incarichi: {len(incarichi)} (" + ", ".join(
@@ -1539,6 +1577,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         sedi[("castello", cs.x - meta_l, cs.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    for isl in isole:
+        libro = ind["tappe"].get(("isola", isl.x - meta_l, isl.z - meta_l))
+        x, y, z, _ = isl.forzieri()[0]
+        sedi[("isola", isl.x - meta_l, isl.z - meta_l)] = (x - meta_l, y, z - meta_l)
+        if libro is not None:
+            libri[(x - meta_l, y, z - meta_l)] = libro
     mappe_tesoro = MP.pianifica(luoghi, sedi, meta_l)
     oggetti_forzieri = IC.oggetti_forziere(incarichi)
     for m in mappe_tesoro:
@@ -1551,15 +1595,23 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         raggio0 = next((c.raggio for c in citta if c.x - meta_l == c0.x and c.z - meta_l == c0.z), 30)
         libro_citta = (c0.x, c0.z, raggio0, libro0)
     abitanti = LU.offerte_bottega(abitanti, luoghi, meta_l)
-    if incarichi:
-        abitanti = abitanti + IC.abitanti(incarichi, tipo_strada, h, citta, meta_l, seed=op.seed)
+    commissioni: list = []
+    if op.incarichi and citta:
+        committenti = IC.abitanti(incarichi, tipo_strada, h, citta, meta_l, seed=op.seed) if incarichi else []
+        occupati = {(int(a.x), int(a.z)) for a in committenti}
+        commissioni = CM.pianifica(citta, luoghi, tipo_strada, h, meta_l, occupati, seed=op.seed)
+        abitanti = abitanti + committenti + commissioni
+        if commissioni:
+            note.append(f"commissioni dei popolani: {len(commissioni)} abitanti, "
+                        f"{sum(len(a.offerte) for a in commissioni)} richieste")
     if luoghi:
         note.append(f"luoghi con nome: {len(luoghi)}, cartelli: {len(cartelli)}, "
                     f"libri di indizi: {len(libri) + (1 if libro_citta else 0)}")
 
     avanza(1.0, "pianificazione completata")
     return Piano(h=h, edifici=edifici, indice_edifici=indice_ed,
-                 cls=a.cls, livello=a.livello,
+                 cls=cls_piano, livello=a.livello,
+                 isole=isole, indice_isole=ISO.indice_per_chunk(isole) if isole else {},
                  tipo_strada=tipo_strada, quota_strada=quota_strada,
                  alberi=alberi, indice_alberi=indice, muro=muro,
                  scarpata=scarpata,
@@ -1570,6 +1622,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
                  incarichi=incarichi, oggetti_incarico=oggetti_forzieri, mappe=mappe_tesoro,
+                 commissioni=commissioni,
                  castelli_rovina=castelli_rovina,
                  indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
                                          if castelli_rovina else {}),
@@ -1814,7 +1867,7 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                   manto_c=None, scarpata_c=None, sponda_c=None,
                   campi_orlo_c=None, tipo_orlo_c=None, muro_orlo_c=None,
                   piazze=None, piede_c=None, biomi_c=None, caduta_c=None,
-                  parete_acqua_c=None):
+                  parete_acqua_c=None, asse_ponte_c=None):
     """Colonne di un chunk: (16, H, 16) di id di palette, vettoriale."""
     hh = h_c.astype(np.int32)[:, None, :]
     ys = np.arange(y0, y1, dtype=np.int32)[None, :, None]
@@ -1865,7 +1918,8 @@ def blocchi_chunk(scrittore, h_c, cls_c, liv_c=None, tipo_c=None,
                     else np.pad(np.asarray(tipo_c), 1))
         _posa_strada(out, scrittore, np.asarray(tipo_c), tipo_orlo,
                      np.asarray(quota_c).astype(np.int32),
-                     np.asarray(h_c).astype(np.int32), ox, oz, y0)
+                     np.asarray(h_c).astype(np.int32), ox, oz, y0,
+                     asse=asse_ponte_c)
     if piazze:
         _posa_piazze(out, scrittore, piazze, np.asarray(h_c).astype(np.int32),
                      ox, oz, y0)
@@ -1921,6 +1975,9 @@ def _posa_campi(out, s, campi, campi_orlo, h_c, y0):
     acqua = s.blocco("water", level="0")
     sentiero = s.blocco("grass_path")
     semi = [s.blocco(n, age="7") for n in AG.COLTURE]
+    terra_vigna = s.blocco("coarse_dirt")
+    vite = s.blocco("leaves", material="flowering_azalea", distance="1", persistent="true",
+                    check_decay="false")
 
     def connesso(lx: int, lz: int) -> bool:
         return int(campi_orlo[lx, lz]) == AG.RECINTO
@@ -1953,6 +2010,17 @@ def _posa_campi(out, s, campi, campi_orlo, h_c, y0):
                 out[lx, y + 1, lz] = palo
             elif c == AG.PRATO:
                 out[lx, y + 1, lz] = aria
+            elif c == AG.VIGNA:
+                # un filare: terra battuta, un palo di staccionata (unito ai vicini del
+                # filare) e sopra la chioma di azalea fiorita, che da' i grappoli
+                out[lx, y, lz] = terra_vigna
+                est = int(campi_orlo[lx + 2, lz + 1]) == AG.VIGNA
+                ovest = int(campi_orlo[lx, lz + 1]) == AG.VIGNA
+                out[lx, y + 1, lz] = s.blocco(
+                    "fence", material="oak", north="false", south="false",
+                    east="true" if est else "false", west="true" if ovest else "false")
+                if y + 2 < H:
+                    out[lx, y + 2, lz] = vite
 
 
 ALTEZZA_MURA = 7
@@ -2269,7 +2337,34 @@ def _posa_piazze(out, s, piazze, h_c, ox, oz, y0):
 LUCE_PONTE_PIETRA = 8
 
 
-def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
+LUCE_ARCO = 7            # passo dei piloni di un ponte di pietra: sei celle fra uno e l'altro
+RAGGIO_ARCO = (LUCE_ARCO - 2) / 2.0
+
+
+def _arco_ponte(out, y: int, fondo: int, u: int, lx: int, lz: int, blocco: int) -> bool:
+    """La colonna (lx, lz) di un ponte di pietra ad archi. `u` e' la coordinata di
+    MONDO lungo il ponte, `y` l'impalcato, `fondo` il terreno o il fondale sotto.
+
+    Ogni sette celle un pilone pieno, e fra due piloni un arco a tutto sesto: il
+    soffitto sale dall'imposta (RAGGIO_ARCO blocchi sotto l'impalcato) fino alla
+    chiave, un blocco sotto l'impalcato; sopra l'arco la muratura e' piena. Sotto
+    l'arco resta il vuoto (o l'acqua). Ritorna vero se ha disegnato la colonna;
+    falso se il vuoto e' troppo basso per un arco (resta il pilone di prima)."""
+    import math
+    if y - 1 - RAGGIO_ARCO - fondo < 1.0:
+        return False
+    a = u % LUCE_ARCO
+    if a == 0:
+        out[lx, fondo:y, lz] = blocco                 # il pilone, dal terreno all'impalcato
+        return True
+    t = a - LUCE_ARCO / 2.0
+    soffitto = y - 1 - RAGGIO_ARCO + math.sqrt(max(0.0, RAGGIO_ARCO ** 2 - t * t))
+    primo_pieno = int(math.ceil(soffitto))
+    out[lx, primo_pieno:y, lz] = blocco               # i pennacchi sopra l'arco
+    return True
+
+
+def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0, asse=None):
     """Sede stradale, impalcati, pilastri e parapetti.
 
     Il ponte non e' un oggetto piazzato: e' il tratto di strada che si trova
@@ -2322,9 +2417,13 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
 
             fondo_pil = max(0, int(h_c[lx, lz]) - 1 - y0)
             pietra = (y - fondo_pil) >= LUCE_PONTE_PIETRA
+            ad_arco = False
             if pietra:
                 hv = ((ox + lx) * 73856093) ^ ((oz + lz) * 19349663)
                 out[lx, y, lz] = mattone_muschio if hv % 100 < 10 else mattone
+                if asse is not None and int(asse[lx, lz]) > 0:
+                    ad_arco = _arco_ponte(out, y, fondo_pil, ox + lx if int(asse[lx, lz]) == 1 else oz + lz,
+                                          lx, lz, mattone_muschio if hv % 100 < 10 else mattone)
             else:
                 out[lx, y, lz] = assi                # impalcato
             out[lx, y + 1:min(y + 5, H), lz] = aria  # luce sopra
@@ -2348,7 +2447,7 @@ def _posa_strada(out, s, tipo, tipo_orlo, quota, h_c, ox, oz, y0):
             # mezzo al prato - il caso tipico e' un ponte quasi a raso, sopra
             # un laghetto poco profondo o un avvallamento lieve del terreno.
             gx, gz = ox + lx, oz + lz
-            if gx % 5 == 0 and gz % 5 == 0:
+            if not ad_arco and gx % 5 == 0 and gz % 5 == 0:
                 fondo = max(0, int(h_c[lx, lz]) - 1 - y0)
                 if fondo < y - 1:
                     out[lx, fondo:y, lz] = mattone if pietra else pilastro
@@ -2446,6 +2545,13 @@ def _modelli_di(op: Opzioni, piano: Piano) -> list:
     return _modelli_e_confini(op, piano)[0]
 
 
+def zone_mestieri(edifici: list, meta: int) -> list:
+    """Le botteghe: [(x0, z0, x1, z1, mestiere)] in coordinate di GIOCO. Il bottino
+    di un forziere in una bottega segue il mestiere (vedi `bauli.BOTTINO_ZONA`)."""
+    return [(e.x - meta, e.z - meta, e.x1 - meta, e.z1 - meta, e.mestiere)
+            for e in edifici if e.mestiere]
+
+
 def zone_bottino(piano: Piano, confini: dict, meta: int) -> list:
     """Dove stanno le strutture da template che hanno un bottino loro (castello,
     nave, faro): [(x0, z0, x1, z1, tipo)] in coordinate di GIOCO, per `bauli.trova`.
@@ -2522,6 +2628,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_tr = TR.Tavolozza(m) if piano.torri else None
         tav_fz = FZ.Tavolozza(m) if piano.fortezze else None
         tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
+        tav_is = ISO.Tavolozza(m) if piano.isole else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2589,7 +2696,11 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             modelli, confini = precaricati["modelli"], precaricati["confini"]
         else:
             modelli, confini = _modelli_e_confini(op, piano)
-        zone_g = zone_bottino(piano, confini, op.lato // 2) if piano.isolate else []
+        zone_g = ((zone_bottino(piano, confini, op.lato // 2) if piano.isolate else [])
+                  + zone_mestieri(piano.edifici, op.lato // 2)
+                  + [(i.x - op.lato // 2 - 3, i.z - op.lato // 2 - 3,
+                      i.x - op.lato // 2 + 4, i.z - op.lato // 2 + 4, "isola")
+                     for i in piano.isole])
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
@@ -2616,6 +2727,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
         caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
+        asse_ponte_m = (ST.asse_ponti(piano.tipo_strada) if piano.tipo_strada is not None
+                        else None)
         n = max(1, len(lista))
         for i, (cx, cz) in enumerate(lista):
             if ferma is not None and ferma():
@@ -2642,6 +2755,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 sponda_c=fetta(sponda_m, sx, sz),
                 caduta_c=fetta(caduta_m, sx, sz),
                 parete_acqua_c=fetta(parete_acqua_m, sx, sz),
+                asse_ponte_c=(fetta(asse_ponte_m, sx, sz) if asse_ponte_m is not None else None),
                 campi_orlo_c=(fetta_orlo(piano.campi, sx, sz)
                              if piano.campi is not None else None),
                 tipo_orlo_c=(fetta_orlo(piano.tipo_strada, sx, sz)
@@ -2698,6 +2812,9 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         piano.fortezze, _dal_chunk(piano.indice_fortezze, sx, sz), meta=meta)
                 dungeon_g.update({(x - meta, y, z - meta): tipo
                                   for x, y, z, tipo in tav_fz.bauli + tav_fz.torre.bauli})
+            if tav_is is not None:
+                ISO.posa(blocchi, tav_is, fetta(piano.h, sx, sz), ox, oz, -64, piano.isole,
+                        _dal_chunk(piano.indice_isole, sx, sz), meta=meta)
             if tav_cs is not None:
                 tav_cs.bauli.clear()
                 CS.posa(blocchi, tav_cs, fetta(piano.h, sx, sz), ox, oz, -64,
@@ -2810,6 +2927,10 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
         meta = op.lato // 2
         in_gioco = [_replace(a, x=a.x - meta, z=a.z - meta)
                     for a in piano.abitanti]
+        # Rete di sicurezza: ogni creatura si controlla sui blocchi VERI e si sposta
+        # se e' nata in un muro o sotto terra (vedi `sicurezza.py`).
+        in_gioco, sicure = SIC.rendi_sicure(op.uscita, in_gioco)
+        fuori["creature_spostate"] = sicure
         # `_Imp()` da solo darebbe sempre il DataVersion di 1.21.4 di
         # default, non quello scelto in `op.versione` - level.dat e le
         # entita' finirebbero con due DataVersion diversi.
@@ -2830,7 +2951,7 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
 
     if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
-                                 extra_md=IC.sezione_elenco(piano.incarichi))
+                                 extra_md=IC.sezione_elenco(piano.incarichi) + CM.sezione_elenco(piano.commissioni))
         fuori["luoghi"] = md
 
     fuori["level_dat"] = "valido" if not verifica(

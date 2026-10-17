@@ -16,10 +16,10 @@ nell'array dei blocchi gia' scritto (l'id e' lo stesso, sia che l'abbia
 messo il template sia che lo metta chiunque altro: `ScrittoreMondo.blocco()`
 deduplica per nome e proprieta') e li' si genera un contenuto a caso.
 
-Solo il forziere SINGOLO (`connection="none"`): un baule doppio ha
-l'inventario condiviso fra le due meta' (54 slot, non 27+27 indipendenti), e
-riempirne solo una meta' lascerebbe l'altra vuota in un modo che si nota. Un
-forziere a doppio battente resta vuoto come prima - meglio vuoto che a meta'.
+Singoli, doppi e botti. Ogni meta' di un forziere doppio ha il SUO blocco con
+27 slot (la vista da 54 e' solo del gioco), quindi si riempiono entrambe; le
+botti hanno 27 slot come un forziere. In piu' i forni, le fornaci e gli
+affumicatoi ricevono il combustibile (carbone), cosi' si accendono subito.
 """
 
 from __future__ import annotations
@@ -30,6 +30,12 @@ import numpy as np
 # qualunque: cibo, materiali di base, qualche attrezzo. Niente di eccezionale
 # - non e' un tesoro di dungeon, e' quello che si trova in una cucina.
 OGGETTI: tuple[tuple[str, int, int], ...] = (
+    # attrezzi e materiali di base, in una casa se ne trova sempre
+    ("stone_pickaxe", 1, 1), ("stone_axe", 1, 1), ("stone_shovel", 1, 1), ("stone_hoe", 1, 1),
+    ("wooden_pickaxe", 1, 1), ("shears", 1, 1), ("bucket", 1, 1), ("fishing_rod", 1, 1),
+    ("flint_and_steel", 1, 1), ("oak_planks", 4, 16), ("oak_log", 2, 8),
+    ("cobblestone", 6, 24), ("copper_ingot", 2, 8), ("glass_bottle", 2, 6),
+    ("clay_ball", 4, 12), ("brick", 3, 10), ("redstone", 2, 8), ("charcoal", 3, 10),
     ("bread", 1, 4),
     ("wheat", 1, 6),
     ("apple", 1, 4),
@@ -147,14 +153,27 @@ class Tavolozza:
     quattro orientazioni possibili dopo la rotazione del template."""
 
     def __init__(self, scrittore):
+        facce = ("north", "south", "east", "west")
         self.singolo = frozenset(
             scrittore.blocco("chest", facing=f, connection="none", material="wood")
-            for f in ("north", "south", "east", "west"))
+            for f in facce)
+        # le due meta' di un forziere doppio: ognuna ha il suo inventario da 27
+        self.doppio = frozenset(
+            scrittore.blocco("chest", facing=f, connection=c, material="wood")
+            for f in facce for c in ("left", "right"))
+        self.botti = frozenset(
+            scrittore.blocco("barrel", facing=f, open=o)
+            for f in facce + ("up", "down") for o in ("false", "true"))
+        # forni: il combustibile nello slot 1 (carbone)
+        self.forni = {
+            nome: frozenset(scrittore.blocco(nome, facing=f, lit=lit)
+                            for f in facce for lit in ("false", "true"))
+            for nome in ("furnace", "blast_furnace", "smoker")}
 
 
 def _oggetti(rng: np.random.Generator) -> list[tuple[int, str, int]]:
-    """2-5 pile scelte a caso, in slot diversi di un inventario da 27."""
-    n = int(rng.integers(2, 6))
+    """3-7 pile scelte a caso, in slot diversi di un inventario da 27."""
+    n = int(rng.integers(3, 8))
     slot = rng.choice(27, size=n, replace=False)
     fuori = []
     for s in slot:
@@ -224,6 +243,56 @@ BOTTINO_ZONA: dict[str, tuple] = {
              ("fishing_rod", 1, 1), ("spyglass", 1, 1), ("lantern", 1, 3),
              ("iron_ingot", 2, 5), ("emerald", 1, 3), ("glass_bottle", 2, 6),
              ("bread", 2, 5), ("paper", 3, 8)),
+    # il tesoro di un'isola in mare aperto: oro, gemme e roba da marinaio
+    "isola": (("gold_ingot", 6, 18), ("emerald", 3, 9), ("diamond", 2, 5),
+              ("golden_apple", 1, 2), ("compass", 1, 1), ("spyglass", 1, 1),
+              ("name_tag", 1, 2), ("ender_pearl", 1, 3), ("heart_of_the_sea", 1, 1),
+              ("music_disc_wait", 1, 1), ("experience_bottle", 4, 12), ("nautilus_shell", 1, 2),
+              ("saddle", 1, 1), ("gold_block", 1, 2), ("iron_ingot", 4, 12)),
+    # le botteghe del paese: il bottino segue il mestiere di chi ci abita
+    "fabbro": (("iron_ingot", 3, 10), ("coal", 4, 16), ("iron_pickaxe", 1, 1),
+               ("iron_axe", 1, 1), ("iron_shovel", 1, 1), ("iron_hoe", 1, 1),
+               ("stone_pickaxe", 1, 1), ("bucket", 1, 1), ("shears", 1, 1),
+               ("flint_and_steel", 1, 1), ("copper_ingot", 2, 8), ("redstone", 2, 8)),
+    "armaiolo": (("iron_sword", 1, 1), ("stone_sword", 1, 1), ("bow", 1, 1), ("arrow", 8, 24),
+                 ("shield", 1, 1), ("iron_ingot", 2, 8), ("flint", 3, 9), ("coal", 3, 10),
+                 ("leather", 2, 6), ("crossbow", 1, 1)),
+    "corazzaio": (("iron_helmet", 1, 1), ("iron_chestplate", 1, 1), ("iron_leggings", 1, 1),
+                  ("iron_boots", 1, 1), ("iron_ingot", 3, 10), ("coal", 4, 14),
+                  ("shield", 1, 1), ("leather", 3, 8), ("chainmail_helmet", 1, 1)),
+    "falegname": (("oak_planks", 8, 24), ("oak_log", 4, 12), ("stick", 6, 20),
+                  ("stone_axe", 1, 1), ("wooden_axe", 1, 1), ("arrow", 8, 24),
+                  ("feather", 3, 9), ("flint", 3, 9), ("bow", 1, 1), ("ladder", 4, 12),
+                  ("chest", 1, 2), ("barrel", 1, 1), ("spruce_planks", 6, 16)),
+    "scalpellino": (("cobblestone", 8, 32), ("stone", 8, 24), ("stone_bricks", 6, 20),
+                    ("stone_pickaxe", 1, 1), ("iron_pickaxe", 1, 1), ("coal", 3, 10),
+                    ("brick", 4, 12), ("andesite", 8, 16), ("sand", 6, 18)),
+    "macellaio": (("cooked_beef", 3, 8), ("cooked_porkchop", 3, 8), ("cooked_chicken", 2, 6),
+                  ("beef", 3, 8), ("leather", 2, 6), ("bone", 2, 8), ("coal", 4, 12),
+                  ("mutton", 2, 6), ("rabbit", 1, 4)),
+    "pescatore": (("cod", 3, 8), ("salmon", 2, 6), ("cooked_cod", 3, 8), ("fishing_rod", 1, 1),
+                  ("string", 2, 8), ("bucket", 1, 1), ("lily_pad", 2, 6), ("kelp", 3, 9),
+                  ("ink_sac", 1, 4), ("water_bucket", 1, 1)),
+    "fruttivendolo": (("wheat", 6, 20), ("carrot", 4, 12), ("potato", 4, 12), ("apple", 3, 8),
+                      ("beetroot", 3, 8), ("melon_slice", 4, 12), ("pumpkin", 1, 3),
+                      ("bread", 2, 6), ("stone_hoe", 1, 1), ("wheat_seeds", 4, 16),
+                      ("bone_meal", 3, 10)),
+    "pastore": (("white_wool", 4, 16), ("shears", 1, 1), ("lead", 1, 3), ("leather", 2, 6),
+                ("mutton", 2, 6), ("wheat", 3, 8), ("string", 2, 8), ("red_dye", 2, 6),
+                ("blue_dye", 2, 6), ("hay_block", 1, 3)),
+    "libraio": (("book", 3, 8), ("paper", 4, 12), ("ink_sac", 1, 4), ("compass", 1, 1),
+                ("clock", 1, 1), ("writable_book", 1, 1), ("candle", 2, 6),
+                ("feather", 2, 6), ("bookshelf", 1, 2)),
+    "cartografo": (("paper", 6, 16), ("map", 1, 2), ("compass", 1, 1), ("spyglass", 1, 1),
+                   ("ink_sac", 1, 4), ("string", 2, 6), ("feather", 2, 6),
+                   ("glass_pane", 4, 10), ("clock", 1, 1)),
+    "conciatore": (("leather", 4, 16), ("rabbit_hide", 2, 8), ("leather_helmet", 1, 1),
+                   ("leather_chestplate", 1, 1), ("leather_boots", 1, 1), ("string", 2, 8),
+                   ("bone", 2, 6), ("red_dye", 2, 6), ("brown_dye", 2, 6)),
+    "speziale": (("glass_bottle", 3, 8), ("redstone", 3, 9), ("glowstone_dust", 2, 6),
+                 ("sugar", 3, 9), ("spider_eye", 1, 4), ("gunpowder", 2, 6),
+                 ("dandelion", 2, 6), ("brown_mushroom", 2, 6), ("honey_bottle", 1, 3),
+                 ("fermented_spider_eye", 1, 2)),
     "castello": (("iron_sword", 1, 1), ("shield", 1, 1), ("golden_apple", 1, 2),
                  ("diamond", 1, 3), ("emerald", 2, 6), ("book", 2, 5),
                  ("arrow", 12, 32), ("bow", 1, 1), ("iron_chestplate", 1, 1),
@@ -242,6 +311,12 @@ def _oggetti_zona(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
     contenuto = [(s, tabella[int(t)][0],
                   int(rng.integers(tabella[int(t)][1], tabella[int(t)][2] + 1)))
                  for s, t in zip(slot, tipi)]
+    if tipo == "isola":
+        # un tesoro vero: sempre oro e almeno una gemma, qualunque sia il resto
+        contenuto[0] = (contenuto[0][0], "gold_ingot", int(rng.integers(6, 19)))
+        if len(contenuto) > 1:
+            contenuto[1] = (contenuto[1][0], "diamond" if rng.random() < 0.5 else "emerald",
+                            int(rng.integers(2, 6)))
     if lontano:
         contenuto = _aggiungi_tesori(contenuto, rng, 1)
     return contenuto
@@ -317,9 +392,11 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
     from amulet_nbt import ByteTag, CompoundTag, IntTag, ListTag, NamedTag, StringTag
 
     fuori = []
-    if not tav.singolo:
+    contenitori = tav.singolo | tav.doppio | tav.botti
+    if not contenitori:
         return fuori
-    posizioni = np.transpose(np.nonzero(np.isin(blocchi, list(tav.singolo))))
+    botti = np.isin(blocchi, list(tav.botti))
+    posizioni = np.transpose(np.nonzero(np.isin(blocchi, list(contenitori))))
     for lx, ly, lz in posizioni:
         gx, gy, gz = ox + int(lx), y0 + int(ly), oz + int(lz)
         rng = np.random.default_rng(_seme(gx, gy, gz, seed))
@@ -380,12 +457,37 @@ def trova(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int,
         # solo quando genera un block-entity dal proprio traduttore
         # universale, ed e' l'unica delle due che sopravvive al giro
         # salva/rileggi su un mondo multi-chunk.
+        e_botte = bool(botti[lx, ly, lz])
         utags = CompoundTag({
             "isMovable": ByteTag(1),
-            "Findable": ByteTag(0),
+            **({} if e_botte else {"Findable": ByteTag(0)}),
             "Items": items,
             "Lock": StringTag(""),
         })
         nbt = NamedTag(CompoundTag({"utags": utags}))
-        fuori.append(BlockEntity("universal_minecraft", "chest", gx, gy, gz, nbt))
+        fuori.append(BlockEntity("universal_minecraft", "barrel" if e_botte else "chest",
+                                 gx, gy, gz, nbt))
+    fuori.extend(_forni(blocchi, tav, ox, oz, y0, seed))
+    return fuori
+
+
+def _forni(blocchi: np.ndarray, tav: Tavolozza, ox: int, oz: int, y0: int, seed: int) -> list:
+    """I forni, le fornaci e gli affumicatoi gia' scritti nel chunk, col carbone
+    nello slot del combustibile (1): da vuoti non servono a niente."""
+    from amulet.api.block_entity import BlockEntity
+    from amulet_nbt import ByteTag, CompoundTag, IntTag, ListTag, NamedTag, StringTag
+
+    fuori = []
+    for nome, ids in tav.forni.items():
+        if not ids:
+            continue
+        for lx, ly, lz in np.transpose(np.nonzero(np.isin(blocchi, list(ids)))):
+            gx, gy, gz = ox + int(lx), y0 + int(ly), oz + int(lz)
+            rng = np.random.default_rng(_seme(gx, gy, gz, seed + 31))
+            carbone = CompoundTag({"Slot": ByteTag(1), "id": StringTag("minecraft:coal"),
+                                   "count": IntTag(int(rng.integers(8, 25)))})
+            utags = CompoundTag({"isMovable": ByteTag(1), "Items": ListTag([carbone]),
+                                 "Lock": StringTag("")})
+            fuori.append(BlockEntity("universal_minecraft", nome, gx, gy, gz,
+                                     NamedTag(CompoundTag({"utags": utags}))))
     return fuori

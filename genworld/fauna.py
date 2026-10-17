@@ -43,6 +43,7 @@ SPECIE = {
     "rana": "frog", "merluzzo": "cod", "salmone": "salmon",
     "pesce_tropicale": "tropical_fish", "calamaro": "squid", "delfino": "dolphin",
     "pesce_palla": "pufferfish", "calamaro_luminoso": "glow_squid",
+    "mercante": "wandering_trader", "lama_mercante": "trader_llama",
 }
 
 # chi vive in acqua: nessun "OnGround", si piazza dentro l'acqua e non sul fondo
@@ -59,6 +60,7 @@ SALUTE = {
     "pappagallo": 6.0, "ocelotto": 10.0, "ape": 10.0, "gatto": 10.0, "rana": 10.0,
     "merluzzo": 3.0, "salmone": 3.0, "pesce_tropicale": 3.0, "calamaro": 10.0,
     "delfino": 10.0, "pesce_palla": 3.0, "calamaro_luminoso": 10.0,
+    "mercante": 20.0, "lama_mercante": 15.0,
 }
 
 CORTILE = ("mucca", "pecora", "gallina", "maiale")
@@ -176,6 +178,9 @@ class Animale:
             # giro di pochi minuti - stessa ragione degli abitanti
             "PersistenceRequired": ByteTag(1),
         }
+        if self.specie == "mercante":
+            # il mercante ambulante sparisce da solo dopo un po': qui resta al campo
+            base["DespawnDelay"] = IntTag(1_000_000_000)
         if self.specie == "volpe":
             base["Type"] = StringTag(self.variante if self.variante else "red")
         elif self.specie == "coniglio":
