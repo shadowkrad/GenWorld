@@ -4,7 +4,7 @@
 docstring di `bauli.py`): un forziere che arriva da un file `.nbt` di casa
 e' sempre vuoto quando si stampa il template. Qui si controlla che
 `bauli.trova()` lo trovi DOPO, dal blocco gia' scritto, e gli dia un
-contenuto - senza toccare i forzieri doppi, che restano vuoti apposta.
+contenuto - e riempiendo anche i doppi, le botti e i forni.
 """
 
 from __future__ import annotations
@@ -63,8 +63,8 @@ class TestTrova(unittest.TestCase):
         be = bauli[0]
         self.assertEqual((be.x, be.y, be.z), (5, 10, 6))
         items = be.nbt.compound["utags"]["Items"]
-        self.assertGreaterEqual(len(items), 2)
-        self.assertLessEqual(len(items), 5)
+        self.assertGreaterEqual(len(items), 3)
+        self.assertLessEqual(len(items), 7)
         for voce in items:
             self.assertTrue(str(voce["id"]).startswith("minecraft:"))
             self.assertGreater(int(voce["count"]), 0)
@@ -178,7 +178,7 @@ class TestTrova(unittest.TestCase):
     def test_un_forziere_fuori_dal_campo_resta_una_dispensa(self):
         out, s, tav, idf = self.chunk_con_forziere()
         bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=2, campi=[(100, 100, 3)])
-        self.assertLessEqual(len(self.nomi(bauli[0])), 5)
+        self.assertLessEqual(len(self.nomi(bauli[0])), 7)
 
     def test_le_quattro_orientazioni_si_trovano_tutte(self):
         s = FintoScrittore()
@@ -192,14 +192,72 @@ class TestTrova(unittest.TestCase):
         bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=1)
         self.assertEqual(len(bauli), 4)
 
-    def test_un_forziere_doppio_resta_vuoto(self):
-        """`connection="left"`/`"right"` e' un baule a due battenti con
-        l'inventario condiviso - riempirne solo una meta' si nota, quindi
-        si lascia stare."""
+    def test_un_forziere_doppio_ha_il_bottino_in_tutte_e_due_le_meta(self):
+        """Ogni meta' ha il suo inventario da 27 (la vista da 54 e' del gioco)."""
         for connection in ("left", "right"):
             out, s, tav, idf = self.chunk_con_forziere(connection=connection)
             bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=1)
-            self.assertEqual(bauli, [])
+            self.assertEqual(len(bauli), 1, connection)
+            self.assertGreaterEqual(len(self.nomi(bauli[0])), 3)
+
+    def test_una_botte_si_riempie_come_un_forziere(self):
+        s = FintoScrittore()
+        tav = BA.Tavolozza(s)
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        out[3, 10, 3] = s.blocco("barrel", facing="up", open="false")
+        bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=1)
+        self.assertEqual(len(bauli), 1)
+        self.assertEqual(bauli[0].base_name, "barrel")
+        ut = bauli[0].nbt.compound["utags"]
+        self.assertGreaterEqual(len(ut["Items"]), 3)
+        self.assertNotIn("Findable", ut)
+
+    def test_i_forni_hanno_il_carbone_nel_combustibile(self):
+        s = FintoScrittore()
+        tav = BA.Tavolozza(s)
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        out[1, 10, 1] = s.blocco("furnace", facing="north", lit="false")
+        out[3, 10, 1] = s.blocco("blast_furnace", facing="east", lit="false")
+        out[5, 10, 1] = s.blocco("smoker", facing="south", lit="true")
+        bauli = BA.trova(out, tav, 0, 0, self.Y0, seed=1)
+        per_nome = {b.base_name: b for b in bauli}
+        self.assertEqual(set(per_nome), {"furnace", "blast_furnace", "smoker"})
+        for b in bauli:
+            items = list(b.nbt.compound["utags"]["Items"])
+            self.assertEqual(len(items), 1)
+            self.assertEqual(int(items[0]["Slot"]), 1)
+            self.assertEqual(str(items[0]["id"]), "minecraft:coal")
+            self.assertTrue(8 <= int(items[0]["count"]) <= 24)
+
+    def test_il_bottino_di_bottega_segue_il_mestiere(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        mestieri = ("fabbro", "armaiolo", "corazzaio", "falegname", "scalpellino", "macellaio",
+                    "pescatore", "fruttivendolo", "pastore", "libraio", "cartografo",
+                    "conciatore", "speziale")
+        for m in mestieri:
+            validi = {n for n, _, _ in BA.BOTTINO_ZONA[m]} | {t for t, _ in BA.TESORI}
+            for seed in range(8):
+                b = BA.trova(out, tav, 0, 0, self.Y0, seed=seed, zone=[(0, 0, 16, 16, m)],
+                             centri=[(10, 10)])
+                nomi = set(self.nomi(b[0]))
+                self.assertTrue(nomi <= validi, (m, nomi - validi))
+                self.assertGreaterEqual(len(nomi), 3, m)
+
+    def test_il_fabbro_ha_attrezzi_e_materiali(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        visti = set()
+        for seed in range(30):
+            visti |= set(self.nomi(BA.trova(out, tav, 0, 0, self.Y0, seed=seed,
+                                            zone=[(0, 0, 16, 16, "fabbro")])[0]))
+        self.assertTrue({"iron_ingot", "coal", "iron_pickaxe"} <= visti)
+
+    def test_la_dispensa_ha_attrezzi_e_materiali(self):
+        out, s, tav, idf = self.chunk_con_forziere()
+        visti = set()
+        for seed in range(60):
+            visti |= set(self.nomi(BA.trova(out, tav, 0, 0, self.Y0, seed=seed)[0]))
+        self.assertTrue(visti & {"stone_pickaxe", "stone_axe", "shears", "bucket"})
+        self.assertTrue(visti & {"oak_planks", "cobblestone", "copper_ingot"})
 
     def test_niente_forzieri_niente_bottino(self):
         s = FintoScrittore()

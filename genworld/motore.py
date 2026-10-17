@@ -2432,6 +2432,13 @@ def _modelli_di(op: Opzioni, piano: Piano) -> list:
     return _modelli_e_confini(op, piano)[0]
 
 
+def zone_mestieri(edifici: list, meta: int) -> list:
+    """Le botteghe: [(x0, z0, x1, z1, mestiere)] in coordinate di GIOCO. Il bottino
+    di un forziere in una bottega segue il mestiere (vedi `bauli.BOTTINO_ZONA`)."""
+    return [(e.x - meta, e.z - meta, e.x1 - meta, e.z1 - meta, e.mestiere)
+            for e in edifici if e.mestiere]
+
+
 def zone_bottino(piano: Piano, confini: dict, meta: int) -> list:
     """Dove stanno le strutture da template che hanno un bottino loro (castello,
     nave, faro): [(x0, z0, x1, z1, tipo)] in coordinate di GIOCO, per `bauli.trova`.
@@ -2575,7 +2582,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             modelli, confini = precaricati["modelli"], precaricati["confini"]
         else:
             modelli, confini = _modelli_e_confini(op, piano)
-        zone_g = zone_bottino(piano, confini, op.lato // 2) if piano.isolate else []
+        zone_g = ((zone_bottino(piano, confini, op.lato // 2) if piano.isolate else [])
+                  + zone_mestieri(piano.edifici, op.lato // 2))
         cat = TM.Catalogo(modelli, m) if modelli else None
         scelte: dict[int, tuple[int, int]] = piano.scelte if cat is not None else {}
         if cat is not None:
