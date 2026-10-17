@@ -116,3 +116,68 @@ def test_elenco_dei_luoghi_include_gli_incarichi(tmp_path):
     md, _ = LU.scrivi_elenco(luoghi, str(tmp_path), "Prova", extra_md=IC.sezione_elenco(inc))
     testo = open(md, encoding="utf-8").read()
     assert "## Incarichi" in testo and inc[0].committente in testo
+
+
+def _incarichi_tre_citta():
+    citta = [Citta(z=600, x=600, raggio=30, piazza=(600, 600)),
+             Citta(z=800, x=300, raggio=30, piazza=(800, 300)),
+             Citta(z=300, x=800, raggio=30, piazza=(300, 800))]
+    luoghi = [LU.Luogo("Aldona", "citta", 100, 100), LU.Luogo("Brevia", "citta", -200, 300),
+              LU.Luogo("Carbona", "citta", 300, -200),
+              LU.Luogo("Torre A", "torre", 180, 100), LU.Luogo("Rocca C", "castello", -150, 500),
+              LU.Luogo("Cripta B", "rovina", 400, 400)]
+    strutture = {("torre", 180, 100): ((680, 600), None),
+                 ("castello", -150, 500): ((350, 1000), (-140, -20, 505)),
+                 ("rovina", 400, 400): (None, (402, -20, 398))}
+    return IC.pianifica(citta, luoghi, strutture, META, seed=2), luoghi
+
+
+def test_consegne_fra_citta():
+    inc, luoghi = _incarichi_tre_citta()
+    assert len(inc) == 3
+    per_nome, elenco = IC.consegne(inc, luoghi, seed=2)
+    assert len(elenco) == 3
+    for c in elenco:
+        assert c["citta_da"] != c["citta_a"]
+        assert 8 <= c["ricompensa"] <= 40
+    # chi consegna e chi riceve hanno gli scambi giusti, con la stessa etichetta
+    for c in elenco:
+        etichetta = {"incarico": c["uid"]}
+        da = [o for o in per_nome[c["da"]] if o["vende"][0] == "paper"
+              and o["vende"][2]["custom_data"] == etichetta]
+        a = [o for o in per_nome[c["a"]] if o["compra"][0] == "paper"
+             and o["compra"][2]["custom_data"] == etichetta]
+        assert len(da) == 1 and len(a) == 1
+        assert a[0]["vende"][0] == "emerald" and a[0]["vende"][1] == c["ricompensa"]
+
+
+def test_le_consegne_si_aggiungono_ai_committenti():
+    inc, luoghi = _incarichi_tre_citta()
+    per_nome, elenco = IC.consegne(inc, luoghi, seed=2)
+    strade = np.zeros((1000, 1000), dtype=np.uint8)
+    for (z, x) in ((600, 606), (800, 306), (300, 806)):
+        strade[z - 3:z + 4, x - 1:x + 2] = 1
+    h = np.full((1000, 1000), 70, dtype=np.int32)
+    citta = [Citta(z=600, x=600, raggio=30, piazza=(600, 600)),
+             Citta(z=800, x=300, raggio=30, piazza=(800, 300)),
+             Citta(z=300, x=800, raggio=30, piazza=(300, 800))]
+    comm = IC.abitanti(inc, strade, h, citta, META, seed=2)
+    nuovi = IC.aggiungi_consegne(comm, per_nome)
+    assert len(nuovi) == len(comm)
+    for a, b in zip(comm, nuovi):
+        assert len(b.offerte) == len(a.offerte) + len(per_nome.get(a.nome, ()))
+        t = b.nbt_tag()
+        assert len(t["Offers"]["Recipes"]) == len(b.offerte)
+
+
+def test_elenco_con_consegne():
+    inc, luoghi = _incarichi_tre_citta()
+    per_nome, elenco = IC.consegne(inc, luoghi, seed=2)
+    md = IC.sezione_elenco(inc, elenco)
+    assert "### Consegne" in md and "lettera sigillata" in md
+
+
+def test_una_sola_citta_non_ha_consegne():
+    inc, luoghi = _incarichi_tre_citta()
+    per_nome, elenco = IC.consegne(inc[:1], luoghi, seed=2)
+    assert per_nome == {} and elenco == []
