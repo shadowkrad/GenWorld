@@ -7,6 +7,11 @@ Il bottino cresce con la distanza dalle citta' (vedi `bauli.trova`, tabella
 `BOTTINO_DUNGEON` e `TESORI`). Sta fra le miniere e gli avamposti: poche, lontane
 da tutto, un luogo che si trova.
 
+Non e' un corridoio dritto: dopo l'anticamera il percorso fa degli SNODI (il
+corridoio si sposta di lato e la sala dello spawner e quella del tesoro stanno
+fuori asse) e dai corridoi e dalle sale si diramano CUNICOLI bassi che portano a
+piccole stanze laterali, ognuna con un forziere. Tutto cio' e' deciso dal seme.
+
 Tutto e' in coordinate (u, v) rispetto all'ingresso e a una direzione `d`:
 `u` corre lungo `d`, `v` e' la perpendicolare. Le stanze sono scatole; ogni
 scatola ha un guscio di mattoni attorno, che si posa solo dove c'e' roccia.
@@ -57,6 +62,19 @@ class Scatola:
 
 
 @dataclass
+class Stanza:
+    """Una stanza laterale, raggiunta da un cunicolo: centro (u, v) e il lato
+    (+1 / -1) su cui sta, rispetto alla sala o al corridoio da cui parte."""
+    u: int
+    v: int
+    lato: int
+
+    def forziere(self) -> tuple[int, int]:
+        """(u, v) del forziere: contro la parete di fondo."""
+        return self.u, self.v + self.lato * 2
+
+
+@dataclass
 class Dungeon:
     x: int                      # ingresso: il centro della rovina, mappa
     z: int
@@ -66,6 +84,9 @@ class Dungeon:
     mob: str = "zombie"
     seme: int = 0
     scatole: list = field(default_factory=list)
+    vs: int = 0                 # di quanto la sala dello spawner sta fuori asse (v)
+    vt: int = 0                 # idem per la sala del tesoro
+    laterali: list = field(default_factory=list)      # `Stanza`
 
     def punto(self, u: int, v: int) -> tuple[int, int]:
         """(x, z) di mappa per le coordinate locali (u, v)."""
@@ -93,28 +114,93 @@ class Dungeon:
         """(x, y, z, tipo) in coordinate di MAPPA: 'stanza' o 'tesoro'."""
         fuori = []
         yf = self.yf
-        for u, v in ((U_SPAWNER[0] + 1, -2), (U_SPAWNER[0] + 1, 2)):
+        for u, v in ((U_SPAWNER[0] + 1, self.vs - 2), (U_SPAWNER[0] + 1, self.vs + 2)):
             x, z = self.punto(u, v)
             fuori.append((x, yf, z, "stanza"))
-        x, z = self.punto(U_TESORO[1] - 1, 0)
+        x, z = self.punto(U_TESORO[1] - 1, self.vt)
         fuori.append((x, yf, z, "tesoro"))
+        # i forzieri delle stanze laterali, dopo i tre principali (gli indici dei
+        # primi tre non cambiano: `motore` usa il terzo come tesoro)
+        for st in self.laterali:
+            x, z = self.punto(*st.forziere())
+            fuori.append((x, yf, z, "stanza"))
         return fuori
 
     def spawner(self) -> tuple[int, int, int]:
-        x, z = self.punto((U_SPAWNER[0] + U_SPAWNER[1]) // 2, 0)
+        x, z = self.punto((U_SPAWNER[0] + U_SPAWNER[1]) // 2, self.vs)
         return x, self.yf + 1, z
 
 
-def _scatole(ys: int) -> list[Scatola]:
-    yf = ys - PROFONDITA
+def _corridoio(u0: int, u1: int, v_da: int, v_a: int, yf: int) -> list[Scatola]:
+    """Un corridoio da `v_da` a `v_a`: un tratto dritto, uno snodo che sposta di
+    lato (se i due v differiscono) e un altro tratto dritto. Largo 3, alto 3."""
+    if v_da == v_a:
+        return [Scatola(u0, u1, v_da - 1, v_da + 1, yf, yf + 2, "corridoio")]
+    um = u0 + 4
     return [
+        Scatola(u0, um, v_da - 1, v_da + 1, yf, yf + 2, "corridoio"),
+        Scatola(um, um + 2, min(v_da, v_a) - 1, max(v_da, v_a) + 1, yf, yf + 2, "corridoio"),
+        Scatola(um + 2, u1, v_a - 1, v_a + 1, yf, yf + 2, "corridoio"),
+    ]
+
+
+def _scatole(ys: int, vs: int = 0, vt: int = 0, laterali: list | None = None) -> list[Scatola]:
+    """Scala, anticamera, corridoio (con snodo), sala dello spawner, corridoio,
+    sala del tesoro, e per ogni stanza laterale il suo cunicolo e la stanza."""
+    yf = ys - PROFONDITA
+    scatole = [
         Scatola(1, PROFONDITA, -1, 1, 0, 0, "scala"),   # y gestito a parte (scala)
         Scatola(*U_ANTICAMERA, -4, 4, yf, yf + 4, "anticamera"),
-        Scatola(*U_CORR1, -1, 1, yf, yf + 2, "corridoio"),
-        Scatola(*U_SPAWNER, -4, 4, yf, yf + 4, "spawner"),
-        Scatola(*U_CORR2, -1, 1, yf, yf + 2, "corridoio"),
-        Scatola(*U_TESORO, -4, 4, yf, yf + 4, "tesoro"),
+        *_corridoio(*U_CORR1, 0, vs, yf),
+        Scatola(*U_SPAWNER, vs - 4, vs + 4, yf, yf + 4, "spawner"),
+        *_corridoio(*U_CORR2, vs, vt, yf),
+        Scatola(*U_TESORO, vt - 4, vt + 4, yf, yf + 4, "tesoro"),
     ]
+    for st in laterali or ():
+        # il cunicolo attraversa le due celle fra il bordo della sala (o del corridoio)
+        # e quello della stanza (5 x 5): a 4 e 3 celle dal centro della stanza
+        v0, v1 = sorted((st.v - st.lato * 4, st.v - st.lato * 3))
+        scatole.append(Scatola(st.u, st.u, v0, v1, yf, yf + 1, "cunicolo"))
+        scatole.append(Scatola(st.u - 2, st.u + 2, st.v - 2, st.v + 2, yf, yf + 3, "stanza_laterale"))
+    return scatole
+
+
+def _sovrappone(a: Scatola, b: Scatola, margine: int = 2) -> bool:
+    return not (a.u1 + margine < b.u0 or b.u1 + margine < a.u0
+                or a.v1 + margine < b.v0 or b.v1 + margine < a.v0)
+
+
+def _stanze_laterali(rng, vs: int, vt: int, base: list[Scatola]) -> list[Stanza]:
+    """Da 0 a 3 stanze laterali, appese alla sala d'ingresso, a quella dello spawner,
+    a quella del tesoro o al secondo tratto del primo corridoio. Una stanza si
+    scarta se tocca il resto (con un margine per il guscio di mattoni)."""
+    um1 = (U_ANTICAMERA[0] + U_ANTICAMERA[1]) // 2
+    um2 = (U_SPAWNER[0] + U_SPAWNER[1]) // 2
+    um3 = (U_TESORO[0] + U_TESORO[1]) // 2
+    um4 = U_CORR1[1] - 2
+    ancore = [(um1, 0, 4), (um2, vs, 4), (um3, vt, 4), (um4, vs, 1)]
+    quante = int(rng.choice([0, 1, 2, 3], p=[0.15, 0.40, 0.30, 0.15]))
+    fuori: list[Stanza] = []
+    scelte = rng.permutation(len(ancore))
+    for k in scelte:
+        if len(fuori) >= quante:
+            break
+        u, v, mezza = ancore[int(k)]
+        lato = 1 if rng.random() < 0.5 else -1
+        # il centro della stanza: oltre il bordo della sala (mezza) piu' il cunicolo
+        centro_v = v + lato * (mezza + 5)
+        st = Stanza(u=u, v=centro_v, lato=lato)
+        nuova = Scatola(u - 2, u + 2, centro_v - 2, centro_v + 2, 0, 0, "stanza_laterale")
+        if any(_sovrappone(nuova, b) for b in base if b.tipo not in ("scala",)
+               and not (b.u0 <= u <= b.u1 and abs(b.v0 - centro_v) > 0 and False)):
+            # la sala di partenza non conta: il cunicolo la tocca
+            if any(_sovrappone(nuova, b, 1) for b in base):
+                continue
+        if any(_sovrappone(nuova, Scatola(o.u - 2, o.u + 2, o.v - 2, o.v + 2, 0, 0, ""))
+               for o in fuori):
+            continue
+        fuori.append(st)
+    return fuori
 
 
 # --------------------------------------------------------------------------
@@ -148,9 +234,28 @@ def pianifica(altezze: np.ndarray, acqua: np.ndarray, evita: np.ndarray | None =
         dx, dz = ((1, 0), (-1, 0), (0, 1), (0, -1))[int(rng.integers(0, 4))]
         d = Dungeon(x=x, z=z, ys=ys, dx=dx, dz=dz, mob=MOB[int(rng.integers(0, len(MOB)))],
                     seme=int(rng.integers(0, 2 ** 31 - 1)))
-        d.scatole = _scatole(ys)
-        if _percorso_valido(d, altezze, acqua, evita):
-            fuori.append(d)
+        # il layout: sala dello spawner e del tesoro fuori asse (snodi) e stanze laterali;
+        # se il terreno non lo permette si ripiega su uno piu' semplice, fino al dritto
+        lr = np.random.default_rng(d.seme + 5)
+        vs = int(lr.choice([-9, -7, -5, 0, 5, 7, 9]))
+        vt = int(lr.choice([-9, -6, 0, 6, 9]))
+        if vs == 0 and vt == 0:
+            vt = int(lr.choice([-7, 7]))
+        for tentativo in range(4):
+            if tentativo == 0:
+                d.vs, d.vt = vs, vt
+            elif tentativo == 1:
+                d.vs, d.vt = vs // 2 * 2, 0
+            elif tentativo == 2:
+                d.vs, d.vt = 0, 0
+            base = _scatole(ys, d.vs, d.vt)
+            d.laterali = _stanze_laterali(lr, d.vs, d.vt, base) if tentativo < 3 else []
+            d.scatole = _scatole(ys, d.vs, d.vt, d.laterali)
+            if _percorso_valido(d, altezze, acqua, evita):
+                fuori.append(d)
+                break
+            if tentativo == 2:
+                d.vs = d.vt = 0
     return fuori
 
 
@@ -362,16 +467,17 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
                     elif r < 9 and s.tipo != "corridoio":
                         if cella(x, s.y0, z) == tav.aria:
                             metti(x, s.y0, z, tav.ossa)
-            if s.tipo in ("anticamera", "corridoio", "tesoro"):
-                # una lanterna dell'anima appesa al centro
-                x, z = d.punto((s.u0 + s.u1) // 2, 0)
+            if s.tipo in ("anticamera", "corridoio", "tesoro", "stanza_laterale"):
+                # una lanterna dell'anima appesa al centro (nei corridoi, in cima:
+                # il soffitto sta a tre blocchi, la testa a uno e otto)
+                x, z = d.punto((s.u0 + s.u1) // 2, (s.v0 + s.v1) // 2)
                 metti(x, s.y1, z, tav.lanterna)
 
         # ---- sala dello spawner: piedistallo e due forzieri -------------------
-        x, z = d.punto((U_SPAWNER[0] + U_SPAWNER[1]) // 2, 0)
+        x, z = d.punto((U_SPAWNER[0] + U_SPAWNER[1]) // 2, d.vs)
         for dv in (-1, 0, 1):
             for du in (-1, 0, 1):
-                px, pz = d.punto((U_SPAWNER[0] + U_SPAWNER[1]) // 2 + du, dv)
+                px, pz = d.punto((U_SPAWNER[0] + U_SPAWNER[1]) // 2 + du, d.vs + dv)
                 metti(px, yf, pz, tav.mattoni)
         sx, sy, sz = d.spawner()
         metti(sx, sy, sz, tav.spawner)
@@ -383,16 +489,16 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
 
         # ---- tesoro: forziere vero, due trappole (forziere-trappola sul TNT) --------
         ux = U_TESORO[1] - 1
-        fx, fz = d.punto(ux, 0)
+        fx, fz = d.punto(ux, d.vt)
         metti(fx, yf, fz, tav.forziere[indietro])
         if nel_chunk(fx, fz):
             tav.bauli.append((fx, yf, fz, "tesoro"))
-        for v in (-2, 2):
+        for v in (d.vt - 2, d.vt + 2):
             tx, tz = d.punto(ux, v)
             metti(tx, yf - 1, tz, tav.tnt)
             metti(tx, yf, tz, tav.trappola[indietro])
         # un cuscino di mattoni scolpiti attorno al forziere vero
-        for v in (-1, 1):
+        for v in (d.vt - 1, d.vt + 1):
             cx, cz = d.punto(ux, v)
             metti(cx, yf, cz, tav.scolpiti)
 

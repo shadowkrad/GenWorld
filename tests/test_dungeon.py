@@ -65,6 +65,67 @@ def posa_su_regione(d, quota=90):
     return s, tav, blocco
 
 
+class TestLayoutVariato(unittest.TestCase):
+    """Snodi, sale fuori asse, cunicoli e stanze laterali: il percorso resta percorribile."""
+
+    @classmethod
+    def setUpClass(cls):
+        h, acqua = terreno(900)
+        cls.ds = DG.pianifica(h, acqua, densita=40.0, seed=3)
+
+    def test_ci_sono_snodi_e_stanze_laterali(self):
+        self.assertGreaterEqual(len(self.ds), 8)
+        fuori_asse = [d for d in self.ds if d.vs != 0 or d.vt != 0]
+        self.assertGreaterEqual(len(fuori_asse), len(self.ds) // 2)
+        self.assertTrue(any(d.laterali for d in self.ds))
+        self.assertTrue(any(s.tipo == "cunicolo" for d in self.ds for s in d.scatole))
+        self.assertTrue(any(sum(1 for s in d.scatole if s.tipo == "corridoio") > 2 for d in self.ds))
+
+    def test_i_primi_tre_forzieri_sono_sempre_stanza_stanza_tesoro(self):
+        for d in self.ds:
+            tipi = [t for *_, t in d.forzieri()]
+            self.assertEqual(tipi[:3], ["stanza", "stanza", "tesoro"])
+            self.assertEqual(len(tipi), 3 + len(d.laterali))
+
+    def test_le_scatole_non_si_sovrappongono_se_non_dove_si_connettono(self):
+        for d in self.ds:
+            stanze = [s for s in d.scatole if s.tipo in ("anticamera", "spawner", "tesoro", "stanza_laterale")]
+            for i, a in enumerate(stanze):
+                for b in stanze[i + 1:]:
+                    self.assertTrue(a.u1 < b.u0 or b.u1 < a.u0 or a.v1 < b.v0 or b.v1 < a.v0, (a, b))
+
+    def test_dallo_scalino_si_raggiunge_tutto(self):
+        """Si stampa la cripta e si fa una visita: dalla fine della scala si arriva allo
+        spawner, al forziere del tesoro e a ogni forziere delle stanze laterali, passando
+        per celle libere con due blocchi d'aria sopra."""
+        for d in self.ds[:8]:
+            s, tav, b = posa_su_regione(d, quota=d.ys)
+            yf = d.yf
+            libere = ("air", "cobweb", "soul_lantern", "bone_block", "spawner", "chest", "trapped_chest")
+
+            def libera(x, z):
+                return all(b(x, y, z) in libere for y in (yf, yf + 1))
+            ux, uz = d.punto(DG.PROFONDITA + 1, 0)
+            visti, coda = {(ux, uz)}, [(ux, uz)]
+            while coda:
+                x, z = coda.pop()
+                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    n = (x + dx, z + dz)
+                    if n not in visti and libera(*n):
+                        visti.add(n)
+                        coda.append(n)
+            sx, sy, sz = d.spawner()
+            self.assertTrue(any(abs(sx - x) + abs(sz - z) <= 3 for x, z in visti), "spawner")   # c'e' il piedistallo
+            for fx, fy, fz, tipo in d.forzieri():
+                vicino = any((fx + dx, fz + dz) in visti for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                self.assertTrue(vicino, f"forziere {tipo} irraggiungibile in {d.x},{d.z}")
+
+    def test_il_dritto_resta_valido_per_chi_costruisce_a_mano(self):
+        d = un_dungeon()
+        self.assertEqual((d.vs, d.vt, d.laterali), (0, 0, []))
+        self.assertEqual([t for *_, t in d.forzieri()], ["stanza", "stanza", "tesoro"])
+
+
 class TestPianifica(unittest.TestCase):
     def test_trova_siti_su_un_pianoro_asciutto(self):
         h, acqua = terreno()
