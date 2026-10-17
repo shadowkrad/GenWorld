@@ -46,6 +46,12 @@ COMPAGNI = {"zombie": ("skeleton", "spider", "husk"),
             "skeleton_nero": ("skeleton", "zombie"),
             "vindicatore": ("zombie", "skeleton")}
 
+# Le trappole dei corridoi: dardi (un filo d'inciampo e due distributori di frecce nei
+# muri), fossa (con le punte e una sponda stretta), ragnatele, pavimento di magma,
+# muri infestati (pesciolini d'argento) e piastre sopra il TNT.
+TIPI_TRAPPOLA = ("dardi", "fossa", "ragnatele", "magma", "infestati", "tnt")
+PESI_TRAPPOLA = (0.28, 0.20, 0.14, 0.12, 0.12, 0.14)
+
 # direzione (dx, dz) -> nome della faccia
 FACCIA = {(1, 0): "east", (-1, 0): "west", (0, 1): "south", (0, -1): "north"}
 
@@ -129,6 +135,43 @@ class Dungeon:
     def spawner(self) -> tuple[int, int, int]:
         x, z = self.punto((U_SPAWNER[0] + U_SPAWNER[1]) // 2, self.vs)
         return x, self.yf + 1, z
+
+    def trappole(self) -> list[tuple[str, int, int]]:
+        """(tipo, u, v del centro): una trappola in quasi ogni tratto dritto e lungo
+        di corridoio. Sei tipi (vedi `TIPI_TRAPPOLA`), scelti dal seme; il TNT sotto le
+        piastre al massimo uno per cripta, e ce n'e' sempre almeno una."""
+        rng = np.random.default_rng(self.seme + 17)
+        fuori: list[tuple[str, int, int]] = []
+        tnt = False
+        tratti = [s for s in self.scatole if s.tipo == "corridoio" and s.u1 - s.u0 >= 4
+                  and s.v1 - s.v0 == 2]
+        for k, s in enumerate(tratti):
+            if rng.random() < 0.15 and not (k == len(tratti) - 1 and not fuori):
+                continue
+            tipo = TIPI_TRAPPOLA[int(rng.choice(len(TIPI_TRAPPOLA), p=PESI_TRAPPOLA))]
+            if tipo == "tnt":
+                tipo = "ragnatele" if tnt else "tnt"
+                tnt = tnt or tipo == "tnt"
+            fuori.append((tipo, (s.u0 + s.u1) // 2, (s.v0 + s.v1) // 2))
+        return fuori
+
+    def _faccia(self, du: int, dv: int) -> str:
+        return FACCIA[(self.dx * du - self.dz * dv, self.dz * du + self.dx * dv)]
+
+    def asse_v(self) -> str:
+        """L'asse del MONDO lungo cui corre v (il filo d'inciampo sta di traverso)."""
+        return "z" if self.dx else "x"
+
+    def distributori(self) -> list[tuple[int, int, int, str]]:
+        """(x, y, z, facing) dei distributori di frecce delle trappole `dardi`."""
+        fuori = []
+        for tipo, u, vc in self.trappole():
+            if tipo != "dardi":
+                continue
+            for lato in (1, -1):
+                x, z = self.punto(u, vc + 2 * lato)
+                fuori.append((x, self.yf + 1, z, self._faccia(0, -lato)))
+        return fuori
 
 
 def _corridoio(u0: int, u1: int, v_da: int, v_a: int, yf: int) -> list[Scatola]:
@@ -343,6 +386,21 @@ class Tavolozza:
         self.sbarre = s.blocco("bars", material="iron", north="false", south="false",
                                east="false", west="false")
         self.ossa = s.blocco("bone_block", axis="y")
+        self.piastra = s.blocco("pressure_plate", material="stone", powered="false")
+        self.gancio = {f: s.blocco("tripwire_hook", facing=f, attached="true", powered="false")
+                       for f in FACCIA.values()}
+        self.filo = {ass: s.blocco("tripwire", attached="true", disarmed="false", powered="false",
+                                   suspended="false",
+                                   east=str(ass == "x").lower(), west=str(ass == "x").lower(),
+                                   north=str(ass == "z").lower(), south=str(ass == "z").lower())
+                     for ass in ("x", "z")}
+        self.distributore = {f: s.blocco("dispenser", facing=f, triggered="false")
+                             for f in FACCIA.values()}
+        self.punta = s.blocco("pointed_dripstone", thickness="tip", vertical_direction="up")
+        self.magma = s.blocco("magma_block")
+        self.infestati = (s.blocco("infested_block", material="stone_bricks"),
+                          s.blocco("infested_block", material="cracked_stone_bricks"),
+                          s.blocco("infested_block", material="mossy_stone_bricks"))
         self.forziere = {f: s.blocco("chest", facing=f, connection="none", material="wood")
                          for f in FACCIA.values()}
         self.trappola = {f: s.blocco("trapped_chest", facing=f, connection="none")
@@ -502,6 +560,49 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int, y0:
             cx, cz = d.punto(ux, v)
             metti(cx, yf, cz, tav.scolpiti)
 
+        # ---- le trappole dei corridoi ------------------------------------------
+        def alza(u: int, v: int, y: int, blocco: int) -> None:
+            x, z = d.punto(u, v)
+            metti(x, y, z, blocco)
+
+        for tipo, u, vc in d.trappole():
+            if tipo == "dardi":
+                alza(u, vc + 1, yf, tav.gancio[d._faccia(0, -1)])
+                alza(u, vc - 1, yf, tav.gancio[d._faccia(0, 1)])
+                alza(u, vc, yf, tav.filo[d.asse_v()])
+                for lato in (1, -1):
+                    alza(u, vc + 2 * lato, yf + 1, tav.distributore[d._faccia(0, -lato)])
+            elif tipo == "fossa":
+                for uu in (u - 1, u, u + 1):
+                    for v in (vc, vc + 1):                     # la sponda e' vc - 1
+                        for y in range(yf - 4, yf):
+                            alza(uu, v, y, tav.aria)
+                        alza(uu, v, yf - 5, _mattone(tav, _hash(uu, 9, v)))
+                        alza(uu, v, yf - 4, tav.punta)
+                    alza(uu, vc - 1, yf - 1, tav.crepati)       # la sponda, stretta e crepata
+                for uu in (u - 2, u + 2):
+                    for v in (vc, vc + 1):
+                        alza(uu, v, yf, tav.ragnatela)
+            elif tipo == "ragnatele":
+                for uu in (u - 1, u, u + 1):
+                    for v in (vc - 1, vc, vc + 1):
+                        for y in (yf, yf + 1):
+                            alza(uu, v, y, tav.ragnatela)
+            elif tipo == "magma":
+                for uu in (u - 1, u, u + 1):
+                    for v in (vc - 1, vc, vc + 1):
+                        alza(uu, v, yf - 1, tav.magma)
+            elif tipo == "infestati":
+                for uu in range(u - 2, u + 3):
+                    for lato in (1, -1):
+                        for y in (yf, yf + 1):
+                            alza(uu, vc + 2 * lato, y, tav.infestati[(uu + y) % 3])
+            elif tipo == "tnt":
+                for uu in (u, u + 1):
+                    for v in (vc - 1, vc, vc + 1):
+                        alza(uu, v, yf - 1, tav.tnt)
+                        alza(uu, v, yf, tav.piastra)
+
 
 def be_spawner(gx: int, y: int, gz: int, mob: str, misto: bool = False):
     """Il `BlockEntity` (formato universale di amulet) di uno spawner di `mob`.
@@ -518,9 +619,13 @@ def be_spawner(gx: int, y: int, gz: int, mob: str, misto: bool = False):
                        for m in COMPAGNI.get(mob, ())]
     utags = CompoundTag({
         "isMovable": ByteTag(1),
-        "MaxNearbyEntities": ShortTag(6),
-        "RequiredPlayerRange": ShortTag(16),
-        "SpawnCount": ShortTag(4),
+        # Meno asfissiante dei valori del gioco (4 per volta, 6 vicini, ogni 10-40 s,
+        # da 16 blocchi): una cripta che rigenera mostri senza tregua non si finisce mai.
+        # Qui 2 per volta, al massimo 3 vicini, ogni 35-90 s, solo con il giocatore a
+        # 10 blocchi, e compaiono a 3 blocchi dallo spawner: restano nella sala.
+        "MaxNearbyEntities": ShortTag(3),
+        "RequiredPlayerRange": ShortTag(10),
+        "SpawnCount": ShortTag(2),
         # formato del gioco recente (1.21.5+): `entity` dentro SpawnData e
         # `data`/`weight` in SpawnPotentials. Senza SpawnPotentials amulet
         # ne aggiunge uno di maiali nel vecchio formato, e dopo il primo
@@ -528,10 +633,10 @@ def be_spawner(gx: int, y: int, gz: int, mob: str, misto: bool = False):
         "SpawnData": entita,
         "SpawnPotentials": ListTag(potenziali),
         "EntityIdentifier": StringTag(""),
-        "MaxSpawnDelay": ShortTag(800),
+        "MaxSpawnDelay": ShortTag(1800),
         "Delay": ShortTag(20),
-        "SpawnRange": ShortTag(4),
-        "MinSpawnDelay": ShortTag(200),
+        "SpawnRange": ShortTag(3),
+        "MinSpawnDelay": ShortTag(700),
         "DisplayEntityHeight": FloatTag(1.8),
         "DisplayEntityScale": FloatTag(1.0),
         "DisplayEntityWidth": FloatTag(0.8),
@@ -554,13 +659,15 @@ def be_dispenser(gx: int, y: int, gz: int, oggetto: str = "arrow", quanti: int =
 
 
 def entita_blocco(dungeons: list[Dungeon], ox: int, oz: int, meta: int) -> list:
-    """I `BlockEntity` degli spawner che cadono nel chunk di angolo (ox, oz),
-    coordinate di GIOCO."""
+    """I `BlockEntity` degli spawner e dei distributori delle trappole che cadono nel
+    chunk di angolo (ox, oz), coordinate di GIOCO."""
     fuori = []
     for d in dungeons:
         x, y, z = d.spawner()
         gx, gz = x - meta, z - meta
-        if not (ox <= gx < ox + 16 and oz <= gz < oz + 16):
-            continue
-        fuori.append(be_spawner(gx, y, gz, d.mob, misto=True))
+        if ox <= gx < ox + 16 and oz <= gz < oz + 16:
+            fuori.append(be_spawner(gx, y, gz, d.mob, misto=True))
+        for (x, y, z, _f) in d.distributori():
+            if ox <= x - meta < ox + 16 and oz <= z - meta < oz + 16:
+                fuori.append(be_dispenser(x - meta, y, z - meta))
     return fuori
