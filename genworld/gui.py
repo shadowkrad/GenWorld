@@ -31,7 +31,7 @@ import threading
 import traceback
 
 
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import QPoint, Qt, QThread, Signal
 from PySide6.QtGui import QAction, QColor, QFont, QImage, QPainter, QPixmap
 from PySide6.QtWidgets import (QApplication, QCheckBox, QComboBox, QDialog,
                                QFileDialog, QFormLayout, QFrame, QGridLayout,
@@ -184,10 +184,15 @@ class PannelloFedelta(QGroupBox):
 
 
 class Anteprima(QLabel):
-    """Immagine che si adatta al riquadro senza deformarsi."""
+    """Immagine che si adatta al riquadro senza deformarsi. Con `cattura` attivo un clic emette
+    `cliccata(x, z, bottone)` in frazioni 0..1 dell'immagine, e i `marcatori` [(x, z)] si disegnano."""
+
+    cliccata = Signal(float, float, int)
 
     def __init__(self, testo: str, parent=None):
         super().__init__(testo, parent)
+        self.marcatori: list = []
+        self.cattura = False
         self.setAlignment(Qt.AlignCenter)
         self.setMinimumSize(240, 240)
         self.setStyleSheet("background: #1e1e22; color: #888; border-radius: 4px;")
@@ -207,8 +212,32 @@ class Anteprima(QLabel):
     def _ridisegna(self) -> None:
         if self._pix is None:
             return
-        self.setPixmap(self._pix.scaled(self.size(), Qt.KeepAspectRatio,
-                                        Qt.SmoothTransformation))
+        p = self._pix.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        if self.marcatori:
+            pit = QPainter(p)
+            pit.setRenderHint(QPainter.Antialiasing)
+            for fx, fz in self.marcatori:
+                cx, cy = fx * p.width(), fz * p.height()
+                pit.setPen(QColor(0, 0, 0))
+                pit.setBrush(QColor(255, 60, 20))
+                pit.drawPolygon([QPoint(int(cx), int(cy - 11)), QPoint(int(cx - 9), int(cy + 7)),
+                                 QPoint(int(cx + 9), int(cy + 7))])
+            pit.end()
+        self.setPixmap(p)
+
+    def imposta_marcatori(self, marcatori: list) -> None:
+        self.marcatori = list(marcatori)
+        self._ridisegna()
+
+    def mousePressEvent(self, ev):  # noqa: N802 (API Qt)
+        if not self.cattura or self._pix is None or self.pixmap() is None:
+            return super().mousePressEvent(ev)
+        p = self.pixmap()
+        ox, oy = (self.width() - p.width()) / 2, (self.height() - p.height()) / 2
+        fx, fz = (ev.position().x() - ox) / p.width(), (ev.position().y() - oy) / p.height()
+        if 0 <= fx <= 1 and 0 <= fz <= 1:
+            self.cliccata.emit(fx, fz, int(ev.button().value if hasattr(ev.button(), "value")
+                                           else ev.button()))
 
     def resizeEvent(self, ev):  # noqa: N802 (API Qt)
         super().resizeEvent(ev)
@@ -555,6 +584,16 @@ class Finestra(QWidget):
         g = QGroupBox("Cosa generare")
         f = QFormLayout(g)
         self.vulcani = self._cursore(f, "Vulcani", 0, 6, 3, passo=1)
+        self.scegli_vulcani = QCheckBox("Scegli sull'anteprima (clic sinistro aggiunge, destro toglie)")
+        self.scegli_vulcani.toggled.connect(self._cattura_vulcani)
+        self.azzera_vulcani = QPushButton("Azzera")
+        self.azzera_vulcani.clicked.connect(self._azzera_vulcani)
+        self.info_vulcani = QLabel("automatici")
+        riga_v = QHBoxLayout()
+        riga_v.addWidget(self.scegli_vulcani, 1)
+        riga_v.addWidget(self.info_vulcani, 0)
+        riga_v.addWidget(self.azzera_vulcani, 0)
+        f.addRow("", riga_v)
         self.fiumi = self._cursore(f, "Fiumi (soglia)", 0, 400, 150, passo=10)
         self.alberi = self._cursore(f, "Alberi", 0, 300, 100, suffisso="%")
         self.villaggi = self._cursore(f, "Villaggi", 0, 300, 100, suffisso="%")
@@ -600,6 +639,37 @@ class Finestra(QWidget):
         rotolo.setFixedWidth(430)
         return rotolo
 
+    # -- vulcani scelti a mano ---------------------------------------------
+
+    def _cattura_vulcani(self, si: bool) -> None:
+        for vista in (self.vista_classi, self.vista_quote):
+            vista.cattura = si
+            vista.setCursor(Qt.CrossCursor if si else Qt.ArrowCursor)
+
+    def _clic_vulcano(self, fx: float, fz: float, bottone: int) -> None:
+        if bottone == 2:                          # destro: toglie il piu' vicino (entro il 4%)
+            if self.vulcani_scelti:
+                k = min(range(len(self.vulcani_scelti)),
+                        key=lambda i: (self.vulcani_scelti[i][0] - fx) ** 2
+                        + (self.vulcani_scelti[i][1] - fz) ** 2)
+                if (self.vulcani_scelti[k][0] - fx) ** 2 + (self.vulcani_scelti[k][1] - fz) ** 2 < 0.04 ** 2:
+                    del self.vulcani_scelti[k]
+        else:
+            self.vulcani_scelti.append((fx, fz))
+        self._aggiorna_vulcani()
+
+    def _azzera_vulcani(self) -> None:
+        self.vulcani_scelti = []
+        self._aggiorna_vulcani()
+
+    def _aggiorna_vulcani(self) -> None:
+        for vista in (self.vista_classi, self.vista_quote):
+            vista.imposta_marcatori(self.vulcani_scelti)
+        n = len(self.vulcani_scelti)
+        self.info_vulcani.setText(f"{n} scelti" if n else "automatici")
+        self.registro.setText(
+            "Vulcani scelti: premi Analizza per vederli sulla mappa." if n else self.registro.text())
+
     def _cursore(self, form: QFormLayout, etichetta: str, minimo: int,
                  massimo: int, valore: int, passo: int = 1,
                  suffisso: str = "") -> QSlider:
@@ -626,6 +696,9 @@ class Finestra(QWidget):
         self.vista_classi = Anteprima("Analizza la mappa per vedere le classi")
         self.vista_quote = Anteprima("…e l'altimetria dedotta")
         self.vista_mondo = Anteprima("Il mondo generato comparira' qui")
+        self.vulcani_scelti: list = []
+        for vista in (self.vista_classi, self.vista_quote):
+            vista.cliccata.connect(self._clic_vulcano)
         self.schede.addTab(self.vista_classi, "Classi")
         self.schede.addTab(self.vista_quote, "Quote")
         self.schede.addTab(self.vista_mondo, "Mondo")
@@ -705,6 +778,7 @@ class Finestra(QWidget):
             erosione=self.erosione.value() / 100.0,
             fiumi=float(self.fiumi.value()),
             vulcani=int(self.vulcani.value()),
+            vulcani_posizioni=tuple(self.vulcani_scelti),
             templates=cartella_template,
             templates_cimitero=cartella_cimitero,
             templates_portale=cartella_portale,

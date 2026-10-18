@@ -211,3 +211,31 @@ class TestPiede(unittest.TestCase):
         self.assertTrue((V.piede(cls, seed=4) == V.piede(cls, seed=4)).all())
         vuota = np.full((50, 50), M.PIANURA, np.uint8)
         self.assertFalse(V.piede(vuota).any())
+
+
+class TestPosizioniScelte(unittest.TestCase):
+    def test_i_vulcani_stanno_dove_sono_stati_messi_e_quanti_non_conta(self):
+        cls, h = terreno()
+        v = V.scegli_siti(cls, h, quanti=5, posizioni=[(120, 140), (100, 100)])
+        self.assertEqual([(a.z, a.x) for a in v], [(120, 140), (100, 100)])
+
+    def test_in_mare_non_si_fa_e_vicino_al_bordo_il_raggio_si_riduce(self):
+        cls, h = terreno()
+        self.assertEqual(V.scegli_siti(cls, h, posizioni=[(120, 10)]), [])
+        v = V.scegli_siti(cls, h, posizioni=[(120, 62)])
+        self.assertEqual(len(v), 1)
+        self.assertLessEqual(v[0].raggio, 62 - 4 - 0)
+        self.assertGreaterEqual(min(v[0].z, v[0].x, 239 - v[0].z, 239 - v[0].x), v[0].raggio + 4)
+
+    def test_senza_posizioni_resta_automatico(self):
+        cls, h = terreno()
+        cls, h = terreno(700)
+        self.assertEqual(len(V.scegli_siti(cls, h, quanti=2, seed=1)), 2)
+        self.assertEqual(V.scegli_siti(cls, h, quanti=0), [])
+
+    def test_le_posizioni_cambiano_la_firma_dell_analisi(self):
+        from genworld.motore import Opzioni
+        a = Opzioni(immagine="x.png", uscita="u")
+        b = Opzioni(immagine="x.png", uscita="u", vulcani_posizioni=((0.5, 0.5),))
+        self.assertNotEqual(a.firma_analisi(), b.firma_analisi())
+

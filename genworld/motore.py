@@ -127,6 +127,9 @@ class Opzioni:
     erosione: float = 0.0
     fiumi: float = 150.0
     vulcani: int = 3
+    # Posizioni dei vulcani scelte a mano sull'anteprima: [(x, z)] in frazioni 0..1 della
+    # mappa. Se ci sono, sono le uniche e `vulcani` non conta.
+    vulcani_posizioni: tuple = ()
     alberi: float = 1.0
     villaggi: float = 1.0
     strade: bool = True
@@ -271,7 +274,7 @@ class Opzioni:
         non deve invalidare l'analisi, che e' la parte lenta.
         """
         return (int(self.lato), self.modo(), float(self.erosione),
-                float(self.fiumi), int(self.vulcani), float(self.laghi),
+                float(self.fiumi), int(self.vulcani), tuple(self.vulcani_posizioni), float(self.laghi),
                 float(self.ritaglio), os.path.abspath(self.immagine), B.firma())
 
 
@@ -416,10 +419,12 @@ def _vulcani(op: Opzioni, cls: np.ndarray, h: np.ndarray, note: list[str],
     lava = np.zeros(h.shape, bool)
     colata = np.zeros(h.shape, np.float32)
     q_lava = np.zeros(h.shape, np.float32)
-    if op.vulcani > 0:
+    if op.vulcani > 0 or op.vulcani_posizioni:
         avanza(0.52, "vulcani")
+        H_, W_ = cls.shape
+        scelte = [(int(fz * H_), int(fx * W_)) for fx, fz in op.vulcani_posizioni] or None
         coni = U.scegli_siti(cls, h, quanti=op.vulcani,
-                             livello_mare=LIVELLO_MARE, seed=9)
+                             livello_mare=LIVELLO_MARE, seed=9, posizioni=scelte)
         if coni:
             cls, h, lava, q_lava = U.modella(cls, h, coni)
             colata = U.colate(h, cls, coni)

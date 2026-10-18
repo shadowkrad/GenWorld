@@ -50,16 +50,22 @@ def scegli_siti(
     separazione: int = 180,
     livello_mare: int = 62,
     seed: int = 0,
+    posizioni: list[tuple[int, int]] | None = None,
 ) -> list[Vulcano]:
     """Siti su terra alta e lontani fra loro.
+
+    Con `posizioni` ([(z, x)] in celle, scelte dall'utente) i vulcani stanno esattamente li' e
+    `quanti` non conta: solo su terra asciutta, e col raggio ridotto se il bordo e' vicino.
 
     Un vulcano vuole spazio: il cono e le colate occupano un raggio ampio, e
     due coni sovrapposti diventano una collina informe.
     """
-    if quanti <= 0:
-        return []
     rng = np.random.default_rng(seed)
     terra = ~np.isin(cls, ACQUA)
+    if posizioni:
+        return _da_posizioni(cls, altezze, terra, posizioni, rng)
+    if quanti <= 0:
+        return []
     if not terra.any():
         return []
 
@@ -99,6 +105,28 @@ def scegli_siti(
             seme=int(rng.integers(0, 2 ** 31 - 1)),
         ))
         p[(zz - z) ** 2 + (xx - x) ** 2 < separazione ** 2] = -1
+    return fuori
+
+
+def _da_posizioni(cls, altezze, terra, posizioni, rng) -> list[Vulcano]:
+    H, W = cls.shape
+    zz, xx = np.ogrid[:H, :W]
+    fuori: list[Vulcano] = []
+    for (z, x) in posizioni:
+        z, x = int(min(max(z, 0), H - 1)), int(min(max(x, 0), W - 1))
+        if not terra[z, x]:
+            continue                                  # un vulcano in mare non si fa
+        raggio = int(rng.integers(30, 52))
+        raggio = min(raggio, min(z, x, H - 1 - z, W - 1 - x) - 4)
+        if raggio < 12:
+            continue
+        anello = ((zz - z) ** 2 + (xx - x) ** 2 >= (raggio - 4) ** 2) & \
+                 ((zz - z) ** 2 + (xx - x) ** 2 <= (raggio + 3) ** 2)
+        base = float(np.median(altezze[anello])) if anello.any() else float(altezze[z, x])
+        fuori.append(Vulcano(
+            z=z, x=x, raggio=raggio, altezza=float(rng.integers(42, 78)),
+            raggio_cratere=max(4, raggio // 5), profondita_cratere=float(rng.integers(8, 15)),
+            quota_base=base, seme=int(rng.integers(0, 2 ** 31 - 1))))
     return fuori
 
 

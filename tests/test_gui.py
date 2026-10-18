@@ -92,6 +92,43 @@ class TestFinestra(unittest.TestCase):
         self.f.portali.setValue(150)
         self.assertAlmostEqual(self.f.opzioni().portali, 1.50)
 
+    def test_i_vulcani_si_scelgono_cliccando_sull_anteprima(self):
+        self.assertEqual(self.f.opzioni().vulcani_posizioni, ())
+        self.f._clic_vulcano(0.25, 0.75, 1)
+        self.f._clic_vulcano(0.6, 0.4, 1)
+        self.assertEqual(self.f.opzioni().vulcani_posizioni, ((0.25, 0.75), (0.6, 0.4)))
+        self.assertEqual(self.f.vista_classi.marcatori, self.f.vulcani_scelti)
+        self.assertEqual(self.f.info_vulcani.text(), "2 scelti")
+        self.f._clic_vulcano(0.61, 0.41, 2)                  # destro: toglie il piu' vicino
+        self.assertEqual(self.f.opzioni().vulcani_posizioni, ((0.25, 0.75),))
+        self.f._clic_vulcano(0.9, 0.1, 2)                    # troppo lontano da tutti: niente
+        self.assertEqual(len(self.f.vulcani_scelti), 1)
+        self.f._azzera_vulcani()
+        self.assertEqual(self.f.opzioni().vulcani_posizioni, ())
+        self.assertEqual(self.f.info_vulcani.text(), "automatici")
+
+    def test_il_clic_sull_immagine_arriva_solo_con_la_scelta_attiva(self):
+        from PySide6.QtCore import QPointF, Qt
+        from PySide6.QtGui import QMouseEvent
+        from PySide6.QtCore import QEvent
+        from PIL import Image
+        v = self.f.vista_classi
+        v.resize(300, 300)
+        v.imposta_immagine(Image.new("RGB", (100, 100), (10, 120, 10)))
+        presi = []
+        v.cliccata.connect(lambda x, z, b: presi.append((round(x, 2), round(z, 2), b)))
+
+        def clic(x, y, bottone=Qt.LeftButton):
+            ev = QMouseEvent(QEvent.MouseButtonPress, QPointF(x, y), QPointF(x, y), bottone,
+                             bottone, Qt.NoModifier)
+            v.mousePressEvent(ev)
+        clic(150, 150)
+        self.assertEqual(presi, [])
+        self.f.scegli_vulcani.setChecked(True)
+        clic(150, 150)
+        clic(75, 225, Qt.RightButton)
+        self.assertEqual(presi, [(0.5, 0.5, 1), (0.25, 0.75, 2)])
+
     def test_il_profilo_vuoto_e_None_non_stringa_vuota(self):
         """`Profilo.carica("")` esploderebbe: il motore si aspetta None."""
         self.f.percorso_profilo.setText("   ")
