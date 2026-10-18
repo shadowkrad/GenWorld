@@ -31,8 +31,19 @@ from . import livello_dat
 Y_MIN = -64
 Y_MAX = 320
 DIMENSIONE = "minecraft:overworld"
+NETHER = "minecraft:the_nether"
+END = "minecraft:the_end"
 DATA_VERSION_DIMENSIONI = 4786      # da qui le dimensioni stanno in dimensions/<ns>/<nome>
 ARIA = "air"
+
+
+def assicura_dimensioni(percorso: str, data_version: int) -> None:
+    """Crea le cartelle `region` di Nether ed End: amulet vede una dimensione solo
+    se la sua cartella esiste gia' quando il livello si apre."""
+    if data_version >= DATA_VERSION_DIMENSIONI:
+        for d in ("overworld", "the_nether", "the_end"):
+            os.makedirs(os.path.join(percorso, "dimensions", "minecraft", d, "region"),
+                        exist_ok=True)
 
 
 class ScrittoreMondo:
@@ -70,6 +81,7 @@ class ScrittoreMondo:
         if not self.crea:
             if not os.path.exists(self.percorso):
                 raise FileNotFoundError(f"non esiste: {self.percorso}")
+            assicura_dimensioni(self.percorso, self.imp.data_version)
             self._livello = amulet.load_level(self.percorso)
             return self
 
@@ -110,8 +122,9 @@ class ScrittoreMondo:
         # gia': in un mondo appena creato non c'e', e `bounds` falliva con
         # DimensionDoesNotExist. La si crea prima di aprire il livello.
         if self.imp.data_version >= DATA_VERSION_DIMENSIONI:
-            os.makedirs(os.path.join(self.percorso, "dimensions", "minecraft",
-                                     "overworld", "region"), exist_ok=True)
+            for d in ("overworld", "the_nether", "the_end"):
+                os.makedirs(os.path.join(self.percorso, "dimensions", "minecraft",
+                                         d, "region"), exist_ok=True)
 
         self._livello = amulet.load_level(self.percorso)
         limiti = self._livello.bounds(DIMENSIONE).min
@@ -228,6 +241,7 @@ class ScrittoreMondo:
         y0: int = Y_MIN,
         biomi: np.ndarray | None = None,
         bauli: list | None = None,
+        dimensione: str = DIMENSIONE,
     ) -> None:
         """Scrive un chunk da un array (16, H, 16) di id di palette.
 
@@ -262,7 +276,7 @@ class ScrittoreMondo:
                 chunk.block_entities.insert(be)
 
         chunk.changed = True
-        self._livello.put_chunk(chunk, DIMENSIONE)
+        self._livello.put_chunk(chunk, dimensione)
         self._chunk_scritti += 1
 
         # scarico periodico: non teniamo tutto in RAM

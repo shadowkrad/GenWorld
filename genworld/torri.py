@@ -37,6 +37,10 @@ SPECIE = {"zombie": "zombie", "scheletro": "skeleton", "vindicatore": "vindicato
           # la torre del mago: il capo e' un evocatore, le guardie streghe
           "evocatore": "evoker", "strega": "witch"}
 MAGHI = ("evocatore", "strega")
+# creature del Nether e dell'End (vedi `dimensioni.py`)
+SPECIE.update({"piglin": "piglin", "piglin_bruto": "piglin_brute", "blaze": "blaze",
+               "hoglin": "hoglin", "cubo_magma": "magma_cube", "ghast": "ghast",
+               "enderman": "enderman", "shulker": "shulker"})
 NOMI_CAPO = ("Aldric il Cupo", "Brenna Mano di Ferro", "Corvo Nero", "Dagan l'Esule",
              "Edrik Spezzaossa", "Fenna la Vedetta", "Garrick Senzaterra",
              "Hilda Cuordipietra", "Ivor il Custode", "Kael Lamarotta")
@@ -110,6 +114,8 @@ class Combattente:
         elif self.specie in ("zombie", "scheletro", "vindicatore"):
             equip["mainhand"] = _pila(ARMA[self.specie][0])
             equip["head"] = _pila("chainmail_helmet")
+        elif self.specie == "piglin_bruto":
+            equip["mainhand"] = _pila(ARMA[self.specie][0])
         elif self.specie == "predone":
             equip["mainhand"] = _pila("crossbow")
         base = {
@@ -192,6 +198,7 @@ ARMA = {
     "vindicatore": ("iron_axe", "diamond_axe"),
     "scheletro_nero": ("stone_sword", "diamond_sword"),
     "predone": ("crossbow", "crossbow"),
+    "piglin_bruto": ("golden_axe", "diamond_axe"),
 }
 
 

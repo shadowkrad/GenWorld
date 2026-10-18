@@ -86,6 +86,8 @@ def main() -> None:
                          "e `meta.json` con la regione. Di default 'templates/fari'")
     ap.add_argument("--castelli", type=float, default=1.0, metavar="SCALA",
                     help="0 = nessun castello")
+    ap.add_argument("--dimensioni", action=argparse.BooleanOptionalAction, default=True,
+                    help="scrive anche il Nether e l'End di Arda (default: si')")
     ap.add_argument("--isole", type=float, default=1.0, metavar="SCALA",
                     help="isole del tesoro in mare aperto (0 = nessuna)")
     ap.add_argument("--navi", type=float, default=1.0, metavar="SCALA",
@@ -181,7 +183,7 @@ def main() -> None:
                  templates_portale=a.templates_portale,
                  templates_castello=a.templates_castello,
                  templates_nave=a.templates_nave, templates_molo=a.templates_molo,
-                 templates_faro=a.templates_faro, castelli=a.castelli, navi=a.navi, porti=a.porti, isole=a.isole,
+                 templates_faro=a.templates_faro, castelli=a.castelli, navi=a.navi, porti=a.porti, isole=a.isole, dimensioni=a.dimensioni,
                  fauna=a.fauna, arredi=a.arredi, isolate=a.isolate, laghi=a.laghi,
                  miniere=a.miniere, accampamenti=a.accampamenti,
                  cimiteri=a.cimiteri, portali=a.portali, versione=versione,

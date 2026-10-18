@@ -153,6 +153,8 @@ class Opzioni:
     incarichi: bool = True
     # Isole del tesoro in mare aperto, con la croce di sabbia rossa (vedi `isole.py`).
     isole: float = 1.0
+    # Nether ed End disegnati da noi, scritti accanto all'overworld (vedi `dimensioni.py`).
+    dimensioni: bool = False
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -2918,6 +2920,12 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
     # Gli abitanti si scrivono ALLA FINE e da soli: `ScrittoreMondo` cancella
     # la cartella `entities/` a ogni chiusura, perche' amulet la scrive rotta.
     # Quella che mettiamo noi deve arrivare dopo l'ultima chiusura.
+    if getattr(op, "dimensioni", False):
+        from . import dimensioni as DM
+        st_dim = DM.scrivi(op)
+        fuori["dimensioni_md"] = st_dim.pop("md")
+        fuori["dimensioni"] = st_dim
+
     if piano.abitanti:
         from dataclasses import replace as _replace
 
@@ -2956,7 +2964,8 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
 
     if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
-                                 extra_md=IC.sezione_elenco(piano.incarichi, piano.consegne) + CM.sezione_elenco(piano.commissioni))
+                                 extra_md=IC.sezione_elenco(piano.incarichi, piano.consegne) + CM.sezione_elenco(piano.commissioni)
+                                 + fuori.get("dimensioni_md", ""))
         fuori["luoghi"] = md
 
     fuori["level_dat"] = "valido" if not verifica(
