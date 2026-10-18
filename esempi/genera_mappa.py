@@ -100,6 +100,10 @@ def main() -> None:
                     "rettangolo di interesse + campioni col contagocce")
     ap.add_argument("--vulcani", type=int, default=3, metavar="N",
                     help="quanti vulcani piazzare (0 = nessuno)")
+    ap.add_argument("--dem", default="", metavar="FILE.npz",
+                    help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
+    ap.add_argument("--luoghi-reali", default="", metavar="FILE.json",
+                    help="citta' e vulcani veri (lat/lon) da piazzare dove stanno; serve --dem")
     ap.add_argument("--vulcani-px", metavar="X,Y;X,Y", default="",
                     help="posizioni dei vulcani in PIXEL dell'immagine originale (come le legge "
                          "un editor di immagini); se ci sono, sono le uniche e --vulcani non conta")
@@ -184,7 +188,24 @@ def main() -> None:
         punti = [tuple(float(v) for v in c.split(",")) for c in a.vulcani_px.split(";") if c.strip()]
         prof_ = Profilo.carica(a.profilo) if a.profilo else Profilo()
         vulcani_pos = tuple(prof_.frazioni_da_pixel(a.immagine, a.lato, punti))
-    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, uscita=a.uscita, nome=a.nome, lato=a.lato,
+    citta_reali = ()
+    if a.dem and a.luoghi_reali:
+        import json
+        from genworld import dem as DEM
+        dati = json.load(open(a.luoghi_reali, encoding="utf-8"))
+        d_ = DEM.carica(a.dem)
+        passo_cella = d_["passo"] / (a.lato / max(d_["elev"].shape))
+        vul = dati.get("vulcani", [])
+        fr = DEM.frazioni_da_lonlat(d_, a.lato, [(v["lon"], v["lat"]) for v in vul])
+        vulcani_pos = tuple(
+            (fx, fz, max(5, round(v["raggio_km"] * 1000 / passo_cella)), v["altezza"],
+             max(2, round(v.get("cratere_km", 1.0) * 1000 / passo_cella)))
+            for (fx, fz), v in zip(fr, vul))
+        cit = dati.get("citta", [])
+        frc = DEM.frazioni_da_lonlat(d_, a.lato, [(c["lon"], c["lat"]) for c in cit])
+        citta_reali = tuple((c["nome"], fx, fz, bool(c.get("grande"))) for (fx, fz), c in zip(frc, cit)
+                            if 0 < fx < 1 and 0 < fz < 1)
+    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, citta_reali=citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,

@@ -31,10 +31,15 @@ class Vulcano:
     profondita_cratere: float
     quota_base: float
     seme: int = 0
+    # Quota (in blocchi) della cima in un terreno che GIA' contiene il vulcano (quote reali,
+    # vedi `dem.py`): il cono non si aggiunge, si scava solo il cratere sotto quella quota.
+    reale: float | None = None
 
     @property
     def quota_orlo(self) -> float:
         """Quota del bordo del cratere."""
+        if self.reale is not None:
+            return self.reale
         t = self.raggio_cratere / max(self.raggio, 1)
         return self.quota_base + self.altezza * (1.0 - t ** 1.5)
 
@@ -112,21 +117,28 @@ def _da_posizioni(cls, altezze, terra, posizioni, rng) -> list[Vulcano]:
     H, W = cls.shape
     zz, xx = np.ogrid[:H, :W]
     fuori: list[Vulcano] = []
-    for (z, x) in posizioni:
-        z, x = int(min(max(z, 0), H - 1)), int(min(max(x, 0), W - 1))
+    for p in posizioni:
+        # (z, x) oppure (z, x, raggio, altezza, raggio del cratere): con un modello di quote
+        # reali il vulcano c'e' gia' nel terreno e si aggiunge poco (vedi `dem.py`)
+        z, x = int(min(max(p[0], 0), H - 1)), int(min(max(p[1], 0), W - 1))
         if not terra[z, x]:
             continue                                  # un vulcano in mare non si fa
-        raggio = int(rng.integers(30, 52))
+        raggio = int(p[2]) if len(p) > 2 else int(rng.integers(30, 52))
         raggio = min(raggio, min(z, x, H - 1 - z, W - 1 - x) - 4)
-        if raggio < 12:
+        if raggio < (5 if len(p) > 2 else 12):
             continue
         anello = ((zz - z) ** 2 + (xx - x) ** 2 >= (raggio - 4) ** 2) & \
                  ((zz - z) ** 2 + (xx - x) ** 2 <= (raggio + 3) ** 2)
         base = float(np.median(altezze[anello])) if anello.any() else float(altezze[z, x])
+        alt = float(p[3]) if len(p) > 3 else float(rng.integers(42, 78))
+        rc = int(p[4]) if len(p) > 4 else max(4, raggio // 5)
+        reale = None
+        if len(p) > 3:                                # terreno vero: la cima e' gia' li'
+            reale = float(altezze[max(0, z - rc):z + rc + 1, max(0, x - rc):x + rc + 1].max())
         fuori.append(Vulcano(
-            z=z, x=x, raggio=raggio, altezza=float(rng.integers(42, 78)),
-            raggio_cratere=max(4, raggio // 5), profondita_cratere=float(rng.integers(8, 15)),
-            quota_base=base, seme=int(rng.integers(0, 2 ** 31 - 1))))
+            z=z, x=x, raggio=raggio, altezza=alt,
+            raggio_cratere=rc, profondita_cratere=float(rng.integers(8, 15)) if len(p) <= 3 else 5.0,
+            quota_base=base, seme=int(rng.integers(0, 2 ** 31 - 1)), reale=reale))
     return fuori
 
 
@@ -171,6 +183,8 @@ def modella(
         # mucchio di terra, non un vulcano.
         t = np.clip(d / raggio, 0.0, 1.0)
         cono = v.quota_base + v.altezza * (1.0 - t ** 1.5)
+        if v.reale is not None:
+            cono = np.full(t.shape, -1e9, np.float32)           # niente cono: c'e' gia'
 
         # VALLONI. Un cono matematicamente perfetto ha il gradiente esattamente
         # radiale, quindi le colate scendono in linea retta dal cratere e il
@@ -182,7 +196,7 @@ def modella(
         # larghe del cono lo inclina soltanto, non lo solca. Qui la quota
         # dipende dall'angolo attorno al cratere, cosi' le pieghe corrono
         # naturalmente lungo la linea di massima pendenza.
-        if rugosita > 0:
+        if rugosita > 0 and v.reale is None:
             n_valloni = int(rng_v.integers(9, 16))
             g = np.zeros_like(t, np.float32)
             peso = 0.0

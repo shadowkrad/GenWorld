@@ -130,6 +130,10 @@ class Opzioni:
     # Posizioni dei vulcani scelte a mano sull'anteprima: [(x, z)] in frazioni 0..1 della
     # mappa. Se ci sono, sono le uniche e `vulcani` non conta.
     vulcani_posizioni: tuple = ()
+    # Modello di quote reali (`.npz` di `esempi/prepara_dem.py`): al posto dell'immagine.
+    dem: str = ""
+    # Citta' vere: ((nome, fx, fz, grande), ...) in frazioni 0..1 del mondo; si piazzano li'.
+    citta_reali: tuple = ()
     alberi: float = 1.0
     villaggi: float = 1.0
     strade: bool = True
@@ -229,6 +233,12 @@ class Opzioni:
 
     def modo(self) -> str:
         """Chiave di cache: cambiando modo di classificare va rifatta l'analisi."""
+        if self.dem:
+            try:
+                st = os.stat(self.dem)
+                return f"dem:{os.path.basename(self.dem)}:{st.st_size}:{st.st_mtime_ns}"
+            except OSError:
+                return "dem:?"
         if self.profilo:
             # il CONTENUTO conta, non solo il nome: ritoccare i campioni di un profilo e
             # rianalizzare con la cache vecchia dava lo stesso risultato di prima
@@ -430,7 +440,8 @@ def _vulcani(op: Opzioni, cls: np.ndarray, h: np.ndarray, note: list[str],
     if op.vulcani > 0 or op.vulcani_posizioni:
         avanza(0.52, "vulcani")
         H_, W_ = cls.shape
-        scelte = [(int(fz * H_), int(fx * W_)) for fx, fz in op.vulcani_posizioni] or None
+        scelte = [(int(p[1] * H_), int(p[0] * W_), *[int(v) for v in p[2:]])
+                  for p in op.vulcani_posizioni] or None
         coni = U.scegli_siti(cls, h, quanti=op.vulcani,
                              livello_mare=LIVELLO_MARE, seed=9, posizioni=scelte)
         if coni:
@@ -523,16 +534,28 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             return cached
 
     note: list[str] = []
-    cls, rug, prof = _carica_e_classifica(op, note, avanza)
-    h = _terreno(op, cls, rug, prof, note, avanza)
+    base_dem = None
+    if op.dem:
+        from . import dem as DEM
+        avanza(0.05, "quote reali")
+        base_dem = DEM.a_mondo(DEM.carica(op.dem), op.lato)
+        cls, h = base_dem["cls"], base_dem["h"]
+        note.append(f"quote reali: {os.path.basename(op.dem)}, {base_dem['passo']:.0f} m per blocco, "
+                    f"{int(base_dem['lago'].sum())} celle di lago")
+    else:
+        cls, rug, prof = _carica_e_classifica(op, note, avanza)
+        h = _terreno(op, cls, rug, prof, note, avanza)
     cls, h, lava, colata, q_lava = _vulcani(op, cls, h, note, avanza)
     cls, h, livello, marino = _fiumi(op, cls, h, lava, q_lava, note, avanza)
     cls, h, livello = _laghi(op, cls, h, livello, marino, note, avanza)
+    if base_dem is not None:
+        cls, h, livello = DEM.applica_laghi(cls, h, livello, base_dem)
 
     # I biomi per ultimi: dipendono dalle classi, e i fiumi le cambiano.
     # Calcolati prima, un corso d'acqua sarebbe rimasto pianura.
     avanza(0.88, "biomi")
-    bio = B.assegna(cls, h, livello_mare=LIVELLO_MARE, seed=op.seed)
+    bio = B.assegna(cls, h, livello_mare=LIVELLO_MARE, seed=op.seed,
+                    umido_max=1 if op.dem else 8)
     conteggio = B.statistiche(bio)
     principali = list(conteggio.items())[:6]
     note.append("biomi: " + ", ".join(f"{k} {v}" for k, v in principali)
@@ -1233,10 +1256,30 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     avanza(0.05, "pianta urbana")
     siti = (I.scegli_siti(a.cls, h, livello_mare=LIVELLO_MARE,
                           celle_per_villaggio=int(45_000 / max(op.villaggi, 1e-3)),
+                          massimo=8 if op.citta_reali else 14,
                           seed=31) if op.villaggi > 0 else [])
+    # CITTA' VERE (vedi `esempi/genera_mappa.py --luoghi-reali`): si piazzano per prime, nel
+    # punto indicato; i villaggi automatici restano solo lontano da loro
+    reali = []
+    if op.villaggi > 0 and op.citta_reali:
+        H_, W_ = a.cls.shape
+        reali = [(int(fz * H_), int(fx * W_), 52 if grande else 30, nome)
+                 for nome, fx, fz, grande in op.citta_reali]
+        siti = ([(z_, x_, r_) for z_, x_, r_, _ in reali]
+                + [s_ for s_ in siti
+                   if all((s_[0] - z_) ** 2 + (s_[1] - x_) ** 2 > 140 ** 2 for z_, x_, _, _ in reali)])
     edifici, h, vie, muro, citta, banchi, urbano, cls_c, livello_c = CT.pianifica(
         a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31,
         forme=op.forme_citta)
+    nomi_citta: dict = {}
+    for c_ in citta:                                   # a ogni citta' il nome vero piu' vicino
+        liberi = [r_ for r_ in reali if r_[3] not in nomi_citta.values()]
+        if liberi:
+            r_ = min(liberi, key=lambda q: (q[0] - c_.z) ** 2 + (q[1] - c_.x) ** 2)
+            if (r_[0] - c_.z) ** 2 + (r_[1] - c_.x) ** 2 <= 90 ** 2:
+                nomi_citta[(c_.x, c_.z)] = r_[3]
+    if reali:
+        note.append(f"citta' vere piazzate: {len(nomi_citta)} su {len(reali)}")
     # Le citta' cambiano la mappa (il terreno si adatta a loro: fiumi interrati,
     # fossi scavati): da qui in poi, e in `scrivi()`, vale la mappa cambiata.
     a = replace(a, cls=cls_c, livello=livello_c)
@@ -1537,7 +1580,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
     meta_l = op.lato // 2
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
-                         fortezze=fortezze, castelli=castelli_rovina, isole=isole)
+                         fortezze=fortezze, castelli=castelli_rovina, isole=isole,
+                         nomi_citta=nomi_citta)
     luoghi = luoghi + SI.luoghi(siti_l, meta_l)
 
     # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
