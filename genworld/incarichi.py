@@ -155,6 +155,47 @@ def offerte(i: Incarico) -> tuple:
     return (libro, consegna)
 
 
+def consegne(incarichi: list[Incarico], luoghi: list, seed: int = 0) -> dict:
+    """Le CONSEGNE: una lettera sigillata da portare dal committente di una citta' a
+    quello di un'altra (la piu' vicina con un committente). Il primo la da' per uno
+    smeraldo (un pegno), il secondo la prende e paga: piu' la strada e' lunga, piu'
+    paga. Ritorna {nome del committente: (scambi da aggiungere,)} e la lista delle
+    consegne (dict con da, a, uid, ricompensa)."""
+    from . import luoghi as LU
+    per_nome: dict[str, list] = {}
+    elenco: list[dict] = []
+    citta = {i.citta: i for i in incarichi}
+    for n, a in enumerate(incarichi):
+        altri = [b for b in incarichi if b.citta != a.citta]
+        if not altri:
+            continue
+        la = LU.Luogo(a.citta, "citta", a.x, a.z)
+        b = min(altri, key=lambda q: LU.distanza(la, LU.Luogo(q.citta, "citta", q.x, q.z)))
+        dist = LU.distanza(la, LU.Luogo(b.citta, "citta", b.x, b.z))
+        uid = f"cons{n + 1}_{abs(a.x * 17 + a.z) % 9973}"
+        ricompensa = min(40, 8 + dist // 25)
+        passi = LU._passi(la, LU.Luogo(b.citta, "citta", b.x, b.z))
+        lettera = {"id": "paper", "nome": f"Lettera sigillata per {b.committente}"[:48],
+                   "lore": [f"Da consegnare a {b.committente}, {b.citta}: {passi}.",
+                            f"Affidata da {a.committente}, {a.citta}."], "uid": uid}
+        from .bauli import componenti_oggetto
+        per_nome.setdefault(a.committente, []).append({
+            "compra": ("emerald", 1), "vende": ("paper", 1, componenti_oggetto(lettera)), "usi": 1})
+        per_nome.setdefault(b.committente, []).append({
+            "compra": ("paper", 1, {"custom_data": {"incarico": uid}}),
+            "vende": ("emerald", ricompensa, None), "usi": 1})
+        elenco.append({"da": a.committente, "citta_da": a.citta, "a": b.committente,
+                       "citta_a": b.citta, "uid": uid, "ricompensa": ricompensa, "distanza": dist})
+    return {k: tuple(v) for k, v in per_nome.items()}, elenco
+
+
+def aggiungi_consegne(committenti: list, per_nome: dict) -> list:
+    """I committenti con gli scambi delle consegne aggiunti."""
+    import dataclasses
+    return [dataclasses.replace(c, offerte=tuple(c.offerte) + per_nome.get(c.nome, ()))
+            for c in committenti]
+
+
 def abitanti(incarichi: list[Incarico], strade, altezze, citta: list, meta: int, seed: int = 0) -> list:
     """Un committente per incarico, su una strada fra 4 e 9 blocchi dalla piazza.
     `strade`: array (tipo_strada) o None; `altezze`: h. Coordinate di mappa."""
@@ -182,7 +223,7 @@ def abitanti(incarichi: list[Incarico], strade, altezze, citta: list, meta: int,
     return fuori
 
 
-def sezione_elenco(incarichi: list[Incarico]) -> str:
+def sezione_elenco(incarichi: list[Incarico], consegne_: list | None = None) -> str:
     """Il testo per `luoghi.md`: per chi vuole sapere cosa c'e' da fare."""
     if not incarichi:
         return ""
@@ -191,4 +232,9 @@ def sezione_elenco(incarichi: list[Incarico]) -> str:
         righe.append(f"- **{i.committente}** ({i.citta}, {i.x}, {i.z}): {i.tipo} a {i.meta} "
                      f"({i.mx}, {i.mz}) - oggetto «{i.oggetto['nome']}», "
                      f"ricompensa {i.ricompensa[1]} {i.ricompensa[0]}")
+    if consegne_:
+        righe += ["", "### Consegne", ""]
+        for c in consegne_:
+            righe.append(f"- **{c['da']}** ({c['citta_da']}) -> **{c['a']}** ({c['citta_a']}): "
+                         f"una lettera sigillata, {c['distanza']} blocchi, ricompensa {c['ricompensa']} smeraldi")
     return "\n".join(righe) + "\n"

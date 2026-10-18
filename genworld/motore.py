@@ -629,6 +629,7 @@ class Piano:
     cartelli: list = field(default_factory=list)
     libri: dict = field(default_factory=dict)
     incarichi: list = field(default_factory=list)
+    consegne: list = field(default_factory=list)
     oggetti_incarico: dict = field(default_factory=dict)
     mappe: list = field(default_factory=list)
     commissioni: list = field(default_factory=list)
@@ -1598,6 +1599,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     commissioni: list = []
     if op.incarichi and citta:
         committenti = IC.abitanti(incarichi, tipo_strada, h, citta, meta_l, seed=op.seed) if incarichi else []
+        per_nome, consegne_l = IC.consegne(incarichi, luoghi, seed=op.seed)
+        committenti = IC.aggiungi_consegne(committenti, per_nome)
+        if consegne_l:
+            note.append(f"consegne fra citta': {len(consegne_l)}")
         occupati = {(int(a.x), int(a.z)) for a in committenti}
         commissioni = CM.pianifica(citta, luoghi, tipo_strada, h, meta_l, occupati, seed=op.seed)
         abitanti = abitanti + committenti + commissioni
@@ -1621,7 +1626,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  miniere=miniere,
                  indice_miniere=MI.indice_per_chunk(miniere) if miniere else {},
                  luoghi=luoghi, cartelli=cartelli, libri=libri, libro_citta=libro_citta,
-                 incarichi=incarichi, oggetti_incarico=oggetti_forzieri, mappe=mappe_tesoro,
+                 incarichi=incarichi, consegne=consegne_l if (op.incarichi and citta) else [], oggetti_incarico=oggetti_forzieri, mappe=mappe_tesoro,
                  commissioni=commissioni,
                  castelli_rovina=castelli_rovina,
                  indice_castelli_rovina=(CS.indice_per_chunk(castelli_rovina)
@@ -2951,7 +2956,7 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
 
     if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
-                                 extra_md=IC.sezione_elenco(piano.incarichi) + CM.sezione_elenco(piano.commissioni))
+                                 extra_md=IC.sezione_elenco(piano.incarichi, piano.consegne) + CM.sezione_elenco(piano.commissioni))
         fuori["luoghi"] = md
 
     fuori["level_dat"] = "valido" if not verifica(

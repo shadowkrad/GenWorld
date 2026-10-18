@@ -258,7 +258,8 @@ def combattenti(castelli: list[Castello], centri: list | None = None,
         for su, sv in ((1, 1), (1, -1), (-1, 1)):                  # le torri senza spawner
             elenco.append((su * (K - 3), sv * (K - 3), c.ys, "scheletro"))
         for (uu, vv) in posti_sulle_mura(c):                       # arcieri sul camminamento
-            elenco.append((uu, vv, c.ys + ALTEZZA_MURA, "scheletro"))
+            # all'aperto: un predone con la balestra, che non brucia al sole come uno scheletro
+            elenco.append((uu, vv, c.ys + ALTEZZA_MURA, "predone"))
         yf = c.yf
         for uu, vv, sp in ((7, VC - 2, "scheletro"), (9, VC + 2, "scheletro"),
                            (20, VC, "zombie"), (26, VC, "zombie"), (38, VC, "ragno_grotta"),

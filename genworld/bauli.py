@@ -215,9 +215,53 @@ BOTTINO_DUNGEON: tuple[tuple[str, int, int], ...] = (
 )
 
 
+# Il bottino di un mago: pozioni, libri incantati e roba da alchimista.
+POZIONI = ("healing", "swiftness", "night_vision", "water_breathing", "fire_resistance",
+           "strength", "leaping", "regeneration")
+BOTTINO_MAGO: tuple[tuple[str, int, int], ...] = (
+    ("glass_bottle", 3, 9), ("redstone", 4, 14), ("glowstone_dust", 3, 10), ("lapis_lazuli", 4, 16),
+    ("spider_eye", 2, 6), ("fermented_spider_eye", 1, 3), ("gunpowder", 3, 8), ("sugar", 3, 9),
+    ("nether_wart", 3, 10), ("blaze_powder", 2, 6), ("experience_bottle", 3, 10),
+    ("book", 3, 8), ("paper", 4, 10), ("amethyst_shard", 2, 6), ("ender_pearl", 1, 3),
+    ("golden_carrot", 2, 6), ("candle", 3, 8), ("totem_of_undying", 1, 1),
+)
+LIBRI_MAGO = ("sharpness", "protection", "unbreaking", "efficiency", "fortune", "looting",
+              "power", "feather_falling", "respiration", "aqua_affinity", "mending", "thorns")
+
+
+def _oggetti_mago(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
+    """Il forziere di un mago: roba da alchimista, una o due pozioni e libri incantati;
+    il tesoro in cima ne ha di piu' (e Riparazione se si e' lontani dalle citta')."""
+    tesoro = tipo.endswith("tesoro")
+    n = int(rng.integers(6, 9)) if tesoro else int(rng.integers(4, 7))
+    slot = [int(v) for v in rng.choice(27, size=n + 5, replace=False)]
+    tipi = rng.choice(len(BOTTINO_MAGO), size=n, replace=False)
+    fuori = [(slot[k], BOTTINO_MAGO[int(t)][0],
+              int(rng.integers(BOTTINO_MAGO[int(t)][1], BOTTINO_MAGO[int(t)][2] + 1)))
+             for k, t in enumerate(tipi)]
+    for k in range(int(rng.integers(1, 3 if tesoro else 2))):
+        fuori.append((slot[n + k], "potion", 1,
+                      {"potion_contents": {"potion": "minecraft:" + POZIONI[int(rng.integers(0, len(POZIONI)))]}}))
+    libri = int(rng.integers(2, 4)) if tesoro else 1
+    for k in range(libri):
+        nome = LIBRI_MAGO[int(rng.integers(0, len(LIBRI_MAGO)))]
+        if tesoro and lontano and k == 0:
+            nome = "mending"
+        livello = 1 if nome == "mending" else int(rng.integers(1, 4))
+        fuori.append((slot[(n + 2 + k) % len(slot)], "enchanted_book", 1,
+                      {"stored_enchantments": {f"minecraft:{nome}": livello}}))
+    # una pila per slot: se un indice si e' ripetuto si tiene l'ultima
+    per_slot = {}
+    for voce in fuori:
+        per_slot[voce[0]] = voce
+    return list(per_slot.values())
+
+
 def _oggetti_dungeon(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
     """La sala dello spawner: 4-6 pile. Il tesoro: 6-9 pile e tesori incantati,
     uno vicino alle citta', tre lontano."""
+    if tipo.startswith("mago"):
+        return _oggetti_mago(rng, tipo, lontano)
     n = int(rng.integers(6, 10)) if tipo == "tesoro" else int(rng.integers(4, 7))
     slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
     tipi = rng.choice(len(BOTTINO_DUNGEON), size=n, replace=False)

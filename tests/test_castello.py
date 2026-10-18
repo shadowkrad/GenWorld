@@ -446,7 +446,7 @@ class TestRifiniture(unittest.TestCase):
             self.assertEqual(self.blocco(u, v, c.ys + CS.ALTEZZA_MURA), "air")
             self.assertEqual(self.blocco(u, v, c.ys + CS.ALTEZZA_MURA + 1), "air")
         arcieri = [m for m in CS.combattenti([c]) if getattr(m, "y", 0) == float(c.ys + CS.ALTEZZA_MURA)
-                   and getattr(m, "specie", "") == "scheletro"]
+                   and getattr(m, "specie", "") == "predone"]
         self.assertEqual(len(arcieri), 4)
 
     def test_il_luogotenente_sorveglia_il_caveau_e_i_pipistrelli_volano_nella_cripta(self):

@@ -114,8 +114,10 @@ def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: 
         fuori.append(Luogo(_scegli(rng, ROVINE, usati), "rovina", d.x - meta, d.z - meta, d.ys,
                            nota=f"cripta con {d.mob}"))
     for t in torri:
-        fuori.append(Luogo(f"Torre di {t.nome}", "torre", t.x - meta, t.z - meta, t.ys,
-                           nota=f"capo: {t.nome}"))
+        mago = getattr(t, "specie", "") == "evocatore"
+        fuori.append(Luogo(f"Torre del Mago {t.nome}" if mago else f"Torre di {t.nome}", "torre",
+                           t.x - meta, t.z - meta, t.ys,
+                           nota=(f"mago: {t.nome}, con guardie streghe" if mago else f"capo: {t.nome}")))
     for fz in fortezze or []:
         fuori.append(Luogo(f"Fortezza di {fz.nome}", "fortezza", fz.x - meta, fz.z - meta, fz.ys,
                            nota=f"capo: {fz.nome}"))

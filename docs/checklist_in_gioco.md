@@ -4,25 +4,25 @@ Per ogni punto: `/tp @s x y z` in creativa o spettatore, guarda, segna OK o dife
 
 ## Torri con un capo
 
-Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, due forzieri; cartello davanti.
+Torre di pietra a quattro piani: porta, scala a pioli, capo con nome in cima, due guardie, due forzieri; cartello davanti. Alcune sono TORRI DEL MAGO: capo evocatore (senza armatura), streghe di guardia, alambicchi e calderoni al primo piano, librerie e tavoli per gli incantesimi al secondo, forzieri con pozioni, libri incantati e roba da alchimista.
 
+- [ ] **Torre del Mago Selene Ombraviva** - `/tp @s 17 85 105` (mago: Selene Ombraviva, con guardie streghe)
 - [ ] **Torre di Aldric il Cupo** - `/tp @s -338 75 -110` (capo: Aldric il Cupo)
-- [ ] **Torre di Corvo Nero** - `/tp @s -125 74 -55` (capo: Corvo Nero)
-- [ ] **Torre di Fenna la Vedetta** - `/tp @s -130 85 157` (capo: Fenna la Vedetta)
-- [ ] **Torre di Ivor il Custode** - `/tp @s -175 77 -319` (capo: Ivor il Custode)
-- [ ] **Torre di Kael Lamarotta** - `/tp @s 43 75 -227` (capo: Kael Lamarotta)
+- [ ] **Torre di Dagan l'Esule** - `/tp @s 452 87 210` (capo: Dagan l'Esule)
+- [ ] **Torre di Ivor il Custode** - `/tp @s 215 86 307` (capo: Ivor il Custode)
+- [ ] **Torre di Kael Lamarotta** - `/tp @s -196 77 -308` (capo: Kael Lamarotta)
 
 ## Incarichi
 
 Un abitante con il nome sopra la testa, su una strada vicino alla piazza. Per 1 smeraldo vende un libro con l'incarico. Il capo (uccidi) lascia cadere l'oggetto, la reliquia (recupera) sta nel forziere del tesoro, la lettera (salva) nella cella del castello. Lo scambio di consegna vale solo con QUELL'oggetto (un lingotto qualunque no) e paga smeraldi o diamanti. Controlla che il committente non perda la professione.
 
-- [ ] **Notaio Corvino** (Rivabella) - `/tp @s 321 100 -147` - recupera a Tomba del Re Smarrito (`/tp @s 219 100 -237`), oggetto «Reliquia di Tomba del Re Smarrito», ricompensa 18 emerald
+- [ ] **Notaio Corvino** (Rivabella) - `/tp @s 321 100 -147` - recupera a Isola delle Due Palme (`/tp @s 344 100 114`), oggetto «Reliquia di Isola delle Due Palme», ricompensa 25 emerald
 - [ ] **Dama Fiammetta** (Pietrafonda) - `/tp @s 259 100 -318` - recupera a Cripta dell'Osso (`/tp @s 43 100 -334`), oggetto «Reliquia di Cripta dell'Osso», ricompensa 22 emerald
-- [ ] **Scriba Almerico** (Villabianca) - `/tp @s 318 100 -6` - recupera a Isola delle Due Palme (`/tp @s 344 100 114`), oggetto «Reliquia di Isola delle Due Palme», ricompensa 18 emerald
-- [ ] **Cancelliere Orsino** (Granvalle) - `/tp @s 155 100 -88` - uccidi a Torre di Kael Lamarotta (`/tp @s 43 100 -227`), oggetto «Sigillo di Torre di Kael Lamarotta», ricompensa 20 emerald
-- [ ] **Dama Berenice** (Valdargento) - `/tp @s 363 100 -247` - uccidi a Torre di Corvo Nero (`/tp @s -125 100 -55`), oggetto «Sigillo di Torre di Corvo Nero», ricompensa 6 diamond
-- [ ] **Madonna Isotta** (Monteverde) - `/tp @s -59 100 59` - uccidi a Torre di Fenna la Vedetta (`/tp @s -130 100 157`), oggetto «Sigillo di Torre di Fenna la Vedetta», ricompensa 18 emerald
-- [ ] **Podesta' Tebaldo** (Colledoro) - `/tp @s 50 100 -407` - uccidi a Torre di Ivor il Custode (`/tp @s -175 100 -319`), oggetto «Sigillo di Torre di Ivor il Custode», ricompensa 24 emerald
+- [ ] **Scriba Almerico** (Villabianca) - `/tp @s 318 100 -6` - uccidi a Torre di Dagan l'Esule (`/tp @s 452 100 210`), oggetto «Sigillo di Torre di Dagan l'Esule», ricompensa 24 emerald
+- [ ] **Cancelliere Orsino** (Granvalle) - `/tp @s 155 100 -88` - uccidi a Torre del Mago Selene Ombraviva (`/tp @s 17 100 105`), oggetto «Sigillo di Torre del Mago Selene Ombraviva», ricompensa 23 emerald
+- [ ] **Dama Berenice** (Valdargento) - `/tp @s 363 100 -247` - uccidi a Fortezza di Signore di Roccanera (`/tp @s -128 100 -74`), oggetto «Sigillo di Fortezza di Signore di Roccanera», ricompensa 6 diamond
+- [ ] **Madonna Isotta** (Monteverde) - `/tp @s -59 100 59` - recupera a Rovine di Altomuro (`/tp @s -207 100 -78`), oggetto «Reliquia di Rovine di Altomuro», ricompensa 22 emerald
+- [ ] **Podesta' Tebaldo** (Colledoro) - `/tp @s 50 100 -407` - uccidi a Torre di Kael Lamarotta (`/tp @s -196 100 -308`), oggetto «Sigillo di Torre di Kael Lamarotta», ricompensa 25 emerald
 
 ## Cascate
 
@@ -96,43 +96,49 @@ Cinta con brecce e torri spezzate, portale sfondato, cortile invaso da erba, mac
 
 - [ ] **Rocca delle Ombre** - `/tp @s -316 75 -152` (in rovina, signore: Il Castellano Senzavolto)
 
+## Fortezze
+
+Cinta di pietra 29x29 con quattro torri d'angolo (scala a pioli, arciere sul tetto), portale con saracinesca alzata, camminamento con merli (scale d'accesso sul lato di fondo), cortile con pozzo, fucina con cassa, stalla, bracieri, lampioni e stendardi; il maschio al centro e' una torre curata con il capo (nome, armatura) e quattro soldati nel cortile.
+
+- [ ] **Fortezza di Signore di Roccanera** - `/tp @s -128 74 -74` (capo: Signore di Roccanera)
+
 ## Rovine con cripta
 
-Rovina in superficie, scala di 14 blocchi, anticamera, sala dello spawner, tesoro con due forzieri-trappola sul TNT. Cartello davanti. Lo spawner sta circa 41 blocchi dalla rovina.
+Rovina in superficie, scala di 14 blocchi, corridoi con snodi e 0-3 stanze laterali (cunicoli), sala dello spawner (ora piu' mite: pochi mob, si puo' arrivare al tesoro), trappole varie nei corridoi (dardi, fossa, ragnatele, magma, muri infestati, piastre sul TNT), tesoro con due forzieri-trappola. Cartello davanti. Lo spawner sta circa 41 blocchi dalla rovina.
 
 - [ ] **Cripta dell'Osso** - `/tp @s 43 78 -334` (cripta con skeleton)
 - [ ] **Cripta della Veglia** - `/tp @s -425 78 -20` (cripta con skeleton)
-- [ ] **Cripta di Orrenda** - `/tp @s -213 75 -359` (cripta con zombie)
+- [ ] **Cripta di Orrenda** - `/tp @s -200 77 -269` (cripta con zombie)
 - [ ] **Rovine di Altomuro** - `/tp @s -207 74 -78` (cripta con skeleton)
 - [ ] **Sepolcro dei Cento** - `/tp @s 43 86 286` (cripta con zombie)
-- [ ] **Tomba del Re Smarrito** - `/tp @s 219 74 -237` (cripta con skeleton)
+- [ ] **Tomba del Re Smarrito** - `/tp @s -388 86 -288` (cripta con skeleton)
 
 ## Miniere
 
-Imbocco con cartello, collina del posto, binari. Nell'ultimo piano: camera finale con pozza.
+Imbocco con cartello, collina del posto, binari. Gallerie con piu' svolte e diramazioni, sale di sosta 5x5 agli incroci (pali, lanterna, arnesi), lanterne alte: NON si deve sbattere la testa sulle rampe. Nell'ultimo piano: camera finale con pozza.
 
-- [ ] **Miniera dei Due Fratelli** - `/tp @s 80 72 72`
-- [ ] **Miniera dei Sospiri** - `/tp @s 421 83 312`
-- [ ] **Miniera dei Tre Pozzi** - `/tp @s 66 91 -470`
-- [ ] **Miniera del Carbone** - `/tp @s -145 76 -3`
-- [ ] **Miniera del Cinghiale** - `/tp @s 111 84 313`
-- [ ] **Miniera del Corvo** - `/tp @s -201 76 -271`
-- [ ] **Miniera del Cristallo** - `/tp @s -296 84 138`
-- [ ] **Miniera del Falco** - `/tp @s -68 76 145`
-- [ ] **Miniera del Ghiaccio** - `/tp @s -235 73 -356`
-- [ ] **Miniera del Gufo** - `/tp @s 472 84 212`
-- [ ] **Miniera del Re Cieco** - `/tp @s -159 73 -103`
-- [ ] **Miniera del Sale** - `/tp @s 323 66 275`
-- [ ] **Miniera del Salice** - `/tp @s 358 67 -316`
-- [ ] **Miniera del Vento** - `/tp @s -237 81 253`
-- [ ] **Miniera dell'Argento Nero** - `/tp @s -408 83 -324`
-- [ ] **Miniera dell'Ultima Vena** - `/tp @s -420 75 -167`
-- [ ] **Miniera della Lanterna** - `/tp @s -54 81 -135`
-- [ ] **Miniera della Luna Cava** - `/tp @s 422 70 -191`
-- [ ] **Miniera della Pioggia** - `/tp @s 79 73 -84`
+- [ ] **Miniera dei Due Fratelli** - `/tp @s 154 82 344`
+- [ ] **Miniera dei Sospiri** - `/tp @s -145 76 -3`
+- [ ] **Miniera dei Tre Pozzi** - `/tp @s 203 73 -213`
+- [ ] **Miniera del Carbone** - `/tp @s -313 83 138`
+- [ ] **Miniera del Cinghiale** - `/tp @s -408 83 -324`
+- [ ] **Miniera del Corvo** - `/tp @s 48 91 -465`
+- [ ] **Miniera del Cristallo** - `/tp @s -399 84 -197`
+- [ ] **Miniera del Falco** - `/tp @s -153 80 -325`
+- [ ] **Miniera del Ghiaccio** - `/tp @s -39 78 263`
+- [ ] **Miniera del Gufo** - `/tp @s 313 90 -378`
+- [ ] **Miniera del Re Cieco** - `/tp @s 43 73 -248`
+- [ ] **Miniera del Sale** - `/tp @s 443 81 105`
+- [ ] **Miniera del Salice** - `/tp @s -250 84 285`
+- [ ] **Miniera del Vento** - `/tp @s 165 86 474`
+- [ ] **Miniera dell'Argento Nero** - `/tp @s -54 81 -135`
+- [ ] **Miniera dell'Ultima Vena** - `/tp @s -304 102 -441`
+- [ ] **Miniera della Lanterna** - `/tp @s 111 83 -362`
+- [ ] **Miniera della Luna Cava** - `/tp @s -210 73 76`
+- [ ] **Miniera della Pioggia** - `/tp @s -129 84 173`
 - [ ] **Miniera dello Stagno** - `/tp @s -304 73 -76`
-- [ ] **Miniera di Ferrovecchio** - `/tp @s -191 85 127`
-- [ ] **Miniera di Pietrabuia** - `/tp @s 376 67 -59`
+- [ ] **Miniera di Ferrovecchio** - `/tp @s 294 76 296`
+- [ ] **Miniera di Pietrabuia** - `/tp @s 369 69 -61`
 
 ## Citta'
 
@@ -151,7 +157,7 @@ Piazza con fontana (parafulmine), campana, 2 stendardi, 2 bracieri, lampioni di 
 Cerchio calpestato, falo', predone con balestra, cavalli.
 
 - [ ] **Accampamento del Lupo** - `/tp @s -250 74 -91`
-- [ ] **Accampamento del Lupo 8** - `/tp @s -221 82 -283`
+- [ ] **Accampamento del Lupo 8** - `/tp @s 463 84 155`
 - [ ] **Accampamento delle Ceneri** - `/tp @s 4 85 -201`
 - [ ] **Bivacco dell'Esule** - `/tp @s -65 80 -319`
 - [ ] **Campo dei Predoni** - `/tp @s 180 77 -316`
@@ -162,9 +168,9 @@ Cerchio calpestato, falo', predone con balestra, cavalli.
 
 Forzieri con ossa e refurtiva; scheletro (stray sulla neve).
 
-- [ ] **Cimitero degli Impiccati** - `/tp @s 460 84 154`
-- [ ] **Cimitero di Valdoro** - `/tp @s 106 92 -375`
-- [ ] **Giardino dei Pianti** - `/tp @s -377 85 -284`
+- [ ] **Cimitero degli Impiccati** - `/tp @s 106 92 -375`
+- [ ] **Cimitero di Valdoro** - `/tp @s -130 85 188`
+- [ ] **Giardino dei Pianti** - `/tp @s 378 84 247`
 
 ## Biomi
 

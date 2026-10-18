@@ -47,9 +47,9 @@ LARGHEZZA = 1           # meta' larghezza della galleria oltre il centro (3 cell
 CAPPELLO = 4            # non scavare piu' vicino della superficie di questo
 PASSO_TRAVE = 6         # ogni quanti blocchi un paio di travi di sostegno (bracci)
 DISTANZA_MINIMA_TRATTO = 6
-LUNGHEZZA_TRATTO = (9, 22)
+LUNGHEZZA_TRATTO = (7, 16)       # tratti piu' corti: piu' svolte, gallerie meno dritte
 LUNGHEZZA_DIRAMAZIONE = (6, 14)     # le diramazioni secondarie sono piu' corte
-PROB_DIRAMAZIONE = 0.55             # probabilita' che un braccio ne stacchi una
+PROB_DIRAMAZIONE = 0.8              # probabilita' che un braccio ne stacchi una
 RAGGIO_GIACIMENTO_VUOTO = 2         # raggio della saletta scavata vuota
 RAGGIO_CAMERA = 5                   # raggio della camera finale dell'ultimo piano
 GIACIMENTO_QUANTI = (28, 55)        # blocchi di minerale nel grumo che la incastona
@@ -57,11 +57,12 @@ GIACIMENTO_QUANTI = (28, 55)        # blocchi di minerale nel grumo che la incas
 # La rampa
 PASSO_RAMPA = 3                     # un blocco di discesa ogni PASSO_RAMPA di cammino
 PROFONDITA_RAMPA = (16, 32)         # di quanto scende, al massimo
-# Celle libere sopra il pavimento della rampa. Il telaio mette la trave in cima e
-# la lanterna appesa un blocco sotto: con tre celle restava UN blocco di luce
-# sotto la lanterna e il personaggio (alto due) non passava. Con quattro ne
-# restano due.
-ALTEZZA_GALLERIA = 4
+# Altezza della galleria sopra il pavimento: il soffitto (la trave del telaio) sta
+# a ALTEZZA_GALLERIA, la lanterna appesa un blocco sotto. Sulle rampe il pavimento
+# SALE di un blocco ogni tre celle: con la lanterna a +3 chi risaliva sbatteva la testa
+# (la testa, mezzo blocco piu' in alto, entrava nella cella della lanterna prima dei
+# piedi). Con la trave a +5 la lanterna sta a +4 e sotto restano tre celle libere.
+ALTEZZA_GALLERIA = 5
 COPERTURA_RAMPA = 2                 # terra sopra il soffitto perche' sia una galleria
 LUNGHEZZA_RAMPA_MIN = 30            # una rampa piu' corta non e' una discesa graduale
 PASSO_TRAVE_RAMPA = 4               # un telaio di travi ogni 4 celle di rampa
@@ -158,6 +159,17 @@ class Rampa:
 
 
 @dataclass
+class Incrocio:
+    """Una sala di sosta dove le gallerie si incrociano o svoltano: 5 x 5, alta 4,
+    con quattro pali agli angoli, una lanterna e qualche arnese. I binari ci
+    passano in mezzo (li posano i segmenti, dopo lo scavo della sala)."""
+    x: int
+    z: int
+    y: int                       # quota del pavimento
+    raggio: int = 2
+
+
+@dataclass
 class Miniera:
     x: int                      # il portale
     z: int
@@ -168,6 +180,7 @@ class Miniera:
     rampe_interne: list[Rampa] = field(default_factory=list)
     segmenti: list[Segmento] = field(default_factory=list)
     giacimenti: list[Giacimento] = field(default_factory=list)
+    incroci: list[Incrocio] = field(default_factory=list)
 
 
 @dataclass
@@ -327,7 +340,7 @@ def _galleria(cx: int, cz: int, y: int, altezze: np.ndarray, acqua: np.ndarray,
         scelte = libere if libere else [d for d in DIREZIONI if d not in escludi]
         direzione = scelte[int(rng.integers(0, len(scelte)))]
         usate.add(direzione)
-        ramo, fx, fz, fdir = _scava_ramo(cx, cz, direzione, y, int(rng.integers(1, 4)),
+        ramo, fx, fz, fdir = _scava_ramo(cx, cz, direzione, y, int(rng.integers(2, 5)),
                                          altezze, acqua, rng, LUNGHEZZA_TRATTO)
         if not ramo:
             continue
@@ -562,7 +575,48 @@ def pianifica(altezze: np.ndarray, mare: np.ndarray, acqua: np.ndarray | None = 
             if rng.random() > PROB_LIVELLO_SOTTO or not _scendi_ancora(mn, altezze, acqua, rng):
                 break
         _segna_camera(mn, rng)
+        mn.incroci = _incroci(mn, altezze, acqua, rng)
         fuori.append(mn)
+    return fuori
+
+
+def _incroci(mn: Miniera, altezze: np.ndarray, acqua: np.ndarray,
+             rng: np.random.Generator) -> list[Incrocio]:
+    """Le sale di sosta: dove due tratti si incontrano a squadra (una svolta) o un
+    tratto finisce su un altro (una diramazione), con probabilita' 0.75, e solo dove
+    la sala ha terra sopra e niente acqua."""
+    punti: dict[tuple[int, int, int], list[Segmento]] = {}
+    for s in mn.segmenti:
+        punti.setdefault((s.x0, s.z0, s.y), []).append(s)
+        punti.setdefault((s.x1, s.z1, s.y), []).append(s)
+    candidati: set[tuple[int, int, int]] = set()
+    for (x, z, y), ss in punti.items():
+        if len(ss) >= 2 and any(a.lungo_x != b.lungo_x for a in ss for b in ss):
+            candidati.add((x, z, y))
+    for s in mn.segmenti:                       # una diramazione: un estremo sul fianco di un altro tratto
+        for (x, z) in ((s.x0, s.z0), (s.x1, s.z1)):
+            for t in mn.segmenti:
+                if t is s or t.y != s.y or t.lungo_x == s.lungo_x:
+                    continue
+                xa, xb = sorted((t.x0, t.x1))
+                za, zb = sorted((t.z0, t.z1))
+                if xa <= x <= xb and za <= z <= zb and (x, z) not in ((t.x0, t.z0), (t.x1, t.z1)):
+                    candidati.add((x, z, s.y))
+    H, W = altezze.shape
+    fuori: list[Incrocio] = []
+    for (x, z, y) in sorted(candidati):
+        if rng.random() > 0.75:
+            continue
+        r = 2
+        if not (r + 2 <= x < W - r - 2 and r + 2 <= z < H - r - 2):
+            continue
+        ok = True
+        for zz in range(z - r, z + r + 1):
+            for xx in range(x - r, x + r + 1):
+                if acqua[zz, xx] or altezze[zz, xx] - 1 - (y + ALTEZZA_GALLERIA) < CAPPELLO:
+                    ok = False
+        if ok and all((x - o.x) ** 2 + (z - o.z) ** 2 > 36 for o in fuori):
+            fuori.append(Incrocio(x=x, z=z, y=y, raggio=r))
     return fuori
 
 
@@ -573,7 +627,12 @@ def _segna_camera(mn: Miniera, rng: np.random.Generator) -> None:
         return
     g = in_fondo[int(rng.integers(0, len(in_fondo)))]
     g.camera = True
-    g.minerale = ("diamond_ore" if g.y <= 14 else "gold_ore" if g.y <= 30 else "iron_ore")
+    nome = ("diamond_ore" if g.y <= 14 else "gold_ore" if g.y <= 30 else "iron_ore")
+    m = _MINERALE_PER_NOME.get(nome)
+    if m is None or not (m.y_min <= g.y <= m.y_max):
+        # una miniera poco profonda: il filone ricco e' quello piu' pregiato valido a questa quota
+        nome = _scegli_minerale(g.y, rng, 1.0) or nome
+    g.minerale = nome
 
 
 def _celle_chunk(x0: int, x1: int, z0: int, z1: int, m: int, passo: int) -> set:
@@ -613,6 +672,8 @@ def indice_per_chunk(miniere: list[Miniera], passo: int = 16) -> dict:
         mg = RAGGIO_GIACIMENTO_VUOTO + 3
         for g in mn.giacimenti:
             celle |= _celle_chunk(g.x, g.x, g.z, g.z, mg, passo)
+        for c in mn.incroci:
+            celle |= _celle_chunk(c.x, c.x, c.z, c.z, c.raggio + 2, passo)
         for cella in celle:
             fuori.setdefault(cella, []).append(i)
     return fuori
@@ -1091,6 +1152,49 @@ def _carica_portale(out, tav, h_c, mn: Miniera, ox: int, oz: int, y0: int,
                     out[lx, ly_f + 1, lz] = tav.rotaia[forma]
 
 
+def _carica_incrocio(out, tav, rng, inc: Incrocio, ox: int, oz: int, y0: int,
+                     protetto_c=None) -> None:
+    """La sala di sosta: scavo 5 x 5 alta 4, un palo a ogni angolo con la trave sopra,
+    una lanterna appesa al centro e, lungo le pareti (mai sulle righe dei binari),
+    due o tre arnesi: barili, banco da lavoro, incudine, mucchi di minerale, un forziere."""
+    H = out.shape[1]
+    fy = inc.y - y0
+    r = inc.raggio
+    for dz in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            lx, lz = inc.x + dx - ox, inc.z + dz - oz
+            if not (0 <= lx < 16 and 0 <= lz < 16):
+                continue
+            if protetto_c is not None and protetto_c[lx, lz]:
+                continue
+            for y in range(fy + 1, fy + ALTEZZA_GALLERIA):
+                if 1 <= y < H:
+                    out[lx, y, lz] = tav.aria
+            if 1 <= fy < H and abs(dx) == r and abs(dz) == r:
+                for y in range(fy + 1, fy + ALTEZZA_GALLERIA):      # i pali d'angolo
+                    if 1 <= y < H:
+                        out[lx, y, lz] = tav.palo
+                if 1 <= fy + ALTEZZA_GALLERIA < H:
+                    out[lx, fy + ALTEZZA_GALLERIA, lz] = tav.trave["x"]
+    # la lanterna al centro, appesa a +4 (tre celle libere sotto)
+    lx, lz = inc.x - ox, inc.z - oz
+    if 0 <= lx < 16 and 0 <= lz < 16 and 1 <= fy + ALTEZZA_GALLERIA - 1 < H:
+        if protetto_c is None or not protetto_c[lx, lz]:
+            out[lx, fy + ALTEZZA_GALLERIA - 1, lz] = tav.lanterna
+            out[lx, fy + ALTEZZA_GALLERIA, lz] = tav.trave["x"]
+    # gli arnesi: sulle celle di parete che non sono sulle righe dei binari
+    posti = [(dx, dz) for dx in range(-r, r + 1) for dz in range(-r, r + 1)
+             if max(abs(dx), abs(dz)) == r and dx != 0 and dz != 0 and not (abs(dx) == r and abs(dz) == r)]
+    rng2 = np.random.default_rng(((inc.x * 73856093) ^ (inc.z * 19349663)) & 0x7FFFFFFF)
+    for k in rng2.permutation(len(posti))[:int(rng2.integers(2, 4))]:
+        dx, dz = posti[int(k)]
+        lx, lz = inc.x + dx - ox, inc.z + dz - oz
+        if not (0 <= lx < 16 and 0 <= lz < 16) or (protetto_c is not None and protetto_c[lx, lz]):
+            continue
+        verso = (("west" if dx > 0 else "east") if abs(dx) == r else ("north" if dz > 0 else "south"))
+        _arreda_lato(out, tav, rng2, lx, lz, fy + 1, verso, ox, oz, y0)
+
+
 def _carica_segmento(out, tav, rng, h_c, seg: Segmento, ox: int, oz: int,
                      y0: int, scavabile: tuple, protetto_c=None,
                      profondita: float = 0.5) -> None:
@@ -1312,6 +1416,8 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
             _carica_rampa(out, tav, rng, h_c, ri, mn.y_superficie, ox, oz, y0,
                           scavabile, protetto_c)
         _carica_portale(out, tav, h_c, mn, ox, oz, y0, protetto_c)
+        for inc in mn.incroci:                   # prima dei segmenti: i binari si posano dopo
+            _carica_incrocio(out, tav, rng, inc, ox, oz, y0, protetto_c)
         for seg in mn.segmenti:
             _carica_segmento(out, tav, rng, h_c, seg, ox, oz, y0, scavabile,
                              protetto_c, prof)

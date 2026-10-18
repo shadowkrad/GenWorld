@@ -10,7 +10,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from genworld import dungeon as DG
 
 Y0, ALT = -64, 320
-STANZA_LIBERA = ("air", "cobweb", "soul_lantern", "spawner", "bone_block")
+# i blocchi che una creatura attraversa; con le trappole dei corridoi (filo e piastre)
+STANZA_LIBERA = ("air", "cobweb", "soul_lantern", "spawner", "bone_block",
+                 "tripwire", "pressure_plate")
 
 
 class Finto:
@@ -63,6 +65,128 @@ def posa_su_regione(d, quota=90):
         return next((dict(p) for (n, p), v in s.ids.items() if v == i), {})
     blocco.proprieta = proprieta
     return s, tav, blocco
+
+
+class TestLayoutVariato(unittest.TestCase):
+    """Snodi, sale fuori asse, cunicoli e stanze laterali: il percorso resta percorribile."""
+
+    @classmethod
+    def setUpClass(cls):
+        h, acqua = terreno(900)
+        cls.ds = DG.pianifica(h, acqua, densita=40.0, seed=3)
+
+    def test_ci_sono_snodi_e_stanze_laterali(self):
+        self.assertGreaterEqual(len(self.ds), 8)
+        fuori_asse = [d for d in self.ds if d.vs != 0 or d.vt != 0]
+        self.assertGreaterEqual(len(fuori_asse), len(self.ds) // 2)
+        self.assertTrue(any(d.laterali for d in self.ds))
+        self.assertTrue(any(s.tipo == "cunicolo" for d in self.ds for s in d.scatole))
+        self.assertTrue(any(sum(1 for s in d.scatole if s.tipo == "corridoio") > 2 for d in self.ds))
+
+    def test_i_primi_tre_forzieri_sono_sempre_stanza_stanza_tesoro(self):
+        for d in self.ds:
+            tipi = [t for *_, t in d.forzieri()]
+            self.assertEqual(tipi[:3], ["stanza", "stanza", "tesoro"])
+            self.assertEqual(len(tipi), 3 + len(d.laterali))
+
+    def test_le_scatole_non_si_sovrappongono_se_non_dove_si_connettono(self):
+        for d in self.ds:
+            stanze = [s for s in d.scatole if s.tipo in ("anticamera", "spawner", "tesoro", "stanza_laterale")]
+            for i, a in enumerate(stanze):
+                for b in stanze[i + 1:]:
+                    self.assertTrue(a.u1 < b.u0 or b.u1 < a.u0 or a.v1 < b.v0 or b.v1 < a.v0, (a, b))
+
+    def test_dallo_scalino_si_raggiunge_tutto(self):
+        """Si stampa la cripta e si fa una visita: dalla fine della scala si arriva allo
+        spawner, al forziere del tesoro e a ogni forziere delle stanze laterali, passando
+        per celle libere con due blocchi d'aria sopra."""
+        for d in self.ds[:8]:
+            s, tav, b = posa_su_regione(d, quota=d.ys)
+            yf = d.yf
+            libere = ("air", "cobweb", "soul_lantern", "bone_block", "spawner", "chest", "trapped_chest",
+                      "tripwire", "pressure_plate")
+
+            def libera(x, z):
+                return all(b(x, y, z) in libere for y in (yf, yf + 1))
+            ux, uz = d.punto(DG.PROFONDITA + 1, 0)
+            visti, coda = {(ux, uz)}, [(ux, uz)]
+            while coda:
+                x, z = coda.pop()
+                for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    n = (x + dx, z + dz)
+                    if n not in visti and libera(*n):
+                        visti.add(n)
+                        coda.append(n)
+            sx, sy, sz = d.spawner()
+            self.assertTrue(any(abs(sx - x) + abs(sz - z) <= 3 for x, z in visti), "spawner")   # c'e' il piedistallo
+            for fx, fy, fz, tipo in d.forzieri():
+                vicino = any((fx + dx, fz + dz) in visti for dx, dz in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+                self.assertTrue(vicino, f"forziere {tipo} irraggiungibile in {d.x},{d.z}")
+
+    def test_le_trappole_sono_deterministiche_e_varie(self):
+        viste = set()
+        for d in self.ds:
+            assert d.trappole() == d.trappole()
+            tipi = [t for t, *_ in d.trappole()]
+            self.assertGreaterEqual(len(tipi), 1, "almeno una trappola per cripta")
+            self.assertLessEqual(tipi.count("tnt"), 1)
+            viste |= set(tipi)
+        self.assertGreaterEqual(len(viste), 5, viste)
+        self.assertTrue(viste <= set(DG.TIPI_TRAPPOLA))
+
+    def test_ogni_trappola_si_posa_come_dovrebbe(self):
+        for d in self.ds[:10]:
+            s, tav, b = posa_su_regione(d, quota=d.ys)
+            yf = d.yf
+            for tipo, u, vc in d.trappole():
+                x, z = d.punto(u, vc)
+                if tipo == "dardi":
+                    self.assertEqual(b(x, yf, z), "tripwire")
+                    for lato in (1, -1):
+                        xd, zd = d.punto(u, vc + 2 * lato)
+                        self.assertEqual(b(xd, yf + 1, zd), "dispenser")
+                        xh, zh = d.punto(u, vc + lato)
+                        self.assertEqual(b(xh, yf, zh), "tripwire_hook")
+                elif tipo == "fossa":
+                    xs, zs = d.punto(u, vc)
+                    self.assertEqual(b(xs, yf - 4, zs), "pointed_dripstone")
+                    self.assertEqual(b(xs, yf, zs), "air")
+                    xl, zl = d.punto(u, vc - 1)
+                    self.assertEqual(b(xl, yf - 1, zl), "stone_bricks")          # la sponda tiene
+                elif tipo == "ragnatele":
+                    self.assertEqual(b(x, yf, z), "cobweb")
+                elif tipo == "magma":
+                    self.assertEqual(b(x, yf - 1, z), "magma_block")
+                elif tipo == "infestati":
+                    xl, zl = d.punto(u, vc + 2)
+                    self.assertEqual(b(xl, yf, zl), "infested_block")
+                elif tipo == "tnt":
+                    self.assertEqual(b(x, yf - 1, z), "tnt")
+                    self.assertEqual(b(x, yf, z), "pressure_plate")
+
+    def test_i_distributori_hanno_il_blockentity(self):
+        for d in self.ds[:10]:
+            attesi = d.distributori()
+            trovati = []
+            for cz in range(d.bbox()[1] // 16, d.bbox()[3] // 16 + 1):
+                for cx in range(d.bbox()[0] // 16, d.bbox()[2] // 16 + 1):
+                    trovati += [(be.x, be.y, be.z) for be in DG.entita_blocco([d], cx * 16, cz * 16, 0)
+                                if be.base_name == "dispenser"]
+            self.assertEqual(sorted(trovati), sorted((x, y, z) for x, y, z, _ in attesi))
+
+    def test_gli_spawner_sono_meno_asfissianti_del_gioco(self):
+        be = DG.be_spawner(0, 0, 0, "zombie", misto=True).nbt.compound["utags"]
+        self.assertLessEqual(int(be["SpawnCount"]), 2)
+        self.assertLessEqual(int(be["MaxNearbyEntities"]), 3)
+        self.assertLessEqual(int(be["RequiredPlayerRange"]), 10)
+        self.assertGreaterEqual(int(be["MinSpawnDelay"]), 600)
+        self.assertGreaterEqual(int(be["MaxSpawnDelay"]), 1500)
+        self.assertLessEqual(int(be["SpawnRange"]), 3)
+
+    def test_il_dritto_resta_valido_per_chi_costruisce_a_mano(self):
+        d = un_dungeon()
+        self.assertEqual((d.vs, d.vt, d.laterali), (0, 0, []))
+        self.assertEqual([t for *_, t in d.forzieri()], ["stanza", "stanza", "tesoro"])
 
 
 class TestPianifica(unittest.TestCase):
@@ -237,7 +361,8 @@ class TestSpawnerEntity(unittest.TestCase):
     def test_il_blockentity_dello_spawner(self):
         d = un_dungeon()
         sx, sy, sz = d.spawner()
-        be = DG.entita_blocco([d], (sx // 16) * 16, (sz // 16) * 16, 0)
+        be = [b for b in DG.entita_blocco([d], (sx // 16) * 16, (sz // 16) * 16, 0)
+              if b.base_name == "spawner"]
         self.assertEqual(len(be), 1)
         self.assertEqual((be[0].x, be[0].y, be[0].z), (sx, sy, sz))
         ut = be[0].nbt.compound["utags"]

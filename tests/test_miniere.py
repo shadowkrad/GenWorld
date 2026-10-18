@@ -210,6 +210,115 @@ class TestIndicePerChunk(unittest.TestCase):
         self.assertIn(0, idx.get((0, 1), []), "manca il chunk (0, 1)")
 
 
+class TestIncroci(unittest.TestCase):
+    """Sale di sosta dove le gallerie svoltano o si diramano."""
+    Y0, ALTEZZA, SOLIDO = -64, 284, 9999
+
+    def scena(self, n=240):
+        h = np.full((n, n), 100.0, np.float32)
+        mare = np.zeros((n, n), bool)
+        mare[:6, :] = True
+        return h, mare
+
+    def test_ci_sono_incroci_e_le_gallerie_svoltano_di_piu(self):
+        h, mare = self.scena()
+        miniere = MI.pianifica(h, mare, densita=6.0, seed=5)
+        self.assertTrue(miniere)
+        self.assertTrue(any(mn.incroci for mn in miniere))
+        svolte = sum(1 for mn in miniere for sg in mn.segmenti
+                     if sg.forma_inizio is not None or sg.forma_fine is not None)
+        self.assertGreater(svolte, len(miniere) * 3)
+        self.assertGreaterEqual(MI.PROB_DIRAMAZIONE, 0.7)
+
+    def test_ogni_incrocio_sta_su_una_svolta_o_una_diramazione_con_terra_sopra(self):
+        h, mare = self.scena()
+        for mn in MI.pianifica(h, mare, densita=6.0, seed=5):
+            punti = {(sg.x0, sg.z0) for sg in mn.segmenti} | {(sg.x1, sg.z1) for sg in mn.segmenti}
+            for inc in mn.incroci:
+                toccato = (inc.x, inc.z) in punti
+                self.assertTrue(toccato, (inc.x, inc.z))
+                for zz in range(inc.z - 2, inc.z + 3):
+                    for xx in range(inc.x - 2, inc.x + 3):
+                        self.assertGreaterEqual(h[zz, xx] - 1 - (inc.y + MI.ALTEZZA_GALLERIA), MI.CAPPELLO)
+            for i, a in enumerate(mn.incroci):
+                for b in mn.incroci[i + 1:]:
+                    self.assertGreater((a.x - b.x) ** 2 + (a.z - b.z) ** 2, 36)
+
+    def posa(self, inc, segmenti=()):
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out[np.broadcast_to(ys < 100, out.shape)] = self.SOLIDO
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        mn = MI.Miniera(x=inc.x, z=inc.z, y_superficie=100, y_fondo=inc.y, segmenti=list(segmenti),
+                        incroci=[inc])
+        MI.posa(out, tav, np.full((16, 16), 100, np.int32), 0, 0, self.Y0, [mn], [0],
+                (self.SOLIDO,), seed=3)
+        return out, tav, s
+
+    def test_la_sala_e_scavata_alta_quattro_con_i_pali_e_la_lanterna(self):
+        inc = MI.Incrocio(x=8, z=8, y=50, raggio=2)
+        out, tav, s = self.posa(inc)
+        yb = 50 - self.Y0
+        for dx in (-2, -1, 0, 1, 2):
+            for dz in (-2, -1, 0, 1, 2):
+                for dy in (1, 2, 3):
+                    v = int(out[8 + dx, yb + dy, 8 + dz])
+                    self.assertNotEqual(v, self.SOLIDO, (dx, dz, dy))
+        for dx, dz in ((-2, -2), (2, -2), (-2, 2), (2, 2)):
+            self.assertEqual(int(out[8 + dx, yb + 2, 8 + dz]), tav.palo)
+        self.assertEqual(int(out[8, yb + MI.ALTEZZA_GALLERIA - 1, 8]), tav.lanterna)
+        # sopra c'e' ancora la roccia
+        self.assertEqual(int(out[8 + 1, yb + MI.ALTEZZA_GALLERIA + 1, 8 + 1]), self.SOLIDO)
+
+    def test_i_binari_passano_in_mezzo_alla_sala(self):
+        inc = MI.Incrocio(x=8, z=8, y=50, raggio=2)
+        seg = MI.Segmento(x0=0, z0=8, x1=15, z1=8, y=50)
+        out, tav, s = self.posa(inc, [seg])
+        yb = 50 + 1 - self.Y0
+        for x in range(0, 16):
+            self.assertIn(int(out[x, yb, 8]), set(tav.rotaia.values()), x)
+
+    def test_si_passa_sotto_la_lanterna_in_piedi(self):
+        inc = MI.Incrocio(x=8, z=8, y=50, raggio=2)
+        out, tav, s = self.posa(inc)
+        yb = 50 + 1 - self.Y0
+        # sopra il pavimento, sotto la lanterna: tre celle libere al centro
+        for dy in range(0, 3):
+            self.assertEqual(int(out[8, yb + dy, 8]), s.id_aria, dy)
+
+
+class TestAltezzaLanterne(unittest.TestCase):
+    """Le lanterne dei telai sono a +4 con il soffitto a +5: sotto restano tre celle, anche
+    risalendo la rampa (la testa sale prima dei piedi)."""
+    Y0, ALTEZZA, SOLIDO = -64, 284, 9999
+
+    def test_costante(self):
+        self.assertGreaterEqual(MI.ALTEZZA_GALLERIA, 5)
+
+    def test_sotto_ogni_lanterna_della_rampa_tre_celle_libere(self):
+        out = np.zeros((16, self.ALTEZZA, 16), np.uint32)
+        ys = np.arange(self.Y0, self.Y0 + self.ALTEZZA)[None, :, None]
+        out[np.broadcast_to(ys < 100, out.shape)] = self.SOLIDO
+        s = FintoScrittore()
+        tav = MI.Tavolozza(s)
+        tav.decora = False
+        r = MI.Rampa(x=0, z=8, dx=1, dz=0, y=80, lunghezza=45)
+        mn = MI.Miniera(x=0, z=8, y_superficie=80, y_fondo=r.fine[2], rampa=r, segmenti=[])
+        MI.posa(out, tav, np.full((16, 16), 100, np.int32), 0, 0, self.Y0, [mn], [0],
+                (self.SOLIDO,), seed=1)
+        liberi = {s.id_aria} | set(tav.rotaia.values())
+        trovate = 0
+        for x in range(0, 16):
+            for y in range(0, self.ALTEZZA):
+                if int(out[x, y, 8]) == tav.lanterna:
+                    trovate += 1
+                    # le tre celle sotto, fino al pavimento (la rotaia sta sul pavimento)
+                    for dy in (1, 2, 3):
+                        self.assertIn(int(out[x, y - dy, 8]), liberi, (x, y, dy))
+        self.assertGreater(trovate, 0)
+
+
 class TestCameraFinale(unittest.TestCase):
     Y0 = -64
     SOLIDO = 9999
