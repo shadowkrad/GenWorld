@@ -253,3 +253,23 @@ class TestCacheProfilo(unittest.TestCase):
             open(p, "w").write('{"nome": "altro"}')
             b = Opzioni(immagine="x.png", uscita="u", profilo=p).firma_analisi()
             self.assertNotEqual(a, b)
+
+
+class TestPixelAFrazioni(unittest.TestCase):
+    def test_conversione_con_rettangolo_e_centramento(self):
+        import os
+        import tempfile
+        from PIL import Image
+        from genworld.profilo import Profilo
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "i.png")
+            Image.new("RGB", (400, 200), (0, 0, 0)).save(p)
+            prof = Profilo(roi=(0.25, 0.0, 0.75, 1.0))           # ritaglio 200 x 200: quadrato
+            f = prof.frazioni_da_pixel(p, 100, [(200, 100), (50, 100), (150, 0)])
+            self.assertAlmostEqual(f[0][0], 0.5)
+            self.assertAlmostEqual(f[0][1], 0.5)
+            self.assertEqual(len(f), 2)                           # (50, 100) e' fuori dal ritaglio
+            self.assertAlmostEqual(f[1][0], 0.25)
+            # senza ritaglio: 400 x 200 in 100 x 100 -> 100 x 50 centrata, scarto verticale 25
+            g = Profilo().frazioni_da_pixel(p, 100, [(0, 0), (400, 200)])
+            self.assertEqual(g, [(0.0, 0.25), (1.0, 0.75)])

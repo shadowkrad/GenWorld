@@ -100,6 +100,9 @@ def main() -> None:
                     "rettangolo di interesse + campioni col contagocce")
     ap.add_argument("--vulcani", type=int, default=3, metavar="N",
                     help="quanti vulcani piazzare (0 = nessuno)")
+    ap.add_argument("--vulcani-px", metavar="X,Y;X,Y", default="",
+                    help="posizioni dei vulcani in PIXEL dell'immagine originale (come le legge "
+                         "un editor di immagini); se ci sono, sono le uniche e --vulcani non conta")
     ap.add_argument("--strade", action="store_true", default=True,
                     help="traccia la rete stradale e i ponti (attivo)")
     ap.add_argument("--senza-strade", dest="strade", action="store_false")
@@ -175,7 +178,13 @@ def main() -> None:
             print("  blocchi senza colore:", st["blocchi_ignoti"])
         return
 
-    op = Opzioni(immagine=a.immagine, uscita=a.uscita, nome=a.nome, lato=a.lato,
+    vulcani_pos = ()
+    if a.vulcani_px:
+        from genworld.profilo import Profilo
+        punti = [tuple(float(v) for v in c.split(",")) for c in a.vulcani_px.split(";") if c.strip()]
+        prof_ = Profilo.carica(a.profilo) if a.profilo else Profilo()
+        vulcani_pos = tuple(prof_.frazioni_da_pixel(a.immagine, a.lato, punti))
+    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, uscita=a.uscita, nome=a.nome, lato=a.lato,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,
