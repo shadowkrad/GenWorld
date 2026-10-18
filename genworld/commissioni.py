@@ -205,6 +205,23 @@ def offerte_acquirente(tipo: str) -> tuple:
                  for cosa, quanti, smeraldi in voci)
 
 
+CURATORE = [("nautilus_shell", 1, 6), ("heart_of_the_sea", 1, 24), ("amethyst_shard", 8, 4),
+            ("prismarine_crystals", 8, 4), ("music_disc_13", 1, 8), ("music_disc_cat", 1, 8),
+            ("echo_shard", 1, 10), ("archer_pottery_sherd", 1, 6), ("sponge", 2, 5),
+            ("ancient_debris", 1, 12), ("nether_star", 1, 36), ("totem_of_undying", 1, 14)]
+
+
+def curatore(sito, seed: int = 0):
+    """Il curatore di un museo (`siti.py`): compra reperti rari contro smeraldi. In coordinate di mappa."""
+    from .entita import Abitante
+    return Abitante(
+        x=sito.x + 0.5, y=float(sito.y + 1), z=sito.z + 2.5, mestiere="libraio", livello=5,
+        seme=(seed * 6271 + sito.x * 7919 + sito.z * 104729 + 31) & 0x7FFFFFFF,
+        nome="Curatore del museo",
+        offerte=tuple({"compra": (cosa, quanti), "vende": ("emerald", smeraldi, None), "usi": 8}
+                      for cosa, quanti, smeraldi in CURATORE))
+
+
 def pianifica(citta: list, luoghi: list, strade, altezze, meta: int, occupati: set | None = None,
               seed: int = 0, per_citta: tuple = (3, 5), acquirenti: tuple = (2, 3)) -> list:
     """Gli abitanti-commissione e gli acquirenti. `citta`: oggetti Citta (x, z, piazza,

@@ -391,6 +391,37 @@ BOTTINO_ZONA: dict[str, tuple] = {
 }
 
 
+# I forzieri dei luoghi di `siti.py`: alcuni riusano il bottino di una zona, gli altri hanno il loro.
+BOTTINO_DIMENSIONI.update({
+    "faro": BOTTINO_ZONA["faro"], "pesca": BOTTINO_ZONA["pescatore"],
+    "sommersa": (("gold_ingot", 4, 12), ("prismarine_shard", 4, 12), ("prismarine_crystals", 3, 8),
+                 ("sponge", 1, 3), ("nautilus_shell", 1, 2), ("heart_of_the_sea", 1, 1),
+                 ("diamond", 1, 3), ("emerald", 2, 6), ("ink_sac", 3, 8), ("gold_block", 1, 2),
+                 ("trident", 1, 1), ("turtle_helmet", 1, 1), ("experience_bottle", 4, 10)),
+    "boss_arena": (("diamond", 2, 6), ("emerald", 4, 12), ("golden_apple", 2, 4),
+                   ("saddle", 1, 1), ("netherite_scrap", 1, 2), ("enchanted_golden_apple", 1, 1),
+                   ("diamond_sword", 1, 1), ("diamond_chestplate", 1, 1), ("shield", 1, 1),
+                   ("experience_bottle", 6, 14), ("totem_of_undying", 1, 1), ("name_tag", 1, 3)),
+    "santuario": (("bread", 3, 8), ("golden_carrot", 3, 8), ("honey_bottle", 2, 5),
+                  ("candle", 4, 10), ("book", 2, 5), ("paper", 4, 10), ("emerald", 1, 4),
+                  ("experience_bottle", 2, 6), ("glass_bottle", 2, 6), ("amethyst_shard", 2, 6)),
+    "grotta": (("amethyst_shard", 8, 24), ("diamond", 1, 4), ("emerald", 2, 6),
+               ("lapis_lazuli", 6, 16), ("redstone", 6, 16), ("spyglass", 1, 1),
+               ("glow_berries", 4, 12), ("iron_ingot", 3, 9), ("gold_ingot", 3, 9),
+               ("experience_bottle", 4, 10), ("echo_shard", 1, 1)),
+    "radura": (("red_mushroom", 4, 12), ("brown_mushroom", 4, 12), ("mushroom_stew", 1, 3),
+               ("bone_meal", 6, 18), ("glow_berries", 4, 10), ("golden_apple", 1, 1),
+               ("emerald", 2, 5), ("lead", 1, 3), ("name_tag", 1, 2)),
+    "mulino": (("wheat", 8, 24), ("bread", 4, 12), ("hay_block", 2, 6), ("wheat_seeds", 6, 18),
+               ("cake", 1, 1), ("pumpkin_pie", 1, 3), ("egg", 3, 8), ("milk_bucket", 1, 1),
+               ("emerald", 1, 4), ("leather", 2, 6)),
+    "museo": (("book", 2, 6), ("paper", 4, 12), ("compass", 1, 1), ("clock", 1, 1),
+              ("spyglass", 1, 1), ("amethyst_shard", 2, 8), ("emerald", 3, 9),
+              ("music_disc_cat", 1, 1), ("music_disc_13", 1, 1), ("name_tag", 1, 2),
+              ("brush", 1, 1), ("archer_pottery_sherd", 1, 1)),
+})
+
+
 def _oggetti_zona(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
     """4-7 pile dal bottino del luogo, in slot diversi; lontano dalle citta' anche
     un tesoro incantato (come per le cripte)."""

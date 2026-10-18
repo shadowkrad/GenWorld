@@ -46,7 +46,7 @@ RAGGIO_COPERTURA = 14
 # chi non si sposta
 SPECIE_LIBERE = frozenset({"pipistrello", "merluzzo", "salmone", "pesce_tropicale", "calamaro",
                            "delfino", "pesce_palla", "calamaro_luminoso", "tartaruga", "ape",
-                           "pappagallo", "rana"})
+                           "pappagallo", "rana", "guardiano", "guardiano_anziano"})
 
 
 def _libera_da_spostare(e) -> bool:

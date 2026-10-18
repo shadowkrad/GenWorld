@@ -142,8 +142,14 @@ def scrivi_elenco(luoghi: list[Luogo], cartella: str, nome_mondo: str = "",
                   extra_md: str = "") -> tuple[str, str]:
     """Scrive `luoghi.md` e `luoghi.json` in `cartella`. Ritorna i due percorsi."""
     os.makedirs(cartella, exist_ok=True)
-    ordine = ("citta", "torre", "fortezza", "castello", "isola", "rovina", "miniera", "accampamento", "cimitero", "portale")
-    titoli = {"citta": "Citta'", "torre": "Torri con un capo", "fortezza": "Fortezze",
+    ordine = ("citta", "torre", "fortezza", "castello", "isola", "rovina", "miniera", "accampamento", "cimitero", "portale",
+              "strega", "sommersa", "segnale", "labirinto", "arena", "santuario", "grotta", "pesca",
+              "radura", "mulino", "museo")
+    titoli = {"strega": "Capanne di streghe", "sommersa": "Rovine sommerse",
+              "segnale": "Torri di segnalazione", "labirinto": "Labirinti di siepi",
+              "arena": "Arene", "santuario": "Santuari dei pellegrini", "grotta": "Grotte di cristalli",
+              "pesca": "Capanni di pescatori", "radura": "Radure di funghi", "mulino": "Mulini a vento",
+              "museo": "Musei", "citta": "Citta'", "torre": "Torri con un capo", "fortezza": "Fortezze",
               "castello": "Castelli in rovina", "isola": "Isole del tesoro", "rovina": "Rovine con cripta",
               "miniera": "Miniere", "accampamento": "Accampamenti", "cimitero": "Cimiteri",
               "portale": "Portali"}

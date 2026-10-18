@@ -40,7 +40,9 @@ MAGHI = ("evocatore", "strega")
 # creature del Nether e dell'End (vedi `dimensioni.py`)
 SPECIE.update({"piglin": "piglin", "piglin_bruto": "piglin_brute", "blaze": "blaze",
                "hoglin": "hoglin", "cubo_magma": "magma_cube", "ghast": "ghast",
-               "enderman": "enderman", "shulker": "shulker"})
+               "enderman": "enderman", "shulker": "shulker",
+               "devastatore": "ravager", "guardiano": "guardian",
+               "guardiano_anziano": "elder_guardian"})
 NOMI_CAPO = ("Aldric il Cupo", "Brenna Mano di Ferro", "Corvo Nero", "Dagan l'Esule",
              "Edrik Spezzaossa", "Fenna la Vedetta", "Garrick Senzaterra",
              "Hilda Cuordipietra", "Ivor il Custode", "Kael Lamarotta")
@@ -105,7 +107,7 @@ class Combattente:
         equip: dict = {}
         if self.capo:
             vita = 60.0 if self.livello == 0 else 100.0
-            if self.specie not in MAGHI:        # un mago non porta armatura ne' arma
+            if self.specie in ARMA:             # un mago o un mostro senza mani non porta niente
                 mat = "iron" if self.livello == 0 else "diamond"
                 for slot, pezzo in (("head", "helmet"), ("chest", "chestplate"),
                                     ("legs", "leggings"), ("feet", "boots")):
