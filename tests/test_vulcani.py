@@ -239,3 +239,17 @@ class TestPosizioniScelte(unittest.TestCase):
         b = Opzioni(immagine="x.png", uscita="u", vulcani_posizioni=((0.5, 0.5),))
         self.assertNotEqual(a.firma_analisi(), b.firma_analisi())
 
+
+
+class TestCacheProfilo(unittest.TestCase):
+    def test_cambiare_il_contenuto_del_profilo_cambia_la_chiave_di_cache(self):
+        import os
+        import tempfile
+        from genworld.motore import Opzioni
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "x.profilo.json")
+            open(p, "w").write("{}")
+            a = Opzioni(immagine="x.png", uscita="u", profilo=p).firma_analisi()
+            open(p, "w").write('{"nome": "altro"}')
+            b = Opzioni(immagine="x.png", uscita="u", profilo=p).firma_analisi()
+            self.assertNotEqual(a, b)

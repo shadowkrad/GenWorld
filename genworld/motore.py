@@ -230,7 +230,15 @@ class Opzioni:
     def modo(self) -> str:
         """Chiave di cache: cambiando modo di classificare va rifatta l'analisi."""
         if self.profilo:
-            return "profilo:" + os.path.basename(self.profilo)
+            # il CONTENUTO conta, non solo il nome: ritoccare i campioni di un profilo e
+            # rianalizzare con la cache vecchia dava lo stesso risultato di prima
+            try:
+                import hashlib
+                with open(self.profilo, "rb") as f:
+                    impronta = hashlib.sha1(f.read()).hexdigest()[:12]
+            except OSError:
+                impronta = "?"
+            return f"profilo:{os.path.basename(self.profilo)}:{impronta}"
         return "adattivo" if self.adattivo else "soglie"
 
     @property
@@ -1520,7 +1528,6 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                 if not tieni.all():
                     alberi = {k: v[tieni] for k, v in alberi.items()}
                     indice = V.indice_per_chunk(alberi, op.lato) if alberi else {}
-            abitanti = abitanti + SI.creature(siti_l)
             abitanti = abitanti + [CM.curatore(s_, seed=op.seed) for s_ in siti_l if s_.tipo == "museo"]
             conteggio: dict = {}
             for s_ in siti_l:
@@ -1552,11 +1559,17 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         for isl in isole:
             x, y, z, _ = isl.forzieri()[0]
             strutture[("isola", isl.x - meta_l, isl.z - meta_l)] = (None, (x - meta_l, y, z - meta_l))
+        for s_ in siti_l:
+            if s_.tipo in LU.TIPI_AVVENTURA:
+                strutture[(s_.tipo, s_.x - meta_l, s_.z - meta_l)] = (
+                    (s_.x, s_.z) if SI.ha_capo(s_) else None, SI.forziere_principale(s_, meta_l))
         incarichi = IC.pianifica(citta, luoghi, strutture, meta_l, seed=op.seed)
         if incarichi:
             note.append(f"incarichi: {len(incarichi)} (" + ", ".join(
                 f"{i.committente} -> {i.meta}" for i in incarichi) + ")")
     trofei = IC.trofei(incarichi)
+    if siti_l:
+        abitanti = abitanti + SI.creature(siti_l, trofei)
 
     if torri:
         capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed, trofei=trofei)
@@ -1617,6 +1630,13 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         sedi[("isola", isl.x - meta_l, isl.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    for s_ in siti_l:
+        if s_.tipo in LU.TIPI_AVVENTURA:
+            pos = SI.forziere_principale(s_, meta_l)
+            sedi[(s_.tipo, s_.x - meta_l, s_.z - meta_l)] = pos
+            libro = ind["tappe"].get((s_.tipo, s_.x - meta_l, s_.z - meta_l))
+            if libro is not None:
+                libri[pos] = libro
     libri.update(SI.libri_pellegrini(siti_l, meta_l))
     mappe_tesoro = MP.pianifica(luoghi, sedi, meta_l)
     oggetti_forzieri = IC.oggetti_forziere(incarichi)
@@ -1639,7 +1659,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             note.append(f"consegne fra citta': {len(consegne_l)}")
         occupati = {(int(a.x), int(a.z)) for a in committenti}
         commissioni = CM.pianifica(citta, luoghi, tipo_strada, h, meta_l, occupati, seed=op.seed)
-        abitanti = abitanti + committenti + commissioni
+        pattuglie = CM.guardie(citta, tipo_strada, h, seed=op.seed)
+        if pattuglie:
+            note.append(f"golem di pattuglia: {len(pattuglie)}")
+        abitanti = abitanti + committenti + commissioni + pattuglie
         if commissioni:
             note.append(f"commissioni dei popolani: {len(commissioni)} abitanti, "
                         f"{sum(len(a.offerte) for a in commissioni)} richieste")

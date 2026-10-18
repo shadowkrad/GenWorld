@@ -813,12 +813,26 @@ def entita_blocco(siti: list[Sito], ox: int, oz: int, meta: int) -> list:
     return fuori
 
 
-def creature(siti: list[Sito]) -> list:
-    """Le creature di tutti i siti, in coordinate di MAPPA (il motore le sposta)."""
+def creature(siti: list[Sito], trofei: dict | None = None) -> list:
+    """Le creature di tutti i siti, in coordinate di MAPPA (il motore le sposta). Il capo di un
+    sito porta il trofeo di un incarico, se ce n'e' uno: `trofei` {(x, z) del sito: oggetto}."""
     fuori = []
     for s in siti:
-        fuori.extend(disegna(s).creature)
+        for c in disegna(s).creature:
+            if c.capo and trofei and (s.x, s.z) in trofei:
+                c.trofeo = trofei[(s.x, s.z)]
+            fuori.append(c)
     return fuori
+
+
+def forziere_principale(s: Sito, meta: int) -> tuple:
+    """(x, y, z) di GIOCO del forziere del tesoro (il primo del disegno)."""
+    x, y, z, _ = disegna(s).forzieri[0]
+    return (x - meta, y, z - meta)
+
+
+def ha_capo(s: Sito) -> bool:
+    return any(c.capo for c in disegna(s).creature)
 
 
 def libri_pellegrini(siti: list[Sito], meta: int) -> dict:

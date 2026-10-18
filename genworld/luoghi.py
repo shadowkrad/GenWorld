@@ -49,7 +49,8 @@ ISOLE = ("Isola del Corvo Bianco", "Isola dei Naufraghi", "Scoglio del Capitano"
          "Isola delle Due Palme", "Secca del Tesoro")
 PORTALI = ("Portale Antico", "Il Varco Spezzato", "Portale delle Ceneri", "Arco del Confine")
 
-TIPI_AVVENTURA = ("rovina", "torre", "fortezza", "castello", "isola")
+TIPI_AVVENTURA = ("rovina", "torre", "fortezza", "castello", "isola",
+                  "strega", "sommersa", "arena", "labirinto", "grotta")
 
 # otto direzioni, a partire da est, in senso orario guardando la mappa dall'alto
 # (+x est, +z sud)
