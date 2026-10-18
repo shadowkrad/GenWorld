@@ -179,7 +179,8 @@ def _chunk_nbt(cx: int, cz: int, entita: list, data_version: int,
     return NamedTag(radice, "").save_to(compressed=False)
 
 
-def scrivi_regioni(percorso_mondo: str, abitanti: list, data_version: int) -> dict:
+def scrivi_regioni(percorso_mondo: str, abitanti: list, data_version: int,
+                   dimensione: str = "overworld") -> dict:
     """Scrive `entities/r.X.Z.mca`.
 
     Il nome del parametro e' rimasto `abitanti` per non rompere le chiamate
@@ -206,7 +207,7 @@ def scrivi_regioni(percorso_mondo: str, abitanti: list, data_version: int) -> di
     # stanno dentro la cartella della dimensione
     if data_version >= 4786:
         cartella = os.path.join(percorso_mondo, "dimensions", "minecraft",
-                                "overworld", "entities")
+                                dimensione, "entities")
     else:
         cartella = os.path.join(percorso_mondo, "entities")
     os.makedirs(cartella, exist_ok=True)

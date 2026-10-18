@@ -187,6 +187,33 @@ def main() -> None:
             "Imbocco con cartello, collina del posto, binari. Gallerie con piu' svolte e diramazioni, sale di "
             "sosta 5x5 agli incroci (pali, lanterna, arnesi), lanterne alte: NON si deve sbattere la testa "
             "sulle rampe. Nell'ultimo piano: camera finale con pozza.")
+    sezione("Capanne di streghe", "strega",
+            "Capanna di assi scure su palafitte, scaletta d'ingresso, calderone, alambicco, libreria; "
+            "una strega con nome e una di guardia fuori. Forzieri con pozioni e libri incantati.")
+    sezione("Rovine sommerse", "sommersa",
+            "Sul fondo del mare: tempio di prismarino con colonne e lanterne marine, allagato; quattro "
+            "guardiani e il Guardiano Anziano. Tesoro d'oro in mezzo.")
+    sezione("Torri di segnalazione", "segnale",
+            "Torre di pietra sulla costa, scala a pioli, lanterna in cima, un predone, due forzieri.")
+    sezione("Labirinti di siepi", "labirinto",
+            "17x17 di siepe alta tre; l'ingresso e' a sud-ovest, il forziere nel mezzo. Controlla che "
+            "si arrivi al centro e che non ci siano blocchi che fluttuano.")
+    sezione("Arene", "arena",
+            "Anello di mattoni con otto pilastri e un solo ingresso a sud: un devastatore con nome e due "
+            "forzieri nel fondo.")
+    sezione("Santuari dei pellegrini", "santuario",
+            "Cappella aperta con altare, candele e leggio; nel forziere un libro che indica il santuario "
+            "successivo (il sentiero dei pellegrini).")
+    sezione("Grotte di cristalli", "grotta",
+            "Pozzo con scala a pioli (accanto al punto indicato, a est), grotta di calcite con ametiste, "
+            "un lago e un forziere al centro.")
+    sezione("Capanni di pescatori", "pesca", "Capanno di assi con molo, barili e forziere.")
+    sezione("Radure di funghi", "radura", "Funghi giganti rossi e marroni, muschio, un forziere nascosto.")
+    sezione("Mulini a vento", "mulino",
+            "Torre di mattoni con tetto di assi scure, pale di staccionata e lana sul lato nord, forziere.")
+    sezione("Musei", "museo",
+            "Sala di arenaria con teche e librerie; il Curatore compra reperti rari (conchiglie, dischi, "
+            "ametiste, cuori del mare) contro smeraldi.")
     sezione("Citta'", "citta",
             "Piazza con fontana (parafulmine), campana, 2 stendardi, 2 bracieri, lampioni di rame; "
             "giardini con zucche e alveari; legno degli arredi del bioma; gatti sulle strade; "

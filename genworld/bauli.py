@@ -257,11 +257,57 @@ def _oggetti_mago(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
     return list(per_slot.values())
 
 
+# Il bottino del Nether e dell'End (vedi `nether.py`, `end.py`). (nome, minimo, massimo)
+BOTTINO_DIMENSIONI: dict[str, tuple] = {
+    "nether_fortezza": (("blaze_rod", 2, 6), ("nether_wart", 4, 12), ("gold_ingot", 3, 10),
+                        ("golden_apple", 1, 2), ("diamond", 1, 3), ("saddle", 1, 1),
+                        ("obsidian", 2, 6), ("flint_and_steel", 1, 1), ("glowstone_dust", 4, 12),
+                        ("quartz", 4, 14), ("magma_cream", 2, 5), ("iron_horse_armor", 1, 1),
+                        ("coal", 6, 16), ("ghast_tear", 1, 2)),
+    "nether_tesoro": (("diamond", 2, 5), ("netherite_scrap", 1, 3), ("ancient_debris", 1, 3),
+                      ("enchanted_golden_apple", 1, 1), ("obsidian", 4, 10),
+                      ("gold_block", 1, 2), ("diamond_horse_armor", 1, 1), ("blaze_rod", 4, 8),
+                      ("ender_pearl", 2, 5), ("experience_bottle", 6, 16)),
+    "nether_bastione": (("gold_ingot", 6, 20), ("gold_block", 1, 3), ("golden_sword", 1, 1),
+                        ("golden_axe", 1, 1), ("golden_pickaxe", 1, 1), ("crossbow", 1, 1),
+                        ("arrow", 12, 32), ("spectral_arrow", 6, 16), ("iron_nugget", 8, 24),
+                        ("crying_obsidian", 3, 8), ("golden_carrot", 4, 12), ("string", 6, 16),
+                        ("ancient_debris", 1, 2), ("netherite_scrap", 1, 1), ("gilded_blackstone", 2, 6),
+                        ("music_disc_pigstep", 1, 1), ("diamond", 1, 3)),
+    "end_citta": (("ender_pearl", 2, 6), ("end_rod", 4, 12), ("chorus_fruit", 4, 12),
+                  ("purpur_block", 8, 24), ("iron_ingot", 4, 12), ("gold_ingot", 3, 9),
+                  ("diamond", 1, 3), ("experience_bottle", 4, 12), ("obsidian", 3, 8),
+                  ("book", 2, 5), ("shulker_shell", 1, 2), ("golden_apple", 1, 2)),
+    "end_tesoro": (("elytra", 1, 1), ("shulker_shell", 2, 4), ("diamond", 3, 6),
+                   ("enchanted_golden_apple", 1, 2), ("ender_pearl", 4, 8), ("dragon_breath", 1, 2),
+                   ("experience_bottle", 8, 20), ("netherite_scrap", 1, 2), ("end_rod", 8, 16)),
+}
+
+
+def _oggetti_dimensione(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
+    voci = BOTTINO_DIMENSIONI[tipo]
+    n = min(len(voci), int(rng.integers(5, 9)))
+    slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
+    scelti = rng.choice(len(voci), size=n, replace=False)
+    # il tesoro di fondo ha sempre le cose rare (le prime della lista)
+    if tipo in ("end_tesoro", "nether_tesoro") and 0 not in scelti:
+        scelti[0] = 0
+    contenuto = [(s, voci[int(t)][0], int(rng.integers(voci[int(t)][1], voci[int(t)][2] + 1)))
+                 for s, t in zip(slot, scelti)]
+    if tipo.endswith("tesoro"):
+        contenuto = [c for c in contenuto if c[1] != "elytra"] + [
+            c for c in contenuto if c[1] == "elytra"]
+        contenuto = _aggiungi_tesori(contenuto, rng, 2) if "elytra" not in [c[1] for c in contenuto]             else contenuto
+    return contenuto
+
+
 def _oggetti_dungeon(rng: np.random.Generator, tipo: str, lontano: bool) -> list:
     """La sala dello spawner: 4-6 pile. Il tesoro: 6-9 pile e tesori incantati,
     uno vicino alle citta', tre lontano."""
     if tipo.startswith("mago"):
         return _oggetti_mago(rng, tipo, lontano)
+    if tipo in BOTTINO_DIMENSIONI:
+        return _oggetti_dimensione(rng, tipo, lontano)
     n = int(rng.integers(6, 10)) if tipo == "tesoro" else int(rng.integers(4, 7))
     slot = [int(v) for v in rng.choice(27, size=n, replace=False)]
     tipi = rng.choice(len(BOTTINO_DUNGEON), size=n, replace=False)
@@ -343,6 +389,37 @@ BOTTINO_ZONA: dict[str, tuple] = {
                  ("experience_bottle", 2, 6), ("saddle", 1, 1), ("ender_pearl", 1, 3),
                  ("gold_ingot", 3, 9), ("cooked_beef", 4, 10)),
 }
+
+
+# I forzieri dei luoghi di `siti.py`: alcuni riusano il bottino di una zona, gli altri hanno il loro.
+BOTTINO_DIMENSIONI.update({
+    "faro": BOTTINO_ZONA["faro"], "pesca": BOTTINO_ZONA["pescatore"],
+    "sommersa": (("gold_ingot", 4, 12), ("prismarine_shard", 4, 12), ("prismarine_crystals", 3, 8),
+                 ("sponge", 1, 3), ("nautilus_shell", 1, 2), ("heart_of_the_sea", 1, 1),
+                 ("diamond", 1, 3), ("emerald", 2, 6), ("ink_sac", 3, 8), ("gold_block", 1, 2),
+                 ("trident", 1, 1), ("turtle_helmet", 1, 1), ("experience_bottle", 4, 10)),
+    "boss_arena": (("diamond", 2, 6), ("emerald", 4, 12), ("golden_apple", 2, 4),
+                   ("saddle", 1, 1), ("netherite_scrap", 1, 2), ("enchanted_golden_apple", 1, 1),
+                   ("diamond_sword", 1, 1), ("diamond_chestplate", 1, 1), ("shield", 1, 1),
+                   ("experience_bottle", 6, 14), ("totem_of_undying", 1, 1), ("name_tag", 1, 3)),
+    "santuario": (("bread", 3, 8), ("golden_carrot", 3, 8), ("honey_bottle", 2, 5),
+                  ("candle", 4, 10), ("book", 2, 5), ("paper", 4, 10), ("emerald", 1, 4),
+                  ("experience_bottle", 2, 6), ("glass_bottle", 2, 6), ("amethyst_shard", 2, 6)),
+    "grotta": (("amethyst_shard", 8, 24), ("diamond", 1, 4), ("emerald", 2, 6),
+               ("lapis_lazuli", 6, 16), ("redstone", 6, 16), ("spyglass", 1, 1),
+               ("glow_berries", 4, 12), ("iron_ingot", 3, 9), ("gold_ingot", 3, 9),
+               ("experience_bottle", 4, 10), ("echo_shard", 1, 1)),
+    "radura": (("red_mushroom", 4, 12), ("brown_mushroom", 4, 12), ("mushroom_stew", 1, 3),
+               ("bone_meal", 6, 18), ("glow_berries", 4, 10), ("golden_apple", 1, 1),
+               ("emerald", 2, 5), ("lead", 1, 3), ("name_tag", 1, 2)),
+    "mulino": (("wheat", 8, 24), ("bread", 4, 12), ("hay_block", 2, 6), ("wheat_seeds", 6, 18),
+               ("cake", 1, 1), ("pumpkin_pie", 1, 3), ("egg", 3, 8), ("milk_bucket", 1, 1),
+               ("emerald", 1, 4), ("leather", 2, 6)),
+    "museo": (("book", 2, 6), ("paper", 4, 12), ("compass", 1, 1), ("clock", 1, 1),
+              ("spyglass", 1, 1), ("amethyst_shard", 2, 8), ("emerald", 3, 9),
+              ("music_disc_cat", 1, 1), ("music_disc_13", 1, 1), ("name_tag", 1, 2),
+              ("brush", 1, 1), ("archer_pottery_sherd", 1, 1)),
+})
 
 
 def _oggetti_zona(rng: np.random.Generator, tipo: str, lontano: bool) -> list:

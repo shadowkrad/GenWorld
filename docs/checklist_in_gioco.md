@@ -140,6 +140,87 @@ Imbocco con cartello, collina del posto, binari. Gallerie con piu' svolte e dira
 - [ ] **Miniera di Ferrovecchio** - `/tp @s 294 76 296`
 - [ ] **Miniera di Pietrabuia** - `/tp @s 369 69 -61`
 
+## Capanne di streghe
+
+Capanna di assi scure su palafitte, scaletta d'ingresso, calderone, alambicco, libreria; una strega con nome e una di guardia fuori. Forzieri con pozioni e libri incantati.
+
+- [ ] **Capanna di Ginevra dei Funghi** - `/tp @s -273 87 225` (capanna su palafitte, una strega e il suo bottino)
+- [ ] **Capanna di Nonna Ortica** - `/tp @s -149 88 171` (capanna su palafitte, una strega e il suo bottino)
+
+## Rovine sommerse
+
+Sul fondo del mare: tempio di prismarino con colonne e lanterne marine, allagato; quattro guardiani e il Guardiano Anziano. Tesoro d'oro in mezzo.
+
+- [ ] **Rovina sommersa del Tridente** - `/tp @s -64 38 382` (tempio sul fondo del mare: guardiani e un Guardiano Anziano)
+- [ ] **Rovina sommersa dell'Anziano** - `/tp @s -157 37 378` (tempio sul fondo del mare: guardiani e un Guardiano Anziano)
+
+## Torri di segnalazione
+
+Torre di pietra sulla costa, scala a pioli, lanterna in cima, un predone, due forzieri.
+
+- [ ] **Torre di segnalazione dello Scoglio** - `/tp @s 448 70 -165` (torre sulla costa con un predone e un forziere)
+- [ ] **Torre di segnalazione di Punta Alta** - `/tp @s -322 78 -306` (torre sulla costa con un predone e un forziere)
+
+## Labirinti di siepi
+
+17x17 di siepe alta tre; l'ingresso e' a sud-ovest, il forziere nel mezzo. Controlla che si arrivi al centro e che non ci siano blocchi che fluttuano.
+
+- [ ] **Labirinto dei Rovi** - `/tp @s -108 77 -262` (labirinto di siepi: il tesoro e' nel mezzo)
+- [ ] **Labirinto delle Mille Svolte** - `/tp @s -117 84 77` (labirinto di siepi: il tesoro e' nel mezzo)
+
+## Arene
+
+Anello di mattoni con otto pilastri e un solo ingresso a sud: un devastatore con nome e due forzieri nel fondo.
+
+- [ ] **Arena di Rovina** - `/tp @s 438 84 268` (un devastatore a guardia di un tesoro)
+- [ ] **Arena di Zanna Rossa** - `/tp @s 477 85 178` (un devastatore a guardia di un tesoro)
+
+## Santuari dei pellegrini
+
+Cappella aperta con altare, candele e leggio; nel forziere un libro che indica il santuario successivo (il sentiero dei pellegrini).
+
+- [ ] **Santuario del Silenzio** - `/tp @s 116 77 -182` (un altare con un forziere di pellegrini)
+- [ ] **Santuario del Viandante** - `/tp @s -270 74 -122` (un altare con un forziere di pellegrini)
+- [ ] **Santuario della Luce** - `/tp @s -48 85 -328` (un altare con un forziere di pellegrini)
+- [ ] **Santuario della Quiete** - `/tp @s -76 74 -61` (un altare con un forziere di pellegrini)
+- [ ] **Santuario delle Candele** - `/tp @s 214 74 -212` (un altare con un forziere di pellegrini)
+
+## Grotte di cristalli
+
+Pozzo con scala a pioli (accanto al punto indicato, a est), grotta di calcite con ametiste, un lago e un forziere al centro.
+
+- [ ] **Grotta dei Cristalli** - `/tp @s -214 85 171` (caverna di ametista con un lago, si entra dal pozzo con la scala)
+- [ ] **Grotta dell'Ametista** - `/tp @s 77 84 289` (caverna di ametista con un lago, si entra dal pozzo con la scala)
+
+## Capanni di pescatori
+
+Capanno di assi con molo, barili e forziere.
+
+- [ ] **Capanno dell'Anguilla** - `/tp @s 12 85 -437` (capanno con molo)
+- [ ] **Capanno della Barca Rossa** - `/tp @s 112 83 -128` (capanno con molo)
+- [ ] **Capanno di Riva Calma** - `/tp @s -333 85 -375` (capanno con molo)
+
+## Radure di funghi
+
+Funghi giganti rossi e marroni, muschio, un forziere nascosto.
+
+- [ ] **Radura dei Funghi Giganti** - `/tp @s -379 86 -330` (funghi giganti e un forziere nascosto)
+- [ ] **Radura delle Lucciole** - `/tp @s -246 86 276` (funghi giganti e un forziere nascosto)
+
+## Mulini a vento
+
+Torre di mattoni con tetto di assi scure, pale di staccionata e lana sul lato nord, forziere.
+
+- [ ] **Mulino Alto** - `/tp @s -336 85 361` (mulino a vento, con le pale rivolte a nord)
+- [ ] **Mulino del Mugnaio** - `/tp @s 189 85 338` (mulino a vento, con le pale rivolte a nord)
+- [ ] **Mulino della Piana** - `/tp @s -2 77 -283` (mulino a vento, con le pale rivolte a nord)
+
+## Musei
+
+Sala di arenaria con teche e librerie; il Curatore compra reperti rari (conchiglie, dischi, ametiste, cuori del mare) contro smeraldi.
+
+- [ ] **Museo del Viandante** - `/tp @s 245 76 -182` (una sala con teche e uno scrigno; il curatore compra i reperti)
+
 ## Citta'
 
 Piazza con fontana (parafulmine), campana, 2 stendardi, 2 bracieri, lampioni di rame; giardini con zucche e alveari; legno degli arredi del bioma; gatti sulle strade; un libro 'Il diario del viandante' in alcune case della citta' piu' vicina al centro.

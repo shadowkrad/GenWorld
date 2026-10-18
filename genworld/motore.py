@@ -42,6 +42,7 @@ from . import castello as CS
 from . import entita as EN
 from . import incarichi as IC
 from . import isole as ISO
+from . import siti as SI
 from . import fortezze as FZ
 from . import luoghi as LU
 from . import mappe as MP
@@ -153,6 +154,10 @@ class Opzioni:
     incarichi: bool = True
     # Isole del tesoro in mare aperto, con la croce di sabbia rossa (vedi `isole.py`).
     isole: float = 1.0
+    # Nether ed End disegnati da noi, scritti accanto all'overworld (vedi `dimensioni.py`).
+    dimensioni: bool = False
+    # Luoghi da scoprire (capanne di streghe, rovine sommerse, labirinti...): vedi `siti.py`.
+    siti: float = 1.0
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -633,6 +638,8 @@ class Piano:
     oggetti_incarico: dict = field(default_factory=dict)
     mappe: list = field(default_factory=list)
     commissioni: list = field(default_factory=list)
+    siti: list = field(default_factory=list)
+    indice_siti: dict = field(default_factory=dict)
     isole: list = field(default_factory=list)
     indice_isole: dict = field(default_factory=dict)
     libro_citta: tuple | None = None
@@ -1495,10 +1502,31 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             note.append(f"isole del tesoro: {len(isole)} a "
                         + ", ".join(f"({i.x - op.lato // 2}, {i.z - op.lato // 2})" for i in isole))
 
+    # SITI da scoprire: streghe, rovine sommerse, labirinti, arene, santuari...
+    siti_l: list = []
+    if op.siti > 0:
+        siti_l = SI.pianifica(cls_piano, h, LIVELLO_MARE, protetto, citta, densita=op.siti, seed=op.seed)
+        if siti_l:
+            protetto = protetto | SI.maschera(siti_l, a.cls.shape, margine=2)
+            if alberi:
+                # niente bosco dentro i luoghi da scoprire (le chiome sporgono: margine di 4)
+                libera = ~SI.maschera(siti_l, a.cls.shape, margine=4)
+                tieni = libera[alberi["z"], alberi["x"]]
+                if not tieni.all():
+                    alberi = {k: v[tieni] for k, v in alberi.items()}
+                    indice = V.indice_per_chunk(alberi, op.lato) if alberi else {}
+            abitanti = abitanti + SI.creature(siti_l)
+            abitanti = abitanti + [CM.curatore(s_, seed=op.seed) for s_ in siti_l if s_.tipo == "museo"]
+            conteggio: dict = {}
+            for s_ in siti_l:
+                conteggio[s_.tipo] = conteggio.get(s_.tipo, 0) + 1
+            note.append("luoghi da scoprire: " + ", ".join(f"{k} {v}" for k, v in conteggio.items()))
+
     # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
     meta_l = op.lato // 2
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
                          fortezze=fortezze, castelli=castelli_rovina, isole=isole)
+    luoghi = luoghi + SI.luoghi(siti_l, meta_l)
 
     # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
     incarichi: list = []
@@ -1584,6 +1612,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         sedi[("isola", isl.x - meta_l, isl.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    libri.update(SI.libri_pellegrini(siti_l, meta_l))
     mappe_tesoro = MP.pianifica(luoghi, sedi, meta_l)
     oggetti_forzieri = IC.oggetti_forziere(incarichi)
     for m in mappe_tesoro:
@@ -1617,6 +1646,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     return Piano(h=h, edifici=edifici, indice_edifici=indice_ed,
                  cls=cls_piano, livello=a.livello,
                  isole=isole, indice_isole=ISO.indice_per_chunk(isole) if isole else {},
+                 siti=siti_l, indice_siti=SI.indice_per_chunk(siti_l) if siti_l else {},
                  tipo_strada=tipo_strada, quota_strada=quota_strada,
                  alberi=alberi, indice_alberi=indice, muro=muro,
                  scarpata=scarpata,
@@ -2634,6 +2664,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_fz = FZ.Tavolozza(m) if piano.fortezze else None
         tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
         tav_is = ISO.Tavolozza(m) if piano.isole else None
+        tav_si = SI.Tavolozza(m) if piano.siti else None
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2820,6 +2851,12 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             if tav_is is not None:
                 ISO.posa(blocchi, tav_is, fetta(piano.h, sx, sz), ox, oz, -64, piano.isole,
                         _dal_chunk(piano.indice_isole, sx, sz), meta=meta)
+            if tav_si is not None:
+                tav_si.bauli.clear()
+                SI.posa(blocchi, tav_si, ox, oz, -64, piano.siti,
+                        _dal_chunk(piano.indice_siti, sx, sz), meta=meta)
+                dungeon_g.update({(x - meta, y, z - meta): tipo
+                                  for x, y, z, tipo in tav_si.bauli})
             if tav_cs is not None:
                 tav_cs.bauli.clear()
                 CS.posa(blocchi, tav_cs, fetta(piano.h, sx, sz), ox, oz, -64,
@@ -2918,6 +2955,12 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
     # Gli abitanti si scrivono ALLA FINE e da soli: `ScrittoreMondo` cancella
     # la cartella `entities/` a ogni chiusura, perche' amulet la scrive rotta.
     # Quella che mettiamo noi deve arrivare dopo l'ultima chiusura.
+    if getattr(op, "dimensioni", False):
+        from . import dimensioni as DM
+        st_dim = DM.scrivi(op)
+        fuori["dimensioni_md"] = st_dim.pop("md")
+        fuori["dimensioni"] = st_dim
+
     if piano.abitanti:
         from dataclasses import replace as _replace
 
@@ -2956,7 +2999,8 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
 
     if piano.luoghi:
         md, _ = LU.scrivi_elenco(piano.luoghi, op.uscita, op.nome if hasattr(op, "nome") else "",
-                                 extra_md=IC.sezione_elenco(piano.incarichi, piano.consegne) + CM.sezione_elenco(piano.commissioni))
+                                 extra_md=IC.sezione_elenco(piano.incarichi, piano.consegne) + CM.sezione_elenco(piano.commissioni)
+                                 + fuori.get("dimensioni_md", ""))
         fuori["luoghi"] = md
 
     fuori["level_dat"] = "valido" if not verifica(
