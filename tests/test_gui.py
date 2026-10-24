@@ -129,6 +129,21 @@ class TestFinestra(unittest.TestCase):
         clic(75, 225, Qt.RightButton)
         self.assertEqual(presi, [(0.5, 0.5, 1), (0.25, 0.75, 2)])
 
+    def test_il_sottosopra_si_accende_e_si_spegne(self):
+        o = self.f.opzioni()
+        self.assertFalse(o.sottosopra)                          # spento: il Nether disegnato da noi
+        self.assertTrue(o.dimensioni)
+        self.assertFalse(self.f.decadimento.isEnabled())
+        self.f.sottosopra.setChecked(True)
+        self.f.decadimento.setValue(70)
+        o = self.f.opzioni()
+        self.assertTrue(o.sottosopra)
+        self.assertAlmostEqual(o.decadimento, 0.7)
+        self.assertTrue(self.f.decadimento.isEnabled())
+        self.f.sottosopra.setChecked(False)
+        self.assertFalse(self.f.opzioni().sottosopra)
+        self.assertFalse(self.f.decadimento.isEnabled())
+
     def test_il_profilo_vuoto_e_None_non_stringa_vuota(self):
         """`Profilo.carica("")` esploderebbe: il motore si aspetta None."""
         self.f.percorso_profilo.setText("   ")

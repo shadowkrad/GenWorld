@@ -214,3 +214,61 @@ class TestCreature(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDecadimento(unittest.TestCase):
+    def mondo(self):
+        s = Finto()
+        muro = s.blocco("stone_bricks", variant="normal")
+        roccia = s.blocco("stone")
+        baule = s.blocco("chest", facing="north", connection="none", material="wood")
+        a = np.full((16, 48, 16), s.id_aria, np.uint32)
+        a[:, :20, :] = roccia
+        a[:, 20:30, :] = muro                              # un grande blocco di costruzione
+        a[8, 20, 8] = baule
+        return s, a, muro, roccia, baule
+
+    def test_senza_decadimento_resta_intero(self):
+        s, a, muro, roccia, baule = self.mondo()
+        intero = SP.Specchio(s, 0.0).specchia(a, 0, 3, 4)
+        mattoni = s.blocco("polished_blackstone_bricks")
+        self.assertEqual(int((intero == mattoni).sum()), 16 * 10 * 16 - 1)
+
+    def test_il_decadimento_toglie_pezzi_solo_alle_costruzioni(self):
+        s, a, muro, roccia, baule = self.mondo()
+        r = SP.Specchio(s, 1.0, seme=5).specchia(a, 0, 3, 4)
+        mattoni = s.blocco("polished_blackstone_bricks")
+        rimasti = int((r == mattoni).sum())
+        self.assertLess(rimasti, 16 * 10 * 16 - 100)            # ha perso molti pezzi
+        self.assertGreater(rimasti, 0)                           # ma non tutto
+        netherrack = s.blocco("netherrack")
+        self.assertTrue((r[:, :20, :] == netherrack).all())      # la roccia non si tocca
+        self.assertEqual(r[8, 20, 8], baule)                     # e nemmeno il forziere
+
+    def test_piu_decadimento_piu_perdita_ed_e_deterministico(self):
+        s, a, *_ = self.mondo()
+        mattoni = s.blocco("polished_blackstone_bricks")
+        poco = int((SP.Specchio(s, 0.2, 1).specchia(a, 0, 1, 1) == mattoni).sum())
+        molto = int((SP.Specchio(s, 0.9, 1).specchia(a, 0, 1, 1) == mattoni).sum())
+        self.assertGreater(poco, molto)
+        x = SP.Specchio(s, 0.6, 7).specchia(a, 0, 2, 2)
+        y = SP.Specchio(s, 0.6, 7).specchia(a, 0, 2, 2)
+        self.assertTrue((x == y).all())
+        z = SP.Specchio(s, 0.6, 7).specchia(a, 0, 9, 9)
+        self.assertFalse((x == z).all())                         # il posto cambia il risultato
+
+    def test_liane_solo_sotto_un_pezzo_di_costruzione(self):
+        s, a, *_ = self.mondo()
+        r = SP.Specchio(s, 1.0, 3).specchia(a, 0, 5, 5)
+        liana = s.blocco("weeping_vines", age="3")
+        mattoni = s.blocco("polished_blackstone_bricks")
+        pos = np.argwhere(r == liana)
+        self.assertGreater(len(pos), 0)
+        for x, y, z in pos:
+            self.assertEqual(int(r[x, y + 1, z]), mattoni)
+
+    def test_le_macchie_sono_continue_fra_chunk_vicini(self):
+        x = np.arange(0, 64, dtype=np.float32)[:, None, None]
+        z = np.zeros((1, 1, 1), np.float32)
+        m = SP._macchie(x, z, 3)[:, 0, 0]
+        self.assertLess(float(np.abs(np.diff(m)).max()), 0.1)

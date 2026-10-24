@@ -100,9 +100,12 @@ def main() -> None:
                     "rettangolo di interesse + campioni col contagocce")
     ap.add_argument("--vulcani", type=int, default=3, metavar="N",
                     help="quanti vulcani piazzare (0 = nessuno)")
-    ap.add_argument("--sottosopra", action="store_true",
+    ap.add_argument("--sottosopra", action=argparse.BooleanOptionalAction, default=False,
                     help="il Nether e' lo specchio dell'overworld: stessa geografia, materiali del "
-                         "Nether, lava al posto dell'acqua (scala 1:1, via datapack)")
+                         "Nether, lava al posto dell'acqua (scala 1:1, via datapack). "
+                         "--no-sottosopra (il predefinito): il Nether disegnato da noi, con fortezze e bastioni")
+    ap.add_argument("--decadimento", type=float, default=0.5, metavar="0..1",
+                    help="solo con --sottosopra: quanto sono in rovina le costruzioni (0 intatte)")
     ap.add_argument("--dem", default="", metavar="FILE.npz",
                     help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
     ap.add_argument("--solo-citta-reali", action="store_true",
@@ -211,7 +214,7 @@ def main() -> None:
         frc = DEM.frazioni_da_lonlat(d_, a.lato, [(c["lon"], c["lat"]) for c in cit])
         citta_reali = tuple((c["nome"], fx, fz, bool(c.get("grande"))) for (fx, fz), c in zip(frc, cit)
                             if 0 < fx < 1 and 0 < fz < 1)
-    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, sottosopra=a.sottosopra, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato,
+    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, sottosopra=a.sottosopra, decadimento=a.decadimento, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,

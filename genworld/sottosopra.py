@@ -228,6 +228,29 @@ def traduci(nome: str, props: dict, variante: int = 0) -> tuple[str, dict]:
 
 
 # --------------------------------------------------------------------------
+# Il decadimento
+# --------------------------------------------------------------------------
+
+# Cio' che ha costruito una persona e quindi, di la', e' in rovina. Si decide dal blocco di
+# partenza: un tronco di bosco o una roccia non sono costruzioni, un muro si'.
+COSTRUZIONI = {"stone_bricks", "bricks", "brick_block", "planks", "stairs", "slab", "fence",
+               "fence_gate", "wall", "door", "trapdoor", "glass", "glass_pane", "stained_glass",
+               "stained_glass_pane", "bars", "ladder", "carpet", "wool", "bed", "bookshelf",
+               "lantern", "torch", "wall_torch", "hay_block", "wall_banner", "banner"}
+# quanto di tutto cio' si perde al massimo, con decadimento 1.0
+PERDITA_MASSIMA = 0.55
+
+
+def _macchie(x: np.ndarray, z: np.ndarray, seme: int) -> np.ndarray:
+    """Un campo continuo in 0..1 con macchie larghe una trentina di blocchi: dove e' alto il
+    decadimento e' forte, dove e' basso un edificio resta quasi intero."""
+    ph = (seme * 0.001) % 6.283
+    n = (np.sin(x * 0.045 + ph) * np.cos(z * 0.052 - ph) + np.sin((x + z) * 0.031 + 2 * ph)
+         + 0.6 * np.sin(x * 0.11 - z * 0.09 + ph * 3)) / 2.6
+    return np.clip(0.5 + 0.5 * n, 0.0, 1.0).astype(np.float32)
+
+
+# --------------------------------------------------------------------------
 # Lo specchio dei blocchi di un mondo
 # --------------------------------------------------------------------------
 
@@ -237,12 +260,16 @@ class Specchio:
 
     VARIANTI = 2
 
-    def __init__(self, scrittore) -> None:
+    def __init__(self, scrittore, decadimento: float = 0.0, seme: int = 0) -> None:
         self.s = scrittore
+        self.decadimento = float(min(max(decadimento, 0.0), 1.0))
+        self.seme = int(seme)
         self._visti = 0
         self._fatti: set = set()
         self._lut = [np.zeros(0, np.uint32) for _ in range(self.VARIANTI)]
+        self._costr = np.zeros(0, bool)            # per id di partenza: e' una costruzione?
         self._biomi: dict = {}
+        self._vite = {}
 
     def _aggiorna(self) -> None:
         cache = self.s._cache_blocchi
@@ -260,8 +287,13 @@ class Specchio:
                     lut = np.arange(massimo, dtype=np.uint32)
                     lut[:len(self._lut[var])] = self._lut[var]
                     self._lut[var] = lut
+            if len(self._costr) < massimo:
+                nuova = np.zeros(massimo, bool)
+                nuova[:len(self._costr)] = self._costr
+                self._costr = nuova
             for (nome, props), idx in elementi:
                 self._fatti.add(idx)
+                self._costr[idx] = nome in COSTRUZIONI
                 for var in range(self.VARIANTI):
                     self._lut[var][idx] = self._id_traduzione(nome, dict(props), var)
             # id creati dalle traduzioni: la tabella deve poterli indicizzare
@@ -281,8 +313,9 @@ class Specchio:
             return self.s.blocco(nome, **{k: str(v) for k, v in props.items()})
         return self.s.blocco(n2, **valide)
 
-    def specchia(self, blocchi: np.ndarray, variante: int = 0) -> np.ndarray:
-        """Il chunk specchiato: stessi indici, blocchi del Sottosopra."""
+    def specchia(self, blocchi: np.ndarray, variante: int = 0, cx: int = 0, cz: int = 0) -> np.ndarray:
+        """Il chunk specchiato: stessi indici, blocchi del Sottosopra. `cx, cz`: il chunk, per il
+        decadimento (che dipende dal posto, non dall'ordine in cui si scrivono i chunk)."""
         self._aggiorna()
         lut = self._lut[variante & 1]
         massimo = int(blocchi.max()) + 1
@@ -290,7 +323,40 @@ class Specchio:
             self._visti = -1
             self._aggiorna()
             lut = self._lut[variante & 1]
-        return lut[blocchi]
+        fuori = lut[blocchi]
+        if self.decadimento > 0:
+            fuori = self._decadi(blocchi, fuori, cx, cz)
+        return fuori
+
+    def _decadi(self, sorgente: np.ndarray, fuori: np.ndarray, cx: int, cz: int) -> np.ndarray:
+        """Le costruzioni perdono pezzi: di piu' dove il campo a macchie e' alto e sui blocchi
+        scoperti (aria sopra); sotto i pezzi rimasti pendono a volte liane del Nether."""
+        costr = self._costr[sorgente]
+        if not costr.any():
+            return fuori
+        rng = np.random.default_rng((self.seme * 1000003 + cx * 7919 + cz * 104729) & 0x7FFFFFFF)
+        xs = (np.arange(16) + cx * 16)[:, None, None]
+        zs = (np.arange(16) + cz * 16)[None, None, :]
+        zona = _macchie(xs, zs, self.seme)                       # (16, 1, 16)
+        p = PERDITA_MASSIMA * self.decadimento * (0.15 + 0.85 * zona ** 1.5)
+        aria = self.s.id_aria
+        scoperto = np.zeros(fuori.shape, bool)
+        scoperto[:, :-1, :] = fuori[:, 1:, :] == aria
+        scoperto[:, -1, :] = True
+        p = np.broadcast_to(p, fuori.shape) * np.where(scoperto, 1.6, 0.55)
+        via = costr & (rng.random(fuori.shape, dtype=np.float32) < p)
+        fuori = fuori.copy()
+        fuori[via] = aria
+        # liane: sotto un pezzo di costruzione rimasto, con l'aria sotto
+        resta = costr & ~via
+        sotto_aria = np.zeros(fuori.shape, bool)
+        sotto_aria[:, 1:, :] = fuori[:, :-1, :] == aria
+        pendono = resta & sotto_aria & (rng.random(fuori.shape, dtype=np.float32) < 0.05 * self.decadimento)
+        if pendono.any():
+            liana = self.s.blocco("weeping_vines", age="3")
+            pos = np.nonzero(pendono)
+            fuori[pos[0], pos[1] - 1, pos[2]] = liana
+        return fuori
 
     def biomi(self, id_overworld: list, nomi_overworld: tuple) -> np.ndarray:
         """Tabella indice-di-bioma (in `biomi.BIOMI`) -> id di palette del bioma del Sottosopra."""

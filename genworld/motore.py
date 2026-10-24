@@ -173,6 +173,8 @@ class Opzioni:
     # Il Nether come specchio dell'overworld: stessa geografia, materiali del Nether, lava al posto
     # dell'acqua (vedi `sottosopra.py`). Con questo il Nether non e' piu' quello disegnato da `nether.py`.
     sottosopra: bool = False
+    # Quanto sono in rovina le costruzioni del Sottosopra: 0 intatte, 1 molto rovinate.
+    decadimento: float = 0.5
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -2757,7 +2759,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
         tav_is = ISO.Tavolozza(m) if piano.isole else None
         tav_si = SI.Tavolozza(m) if piano.siti else None
-        sp_specchio = SP.Specchio(m) if op.sottosopra else None
+        sp_specchio = SP.Specchio(m, op.decadimento, op.seed) if op.sottosopra else None
         sp_bio = (sp_specchio.biomi(None, B.BIOMI) if sp_specchio is not None and a.biomi is not None
                   else None)
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
@@ -3028,7 +3030,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
             if sp_specchio is not None:
                 # IL SOTTOSOPRA: gli stessi blocchi, con i materiali del Nether, nello stesso punto
-                blocchi_n = sp_specchio.specchia(blocchi, SP.variante_chunk(cx, cz))
+                blocchi_n = sp_specchio.specchia(blocchi, SP.variante_chunk(cx, cz), cx, cz)
                 bio_n = sp_bio[fetta(a.biomi, sx, sz)] if a.biomi is not None else None
                 be_n = [copy.deepcopy(b_) for b_ in (bauli_c or [])]
                 m.scrivi_chunk(cx, cz, blocchi_n, biomi=bio_n, bauli=be_n, dimensione=NETHER)

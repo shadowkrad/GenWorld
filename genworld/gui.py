@@ -608,6 +608,14 @@ class Finestra(QWidget):
         self.strade = QCheckBox("Strade e ponti")
         self.strade.setChecked(True)
         f.addRow(self.strade)
+        self.dimensioni = QCheckBox("Nether ed End (isole, cittadelle; senza Sottosopra anche fortezze)")
+        self.dimensioni.setChecked(True)
+        f.addRow(self.dimensioni)
+        self.sottosopra = QCheckBox("Sottosopra: il Nether come specchio (altrimenti, Nether con fortezze)")
+        f.addRow(self.sottosopra)
+        self.decadimento = self._cursore(f, "Rovina del Sottosopra", 0, 100, 50, suffisso="%")
+        self.decadimento.setEnabled(False)
+        self.sottosopra.toggled.connect(self.decadimento.setEnabled)
         v.addWidget(g)
 
         # Territorio ----------------------------------------------------
@@ -779,6 +787,9 @@ class Finestra(QWidget):
             fiumi=float(self.fiumi.value()),
             vulcani=int(self.vulcani.value()),
             vulcani_posizioni=tuple(self.vulcani_scelti),
+            dimensioni=self.dimensioni.isChecked(),
+            sottosopra=self.sottosopra.isChecked(),
+            decadimento=self.decadimento.value() / 100.0,
             templates=cartella_template,
             templates_cimitero=cartella_cimitero,
             templates_portale=cartella_portale,
