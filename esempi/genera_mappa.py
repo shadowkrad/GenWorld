@@ -102,6 +102,8 @@ def main() -> None:
                     help="quanti vulcani piazzare (0 = nessuno)")
     ap.add_argument("--dem", default="", metavar="FILE.npz",
                     help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
+    ap.add_argument("--solo-citta-reali", action="store_true",
+                    help="niente villaggi automatici: solo le citta' del file --luoghi-reali")
     ap.add_argument("--luoghi-reali", default="", metavar="FILE.json",
                     help="citta' e vulcani veri (lat/lon) da piazzare dove stanno; serve --dem")
     ap.add_argument("--vulcani-px", metavar="X,Y;X,Y", default="",
@@ -199,13 +201,14 @@ def main() -> None:
         fr = DEM.frazioni_da_lonlat(d_, a.lato, [(v["lon"], v["lat"]) for v in vul])
         vulcani_pos = tuple(
             (fx, fz, max(5, round(v["raggio_km"] * 1000 / passo_cella)), v["altezza"],
-             max(2, round(v.get("cratere_km", 1.0) * 1000 / passo_cella)))
+             max(2, round(v.get("cratere_km", 1.0) * 1000 / passo_cella)),
+             int(bool(v.get("spento", False))), int(bool(v.get("lago", False))))
             for (fx, fz), v in zip(fr, vul))
         cit = dati.get("citta", [])
         frc = DEM.frazioni_da_lonlat(d_, a.lato, [(c["lon"], c["lat"]) for c in cit])
         citta_reali = tuple((c["nome"], fx, fz, bool(c.get("grande"))) for (fx, fz), c in zip(frc, cit)
                             if 0 < fx < 1 and 0 < fz < 1)
-    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, citta_reali=citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato,
+    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,

@@ -23,8 +23,12 @@ PROFONDITA_MASSIMA = 56            # blocchi sotto il mare (fondo a y = 6)
 
 def carica(percorso: str) -> dict:
     d = np.load(percorso, allow_pickle=False)
-    return {"elev": d["elev"].astype(np.float32), "lago": d["lago"].astype(bool),
-            "x0": float(d["x0"]), "y1": float(d["y1"]), "passo": float(d["passo"])}
+    fuori = {"elev": d["elev"].astype(np.float32), "lago": d["lago"].astype(bool),
+             "x0": float(d["x0"]), "y1": float(d["y1"]), "passo": float(d["passo"])}
+    if "lat" in d.files:                       # latitudine a risoluzione ridotta (1 cella ogni `lat_sub`)
+        fuori["lat"] = d["lat"].astype(np.float32)
+        fuori["lat_sub"] = int(d["lat_sub"])
+    return fuori
 
 
 def _adatta(a: np.ndarray, lato: int, riempi, ordine: int) -> tuple[np.ndarray, int, int, float]:
@@ -49,6 +53,7 @@ def a_mondo(d: dict, lato: int) -> dict:
     lago = lago > 0
     passo = d["passo"] / f                                      # metri per cella
     terra = elev > 0.5
+    lat = _latitudine(d, elev.shape, f, oz, ox)
 
     # quote in blocchi: sopra il mare lineari, sotto compresse
     h = np.where(terra, LIVELLO_MARE + elev / METRI_PER_BLOCCO,
@@ -60,20 +65,39 @@ def a_mondo(d: dict, lato: int) -> dict:
     pend = np.hypot(gz, gx) / passo                              # metri su metro
     dal_mare = distance_transform_edt(terra)
 
+    # limite degli alberi e delle nevi: scendono andando a nord (Alpi a 46 N: 2200 e 2900 m;
+    # Scandinavia a 68 N: circa 500 e 1100 m; Islanda a 64 N: i ghiacciai stanno sopra i 1000 m)
+    alberi = np.clip(2200.0 - 80.0 * (lat - 44.0), 350.0, 2600.0)
+    nevi = np.clip(2900.0 - 90.0 * (lat - 44.0), 800.0, 3300.0)
+
     cls = np.full(elev.shape, M.OCEANO, np.uint8)
     cls[~terra & (elev > -200)] = M.MARE
     cls[terra] = M.PIANURA
     prateria = terra & (elev >= 200)
     cls[prateria] = M.PRATERIA
-    foresta = terra & (elev >= 450) & (pend > 0.07)
+    foresta = terra & (elev >= 450) & (pend > 0.07) & (elev < alberi)
     cls[foresta] = M.FORESTA
-    montagna = terra & ((elev >= 1700) | (pend > 0.45))
+    montagna = terra & ((elev >= np.minimum(1700.0, alberi + 100.0)) | (pend > 0.45))
     cls[montagna] = M.MONTAGNA
-    cls[terra & (elev >= 2800)] = M.NEVE
+    cls[terra & (elev >= nevi)] = M.NEVE
     spiaggia = terra & (elev < 4.0) & (dal_mare <= 3) & (pend < 0.05)
     cls[spiaggia] = M.SPIAGGIA
     return {"cls": cls, "h": np.round(h).astype(np.int32), "lago": lago,
             "elev": elev, "passo": passo, "oz": oz, "ox": ox, "fattore": f}
+
+
+def _latitudine(d: dict, forma: tuple, f: float, oz: int, ox: int) -> np.ndarray | float:
+    """Latitudine di ogni cella del mondo (costante 44 se il file non la contiene)."""
+    if "lat" not in d:
+        return 44.0
+    from scipy.ndimage import zoom
+    sub = d["lat_sub"]
+    ny, nx = d["elev"].shape
+    grezza = d["lat"]
+    # riporta la griglia ridotta alla dimensione del file e poi a quella del mondo
+    piena = zoom(grezza, (ny / grezza.shape[0], nx / grezza.shape[1]), order=1)[:ny, :nx]
+    mondo, _, _, _ = _adatta(piena.astype(np.float32), forma[0], 44.0, 1)
+    return mondo[:forma[0], :forma[1]]
 
 
 def applica_laghi(cls: np.ndarray, h: np.ndarray, livello: np.ndarray, base: dict):

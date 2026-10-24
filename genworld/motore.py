@@ -134,6 +134,8 @@ class Opzioni:
     dem: str = ""
     # Citta' vere: ((nome, fx, fz, grande), ...) in frazioni 0..1 del mondo; si piazzano li'.
     citta_reali: tuple = ()
+    # Con citta' vere: niente villaggi automatici, solo quelle (es. solo le capitali).
+    solo_citta_reali: bool = False
     alberi: float = 1.0
     villaggi: float = 1.0
     strade: bool = True
@@ -430,13 +432,14 @@ def _terreno(op: Opzioni, cls: np.ndarray, rug: np.ndarray, prof,
 
 def _vulcani(op: Opzioni, cls: np.ndarray, h: np.ndarray, note: list[str],
              avanza: Avanzamento):
-    """Coni, crateri, laghi di lava e colate. Ritorna (cls, h, lava, colata, q_lava)."""
+    """Coni, crateri, laghi di lava e colate. Ritorna (cls, h, lava, colata, q_lava, spenti)."""
     # VULCANI. Vanno prima dei fiumi: sono l'unico elemento che si SOVRAPPONE
     # al terreno invece di dedurlo, e il deflusso deve poter scendere dai loro
     # fianchi. Calcolarli dopo darebbe coni senza torrenti.
     lava = np.zeros(h.shape, bool)
     colata = np.zeros(h.shape, np.float32)
     q_lava = np.zeros(h.shape, np.float32)
+    spenti: list = []
     if op.vulcani > 0 or op.vulcani_posizioni:
         avanza(0.52, "vulcani")
         H_, W_ = cls.shape
@@ -446,14 +449,20 @@ def _vulcani(op: Opzioni, cls: np.ndarray, h: np.ndarray, note: list[str],
                              livello_mare=LIVELLO_MARE, seed=9, posizioni=scelte)
         if coni:
             cls, h, lava, q_lava = U.modella(cls, h, coni)
-            colata = U.colate(h, cls, coni)
-            st = U.statistiche(coni, cls, lava, colata)
-            note.append(f"vulcani: {st['vulcani']}, cono {st['cono']} celle, "
-                        f"cratere {st['cratere']}, lago di lava "
-                        f"{st['lago_di_lava']}, colate {st['colate']} "
-                        f"(di cui {st['colate_incandescenti']} incandescenti), "
-                        f"cima a quota {st['quota_massima']}")
-    return cls, h, lava, colata, q_lava
+            attivi = [v for v in coni if not v.spento]
+            if attivi:
+                colata = U.colate(h, cls, attivi)
+                st = U.statistiche(attivi, cls, lava, colata)
+                note.append(f"vulcani attivi: {st['vulcani']}, cono {st['cono']} celle, "
+                            f"cratere {st['cratere']}, lago di lava "
+                            f"{st['lago_di_lava']}, colate {st['colate']} "
+                            f"(di cui {st['colate_incandescenti']} incandescenti), "
+                            f"cima a quota {st['quota_massima']}")
+            if len(attivi) < len(coni):
+                note.append(f"vulcani spenti: {len(coni) - len(attivi)} "
+                            f"({sum(1 for v in coni if v.spento and v.lago)} con il lago nel cratere)")
+            spenti = [v for v in coni if v.spento]
+    return cls, h, lava, colata, q_lava, spenti
 
 
 def _fiumi(op: Opzioni, cls: np.ndarray, h: np.ndarray, lava: np.ndarray,
@@ -545,11 +554,13 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
     else:
         cls, rug, prof = _carica_e_classifica(op, note, avanza)
         h = _terreno(op, cls, rug, prof, note, avanza)
-    cls, h, lava, colata, q_lava = _vulcani(op, cls, h, note, avanza)
+    cls, h, lava, colata, q_lava, spenti = _vulcani(op, cls, h, note, avanza)
     cls, h, livello, marino = _fiumi(op, cls, h, lava, q_lava, note, avanza)
     cls, h, livello = _laghi(op, cls, h, livello, marino, note, avanza)
     if base_dem is not None:
         cls, h, livello = DEM.applica_laghi(cls, h, livello, base_dem)
+    if any(v.lago for v in spenti):
+        cls, h, livello = U.laghi_dei_crateri(cls, h, livello, spenti)
 
     # I biomi per ultimi: dipendono dalle classi, e i fiumi le cambiano.
     # Calcolati prima, un corso d'acqua sarebbe rimasto pianura.
@@ -1261,6 +1272,8 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     # CITTA' VERE (vedi `esempi/genera_mappa.py --luoghi-reali`): si piazzano per prime, nel
     # punto indicato; i villaggi automatici restano solo lontano da loro
     reali = []
+    if op.villaggi > 0 and op.citta_reali and op.solo_citta_reali:
+        siti = []                                  # niente villaggi automatici: solo quelli veri
     if op.villaggi > 0 and op.citta_reali:
         H_, W_ = a.cls.shape
         reali = [(int(fz * H_), int(fx * W_), 52 if grande else 30, nome)

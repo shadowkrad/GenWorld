@@ -34,6 +34,10 @@ class Vulcano:
     # Quota (in blocchi) della cima in un terreno che GIA' contiene il vulcano (quote reali,
     # vedi `dem.py`): il cono non si aggiunge, si scava solo il cratere sotto quella quota.
     reale: float | None = None
+    # VULCANO SPENTO: il cono e' coperto di vegetazione (la classe del terreno non cambia), il
+    # cratere e' un invaso senza lava ne' colate, a volte con un lago.
+    spento: bool = False
+    lago: bool = False
 
     @property
     def quota_orlo(self) -> float:
@@ -135,11 +139,37 @@ def _da_posizioni(cls, altezze, terra, posizioni, rng) -> list[Vulcano]:
         reale = None
         if len(p) > 3:                                # terreno vero: la cima e' gia' li'
             reale = float(altezze[max(0, z - rc):z + rc + 1, max(0, x - rc):x + rc + 1].max())
+        spento = len(p) > 5 and bool(p[5])
+        lago = len(p) > 6 and bool(p[6])
         fuori.append(Vulcano(
             z=z, x=x, raggio=raggio, altezza=alt,
-            raggio_cratere=rc, profondita_cratere=float(rng.integers(8, 15)) if len(p) <= 3 else 5.0,
-            quota_base=base, seme=int(rng.integers(0, 2 ** 31 - 1)), reale=reale))
+            raggio_cratere=rc,
+            profondita_cratere=(4.0 if spento else 5.0) if len(p) > 3 else float(rng.integers(8, 15)),
+            quota_base=base, seme=int(rng.integers(0, 2 ** 31 - 1)), reale=reale,
+            spento=spento, lago=lago))
     return fuori
+
+
+def laghi_dei_crateri(cls, h, livello, vulcani):
+    """I crateri spenti con un lago: l'acqua sta a un blocco sotto l'orlo, il fondo scende
+    verso il centro. Ritorna (cls, h, livello); da chiamare DOPO fiumi e laghi, che
+    ricalcolano `livello`."""
+    from .mappa import FIUME
+    zz, xx = np.ogrid[:cls.shape[0], :cls.shape[1]]
+    cls = cls.copy()
+    h = h.copy()
+    livello = livello.copy()
+    for v in vulcani:
+        if not (v.spento and v.lago):
+            continue
+        d = np.sqrt((zz - v.z) ** 2 + (xx - v.x) ** 2)
+        dentro = d <= max(v.raggio_cratere - 0.5, 1.5)
+        pelo = float(np.round(v.quota_orlo - 1.5))
+        fondo = pelo - 1.0 - 4.0 * (1.0 - np.clip(d / max(v.raggio_cratere, 1), 0.0, 1.0))
+        cls[dentro] = FIUME
+        h = np.where(dentro, np.round(fondo), h).astype(h.dtype)
+        livello = np.where(dentro, pelo, livello).astype(np.float32)
+    return cls, h, livello
 
 
 def modella(
@@ -238,12 +268,14 @@ def modella(
             tc = np.clip(d / max(v.raggio_cratere, 1), 0.0, 1.0)
             fondo = v.quota_orlo - v.profondita_cratere * (1.0 - tc ** 2)
             h = np.where(in_cratere, fondo, h)
-            lago = in_cratere & (fondo < v.quota_lava)
-            lava |= lago
-            q_lava = np.where(lago, np.maximum(q_lava, v.quota_lava), q_lava)
+            if not v.spento:                       # un vulcano spento non ha lava
+                lago = in_cratere & (fondo < v.quota_lava)
+                lava |= lago
+                q_lava = np.where(lago, np.maximum(q_lava, v.quota_lava), q_lava)
 
-        c = np.where(dentro & ~np.isin(c, ACQUA), np.uint8(VULCANO), c)
-        c = np.where(in_cratere, np.uint8(CRATERE), c)
+        if not v.spento:
+            c = np.where(dentro & ~np.isin(c, ACQUA), np.uint8(VULCANO), c)
+            c = np.where(in_cratere, np.uint8(CRATERE), c)
 
     h_int = np.round(h).astype(np.int32)
     return c, h_int, lava, q_lava

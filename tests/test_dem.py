@@ -102,6 +102,65 @@ class TestVulcanoReale(unittest.TestCase):
         self.assertIsNone(v[0].reale)
 
 
+class TestVulcanoSpento(unittest.TestCase):
+    def terreno(self):
+        h = np.full((200, 200), 70, np.int32)
+        h[90:110, 90:110] = 150
+        cls = np.full(h.shape, M.FORESTA, np.uint8)
+        return cls, h
+
+    def test_niente_lava_ne_classe_vulcano_ma_il_cratere_c_e(self):
+        cls, h = self.terreno()
+        v = V.scegli_siti(cls, h, posizioni=[(100, 100, 30, 4, 4, 1, 0)])
+        self.assertTrue(v[0].spento)
+        self.assertFalse(v[0].lago)
+        c2, h2, lava, q = V.modella(cls, h, v)
+        self.assertFalse(lava.any())
+        self.assertFalse((c2 == M.VULCANO).any())
+        self.assertTrue((c2 == M.FORESTA).all())                # il bosco resta
+        self.assertLess(int(h2[100, 100]), 150)                  # il cratere e' un invaso
+        self.assertEqual(int(h2[100, 125]), 70)
+
+    def test_il_vulcano_attivo_resta_attivo(self):
+        cls, h = self.terreno()
+        v = V.scegli_siti(cls, h, posizioni=[(100, 100, 30, 4, 4, 0, 0)])
+        self.assertFalse(v[0].spento)
+        c2, h2, lava, q = V.modella(cls, h, v)
+        self.assertTrue(lava.any())
+        self.assertTrue((c2 == M.VULCANO).any())
+
+    def test_lago_nel_cratere(self):
+        cls, h = self.terreno()
+        v = V.scegli_siti(cls, h, posizioni=[(100, 100, 30, 4, 5, 1, 1)])
+        c2, h2, lava, q = V.modella(cls, h, v)
+        livello = np.full(h.shape, 62.0, np.float32)
+        c3, h3, liv3 = V.laghi_dei_crateri(c2, h2, livello, v)
+        lago = c3 == M.FIUME
+        self.assertTrue(lago.any())
+        self.assertTrue(lago[100, 100])
+        pelo = np.unique(liv3[lago])
+        self.assertEqual(len(pelo), 1)
+        self.assertLess(float(pelo[0]), 150)                     # sotto l'orlo
+        self.assertTrue((h3[lago] < liv3[lago]).all())           # il fondo sta sotto il pelo
+        # un vulcano spento senza lago non cambia niente
+        v2 = V.scegli_siti(cls, h, posizioni=[(100, 100, 30, 4, 5, 1, 0)])
+        c4, h4, l4 = V.laghi_dei_crateri(c2, h2, livello, v2)
+        self.assertTrue((c4 == c2).all())
+
+
+class TestLatitudine(unittest.TestCase):
+    def test_il_limite_delle_nevi_scende_andando_a_nord(self):
+        e = np.full((40, 40), 1500.0, np.float32)
+        e[:, :5] = -100.0
+        lat = np.tile(np.linspace(40, 70, 40, dtype=np.float32)[:, None], (1, 40))
+        g = {"elev": e, "lago": np.zeros(e.shape, bool), "x0": 0.0, "y1": 0.0, "passo": 1000.0,
+             "lat": lat[::2, ::2][:20, :20].copy(), "lat_sub": 2}
+        r = DEM.a_mondo(g, 40)
+        c = r["cls"]
+        self.assertNotEqual(c[2, 20], M.NEVE)                   # a 40 N 1500 m non e' neve
+        self.assertEqual(c[38, 20], M.NEVE)                     # a 70 N si'
+
+
 class TestLonLat(unittest.TestCase):
     def test_frazioni_da_lonlat(self):
         try:

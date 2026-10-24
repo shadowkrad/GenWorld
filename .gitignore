@@ -71,3 +71,8 @@ templates/fari/*
 templates/_compilati/
 !templates/*/.gitkeep
 !templates/*/LEGGIMI.md
+input/dati_italia/
+input/italia_dem.npz
+input/dati_europa/
+input/europa_dem.npz
+input/prova_dem.npz
