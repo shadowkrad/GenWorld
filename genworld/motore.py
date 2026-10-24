@@ -3032,7 +3032,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 # IL SOTTOSOPRA: gli stessi blocchi, con i materiali del Nether, nello stesso punto
                 blocchi_n = sp_specchio.specchia(blocchi, SP.variante_chunk(cx, cz), cx, cz)
                 bio_n = sp_bio[fetta(a.biomi, sx, sz)] if a.biomi is not None else None
-                be_n = [copy.deepcopy(b_) for b_ in (bauli_c or [])]
+                be_n = [SP.specchia_be(copy.deepcopy(b_)) for b_ in (bauli_c or [])]
                 m.scrivi_chunk(cx, cz, blocchi_n, biomi=bio_n, bauli=be_n, dimensione=NETHER)
             scritti += 1
             if i % 25 == 0 or i == n - 1:

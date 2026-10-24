@@ -17,8 +17,10 @@ sconosciuti passano senza danni.
 from __future__ import annotations
 
 import copy
+import dataclasses
 import json
 import os
+import shutil
 
 import numpy as np
 
@@ -75,6 +77,14 @@ def scrivi_datapack(percorso_mondo: str) -> str:
         json.dump(PACK_MCMETA, f, indent=2)
     with open(os.path.join(tipo, "the_nether.json"), "w", encoding="utf-8") as f:
         json.dump(DIMENSIONE_NETHER, f, indent=2)
+    # i cinque biomi del Nether con nebbia scura e cenere nell'aria (copie di quelli del gioco 26.2)
+    sorgente = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dati", "sottosopra_biomi")
+    if os.path.isdir(sorgente):
+        dest = os.path.join(base, "data", "minecraft", "worldgen", "biome")
+        os.makedirs(dest, exist_ok=True)
+        for nome in os.listdir(sorgente):
+            if nome.endswith(".json"):
+                shutil.copyfile(os.path.join(sorgente, nome), os.path.join(dest, nome))
     return base
 
 
@@ -396,6 +406,38 @@ GREGGE = {"mucca", "pecora", "gallina", "maiale", "capra", "lama", "asino", "cav
           "lama_mercante", "mercante", "pappagallo"}
 
 
+# I mostri del Sottosopra: i non-morti diventano quelli del Nether, i banditi diventano piglin.
+SPECIE_MOSTRI = {"zombie": "zombi_piglin", "husk": "zombi_piglin", "scheletro": "scheletro_nero",
+                 "predone": "piglin", "vindicatore": "piglin_bruto"}
+MOB_SPAWNER = {"minecraft:zombie": "minecraft:zombified_piglin", "minecraft:husk": "minecraft:zombified_piglin",
+               "minecraft:skeleton": "minecraft:wither_skeleton", "minecraft:stray": "minecraft:wither_skeleton",
+               "minecraft:pillager": "minecraft:piglin_brute", "minecraft:vindicator": "minecraft:piglin_brute"}
+
+
+def specchia_be(be):
+    """Lo spawner di un `BlockEntity` specchiato genera i mostri del Sottosopra. Tutto il resto
+    (forzieri, cartelli) resta com'e'. Modifica e ritorna `be` (una COPIA: vedi `motore`)."""
+    try:
+        utags = be.nbt.compound.get("utags")
+        if utags is None:
+            return be
+        voci = []
+        if "SpawnData" in utags:
+            voci.append(utags["SpawnData"])
+        if "SpawnPotentials" in utags:
+            voci += [p["data"] for p in utags["SpawnPotentials"] if "data" in p]
+        from amulet_nbt import StringTag
+        for v in voci:
+            ent = v["entity"] if "entity" in v else v
+            if "id" in ent:
+                nuovo = MOB_SPAWNER.get(str(ent["id"]))
+                if nuovo:
+                    ent["id"] = StringTag(nuovo)
+    except Exception:                          # un blocco che non si capisce resta com'e'
+        pass
+    return be
+
+
 def specchia_creature(creature: list) -> list:
     """Le creature del Sottosopra: gli abitanti e gli animali diventano piglin e hoglin; i
     mostri restano. Chi viveva in acqua sparisce (li' c'e' lava)."""
@@ -417,6 +459,8 @@ def specchia_creature(creature: list) -> list:
                                          seme=(c.seme * 31 + 7) & 0x7FFFFFFF))
             else:
                 fuori.append(copy.copy(c))
+        elif isinstance(c, Combattente) and c.specie in SPECIE_MOSTRI:
+            fuori.append(dataclasses.replace(c, specie=SPECIE_MOSTRI[c.specie]))
         else:
             fuori.append(copy.copy(c))
     return fuori

@@ -39,7 +39,7 @@ SPECIE = {"zombie": "zombie", "scheletro": "skeleton", "vindicatore": "vindicato
 MAGHI = ("evocatore", "strega")
 # creature del Nether e dell'End (vedi `dimensioni.py`)
 SPECIE.update({"piglin": "piglin", "piglin_bruto": "piglin_brute", "blaze": "blaze",
-               "hoglin": "hoglin", "cubo_magma": "magma_cube", "ghast": "ghast",
+               "hoglin": "hoglin", "zombi_piglin": "zombified_piglin", "cubo_magma": "magma_cube", "ghast": "ghast",
                "enderman": "enderman", "shulker": "shulker",
                "devastatore": "ravager", "guardiano": "guardian",
                "guardiano_anziano": "elder_guardian"})
@@ -201,6 +201,7 @@ ARMA = {
     "scheletro_nero": ("stone_sword", "diamond_sword"),
     "predone": ("crossbow", "crossbow"),
     "piglin_bruto": ("golden_axe", "diamond_axe"),
+    "zombi_piglin": ("golden_sword", "diamond_sword"),
 }
 
 

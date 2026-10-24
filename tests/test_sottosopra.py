@@ -206,7 +206,7 @@ class TestCreature(unittest.TestCase):
                  Animale(x=4.0, y=70.0, z=5.0, specie="gallina", seme=6),
                  Combattente(x=5.0, y=70.0, z=6.0, specie="zombie", seme=7)]
         r = SP.specchia_creature(lista)
-        self.assertEqual([c.specie for c in r], ["piglin", "hoglin", "piglin", "zombie"])
+        self.assertEqual([c.specie for c in r], ["piglin", "hoglin", "piglin", "zombi_piglin"])
         for c in r:
             self.assertTrue(str(c.nbt_tag()["id"]).startswith("minecraft:"))
         self.assertEqual(len({(c.x, c.z) for c in r}), 4)
@@ -272,3 +272,61 @@ class TestDecadimento(unittest.TestCase):
         z = np.zeros((1, 1, 1), np.float32)
         m = SP._macchie(x, z, 3)[:, 0, 0]
         self.assertLess(float(np.abs(np.diff(m)).max()), 0.1)
+
+
+class TestAtmosferaEMostri(unittest.TestCase):
+    def test_il_datapack_ha_i_cinque_biomi_scuri_con_cenere(self):
+        with tempfile.TemporaryDirectory() as d:
+            base = SP.scrivi_datapack(d)
+            cartella = os.path.join(base, "data", "minecraft", "worldgen", "biome")
+            nomi = sorted(os.listdir(cartella))
+            self.assertEqual(nomi, ["basalt_deltas.json", "crimson_forest.json", "nether_wastes.json",
+                                    "soul_sand_valley.json", "warped_forest.json"])
+            for n in nomi:
+                b = json.load(open(os.path.join(cartella, n), encoding="utf-8"))
+                a = b["attributes"]
+                self.assertTrue(a["minecraft:visual/fog_color"].startswith("#"))
+                particelle = {p["particle"]["type"] for p in a["minecraft:visual/ambient_particles"]}
+                self.assertIn("minecraft:ash", particelle)
+                self.assertIn("features", b)                      # il resto del bioma e' quello del gioco
+
+    def test_amulet_carica_il_mondo_con_i_biomi_sovrascritti(self):
+        import amulet
+        from genworld.livello_dat import ImpostazioniMondo
+        from genworld.mondo import ScrittoreMondo
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "w")
+            with ScrittoreMondo(p, ImpostazioniMondo(nome="T", versione=(26, 2, 0), sottosopra=True),
+                                lato_blocchi=64, crea=True):
+                pass
+            lv = amulet.load_level(p)
+            lv.close()
+
+    def test_i_mostri_diventano_quelli_del_nether(self):
+        from genworld.torri import Combattente
+        lista = [Combattente(x=1.0, y=70.0, z=1.0, specie="zombie", seme=1),
+                 Combattente(x=2.0, y=70.0, z=2.0, specie="scheletro", seme=2),
+                 Combattente(x=3.0, y=70.0, z=3.0, specie="predone", seme=3),
+                 Combattente(x=4.0, y=70.0, z=4.0, specie="zombie", capo=True, nome="Boss", livello=1, seme=4),
+                 Combattente(x=5.0, y=70.0, z=5.0, specie="ragno", seme=5)]
+        r = SP.specchia_creature(lista)
+        self.assertEqual([c.specie for c in r], ["zombi_piglin", "scheletro_nero", "piglin", "zombi_piglin", "ragno"])
+        capo = r[3]
+        self.assertTrue(capo.capo and capo.nome == "Boss")
+        n = capo.nbt_tag()
+        self.assertEqual(str(n["id"]), "minecraft:zombified_piglin")
+        self.assertEqual(str(n["CustomName"]), "Boss")
+        self.assertIn("mainhand", n["equipment"])
+        self.assertEqual(lista[0].specie, "zombie")                 # l'originale non cambia
+
+    def test_lo_spawner_genera_i_mostri_del_nether(self):
+        from genworld.dungeon import be_spawner
+        be = be_spawner(10, 20, 30, "zombie", misto=True)
+        copia = SP.specchia_be(__import__("copy").deepcopy(be))
+        utags = copia.nbt.compound["utags"]
+        self.assertEqual(str(utags["SpawnData"]["entity"]["id"]), "minecraft:zombified_piglin")
+        ids = [str(p["data"]["entity"]["id"]) for p in utags["SpawnPotentials"]]
+        self.assertNotIn("minecraft:zombie", ids)
+        self.assertNotIn("minecraft:skeleton", ids)
+        # l'originale resta com'era
+        self.assertEqual(str(be.nbt.compound["utags"]["SpawnData"]["entity"]["id"]), "minecraft:zombie")
