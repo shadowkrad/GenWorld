@@ -55,7 +55,8 @@ def scrivi(op) -> dict:
     from .mondo import ScrittoreMondo
 
     imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
-                            versione=op.versione, seed=op.seed, fuori_mappa=op.fuori_mappa)
+                            versione=op.versione, seed=op.seed, fuori_mappa=op.fuori_mappa,
+                            sottosopra=getattr(op, 'sottosopra', False))
     pn = NE.pianifica(op.lato, seed=op.seed)
     pe = FINE.pianifica(op.lato, seed=op.seed)
     guardie_n: list = []
@@ -71,7 +72,7 @@ def scrivi(op) -> dict:
         te = FINE.Tavolozza(m)
         id_n = [m.bioma(b) for b in NE.BIOMI]
         id_e = m.bioma("the_end")
-        for cx, cz in m.chunk_coords():
+        for cx, cz in ([] if getattr(op, "sottosopra", False) else m.chunk_coords()):
             blocchi, biomi, spawner, forzieri = NE.blocchi_chunk(pn, tn, cx, cz, id_n)
             ox, oz = cx * 16, cz * 16
             be = BA.trova(blocchi, tn.bauli, ox, oz, 0, seed=op.seed, dungeon=forzieri)
@@ -92,7 +93,8 @@ def scrivi(op) -> dict:
             scritti_e += 1
 
     dv = imp.data_version
-    EN.scrivi_regioni(op.uscita, creature_n, dv, dimensione="the_nether")
+    if not getattr(op, "sottosopra", False):
+        EN.scrivi_regioni(op.uscita, creature_n, dv, dimensione="the_nether")
     EN.scrivi_regioni(op.uscita, creature_e, dv, dimensione="the_end")
     return {"nether_chunk": scritti_n, "end_chunk": scritti_e,
             "nether_strutture": len(pn.strutture), "end_isole": len(pe.isole),

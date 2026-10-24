@@ -15,6 +15,7 @@ vegetazione, e tutto prima di scrivere un solo chunk.
 
 from __future__ import annotations
 
+import copy
 import os
 import time
 from dataclasses import dataclass, field, replace
@@ -43,6 +44,7 @@ from . import entita as EN
 from . import incarichi as IC
 from . import isole as ISO
 from . import siti as SI
+from . import sottosopra as SP
 from . import fortezze as FZ
 from . import luoghi as LU
 from . import mappe as MP
@@ -71,6 +73,7 @@ from .profilo import Profilo, maschera_decoro
 from .rumore import dettaglio, quantizza
 
 LIVELLO_MARE = 62
+NETHER = "minecraft:the_nether"          # la dimensione dello specchio (vedi `sottosopra.py`)
 # Fin dove si scrivono i blocchi: l'albero di una nave da 170 blocchi arriva
 # oltre quota 220, e una cima tagliata si vede.
 ALTEZZA_MONDO = 256
@@ -167,6 +170,9 @@ class Opzioni:
     dimensioni: bool = False
     # Luoghi da scoprire (capanne di streghe, rovine sommerse, labirinti...): vedi `siti.py`.
     siti: float = 1.0
+    # Il Nether come specchio dell'overworld: stessa geografia, materiali del Nether, lava al posto
+    # dell'acqua (vedi `sottosopra.py`). Con questo il Nether non e' piu' quello disegnato da `nether.py`.
+    sottosopra: bool = False
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -2734,7 +2740,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         a = replace(a, cls=piano.cls, livello=piano.livello)
     imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
                             versione=op.versione, seed=op.seed,
-                            fuori_mappa=op.fuori_mappa)
+                            fuori_mappa=op.fuori_mappa,
+                            sottosopra=getattr(op, 'sottosopra', False))
     os.makedirs(os.path.dirname(os.path.abspath(op.uscita)) or ".", exist_ok=True)
     primo = da == 0
     t0 = time.time()
@@ -2750,6 +2757,9 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
         tav_is = ISO.Tavolozza(m) if piano.isole else None
         tav_si = SI.Tavolozza(m) if piano.siti else None
+        sp_specchio = SP.Specchio(m) if op.sottosopra else None
+        sp_bio = (sp_specchio.biomi(None, B.BIOMI) if sp_specchio is not None and a.biomi is not None
+                  else None)
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -3016,6 +3026,12 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 if spawner:
                     bauli_c = (bauli_c or []) + spawner
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
+            if sp_specchio is not None:
+                # IL SOTTOSOPRA: gli stessi blocchi, con i materiali del Nether, nello stesso punto
+                blocchi_n = sp_specchio.specchia(blocchi, SP.variante_chunk(cx, cz))
+                bio_n = sp_bio[fetta(a.biomi, sx, sz)] if a.biomi is not None else None
+                be_n = [copy.deepcopy(b_) for b_ in (bauli_c or [])]
+                m.scrivi_chunk(cx, cz, blocchi_n, biomi=bio_n, bauli=be_n, dimensione=NETHER)
             scritti += 1
             if i % 25 == 0 or i == n - 1:
                 avanza((i + 1) / n, f"chunk {da + i + 1} di {len(tutti)}")
@@ -3064,6 +3080,10 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
         # se e' nata in un muro o sotto terra (vedi `sicurezza.py`).
         in_gioco, sicure = SIC.rendi_sicure(op.uscita, in_gioco)
         fuori["creature_spostate"] = sicure
+        if op.sottosopra:                           # le creature dello specchio (vedi `sottosopra.py`)
+            from .livello_dat import ImpostazioniMondo as _Imp2
+            EN.scrivi_regioni(op.uscita, SP.specchia_creature(in_gioco),
+                              _Imp2(versione=op.versione).data_version, dimensione="the_nether")
         # `_Imp()` da solo darebbe sempre il DataVersion di 1.21.4 di
         # default, non quello scelto in `op.versione` - level.dat e le
         # entita' finirebbero con due DataVersion diversi.

@@ -77,6 +77,8 @@ class ImpostazioniMondo:
     comandi: bool = True
     spawn: tuple[int, int, int] = (0, 80, 0)
     gamerule: dict[str, str] = field(default_factory=lambda: dict(GAMERULE_DEFAULT))
+    # il Nether come specchio dell'overworld (vedi `sottosopra.py`): serve il datapack
+    sottosopra: bool = False
 
     @property
     def data_version(self) -> int:
@@ -167,7 +169,7 @@ def costruisci(imp: ImpostazioniMondo) -> NamedTag:
         "initialized": ByteTag(1),
         "WasModded": ByteTag(0),
         "DataPacks": CompoundTag({
-            "Enabled": ListTag([StringTag("vanilla")]),
+            "Enabled": ListTag([StringTag("vanilla")] + ([StringTag("file/sottosopra")] if imp.sottosopra else [])),
             "Disabled": ListTag([]),
         }),
 

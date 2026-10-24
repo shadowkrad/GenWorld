@@ -82,7 +82,8 @@ def unisci(op, cartelle: list[str]) -> int:
     from .mondo import ScrittoreMondo
     imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
                             versione=op.versione, seed=op.seed,
-                            fuori_mappa=op.fuori_mappa)
+                            fuori_mappa=op.fuori_mappa,
+                            sottosopra=getattr(op, 'sottosopra', False))
     with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, crea=True):
         pass
     spostati = 0
