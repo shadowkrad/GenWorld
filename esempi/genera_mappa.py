@@ -111,6 +111,10 @@ def main() -> None:
                     help="solo con --sottosopra: quanto sono in rovina le costruzioni (0 intatte)")
     ap.add_argument("--dem", default="", metavar="FILE.npz",
                     help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
+    ap.add_argument("--ripara-da", metavar="LOG", default="",
+                    help="RIPARA un mondo gia' scritto: rigenera i chunk che il log dice di non aver "
+                         "potuto salvare ('Error saving chunk Chunk(cx, cz, ...', di solito per memoria "
+                         "esaurita) senza toccare gli altri. Serve --cache-piano e le stesse opzioni")
     ap.add_argument("--accetta-piano-vecchio", action="store_true",
                     help="riusa il piano in cache anche se il codice e' cambiato dopo averlo calcolato "
                          "(solo se sai che non e' cambiato nulla che lo riguardi: serve a non rifare "
@@ -276,6 +280,20 @@ def main() -> None:
     if primo:
         for n in piano.note:
             print(n)
+
+    if a.ripara_da:
+        from genworld.motore import carica_modelli, mappe_globali
+        from genworld.parallelo import chiavi_da_log, coordinate_chunk
+        coords = chiavi_da_log(open(a.ripara_da, encoding="utf-8", errors="replace").read())
+        indice = {c: k for k, c in enumerate(coordinate_chunk(op.lato, op.alt))}
+        ks = sorted(indice[c] for c in coords if c in indice)
+        print(f"chunk da riparare: {len(ks)}")
+        if ks:
+            pre = carica_modelli(op, piano)
+            pre["mappe"] = mappe_globali(op, analisi, piano)
+            st = scrivi(op, analisi, piano, da=1, indici=ks, lavoratore=True, precaricati=pre)
+            print(f"riparati {st['chunk']} chunk")
+        return
 
     quanti = a.chunk_per_lotto
     if a.processi != 1 and not quanti:

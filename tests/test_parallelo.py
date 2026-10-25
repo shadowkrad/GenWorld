@@ -133,3 +133,41 @@ class TestArrayCondivisi(unittest.TestCase):
             self.assertEqual(r[1], "x")
             self.assertFalse(r[0].grande.flags.writeable)          # sola lettura: niente memoria impegnata in piu'
             del r
+
+
+class TestRiparazione(unittest.TestCase):
+    def test_le_coordinate_dei_chunk_non_salvati_si_leggono_dal_log(self):
+        testo = ("INFO - boh\nERROR - Error saving chunk Chunk(-405, -512, UnboundedPartial3DArray(dtype=x), "
+                 "EntityList([]))\nERROR - Error saving chunk Chunk(7, 3, Unb)\n"
+                 "ERROR - Error saving chunk Chunk(7, 3, Unb)\nERROR - altro Chunk(1, 2, x)")
+        self.assertEqual(PA.chiavi_da_log(testo), [(-405, -512), (7, 3)])
+
+
+class TestRiparazioneMondo(unittest.TestCase):
+    def test_i_chunk_mancanti_si_rifanno_uguali_a_quelli_di_un_mondo_intero(self):
+        with tempfile.TemporaryDirectory() as d:
+            img = mappa_finta(os.path.join(d, "isola.png"), 256)
+            base = dict(immagine=img, lato=256, vulcani=0, alberi=0.3, villaggi=1.0, strade=True,
+                        caverne=1.0, miniere=1.0, accampamenti=4.0, cimiteri=4.0)
+            op_r = Opzioni(uscita=os.path.join(d, "intero"), **base)
+            op_p = Opzioni(uscita=os.path.join(d, "riparato"), **base)
+            a = analizza(op_r)
+            piano = pianifica(op_r, a)
+            scrivi(op_r, a, piano)
+            tutti = PA.coordinate_chunk(256)
+            mancanti = [3, 17, 200]
+            resto = [k for k in range(len(tutti)) if k not in mancanti]
+            scrivi(op_p, a, piano, da=0, indici=resto, lavoratore=True)
+            self.assertEqual(len(_chunk_come_testo(op_p.uscita)), len(tutti) - 3)
+            from genworld.motore import mappe_globali
+            st = scrivi(op_p, a, piano, da=1, indici=mancanti, lavoratore=True,
+                        precaricati={**__import__("genworld.motore", fromlist=["carica_modelli"])
+                                     .carica_modelli(op_p, piano), "mappe": mappe_globali(op_p, a, piano)})
+            self.assertEqual(st["chunk"], 3)
+            r = _chunk_come_testo(op_r.uscita)
+            p = _chunk_come_testo(op_p.uscita)
+            self.assertEqual(sorted(r), sorted(p))
+            for k in mancanti:
+                coord = tutti[k]
+                for (c1, b1), (c2, b2) in zip(r[coord][0], p[coord][0]):
+                    self.assertTrue((b1 == b2).all(), f"blocchi diversi nel chunk riparato {coord}")

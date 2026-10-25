@@ -113,6 +113,15 @@ def coordinate_chunk(lato: int, altezza: int | None = None) -> list[tuple[int, i
             for cz in range(-meta, -meta + (altezza or lato) // 16)]
 
 
+def chiavi_da_log(testo: str) -> list[tuple[int, int]]:
+    """Le coordinate dei chunk che amulet non ha potuto salvare, dal log ("Error saving chunk
+    Chunk(cx, cz, ..."). Succede se la memoria si esaurisce nel salvataggio: il chunk manca e il
+    gioco lo rigenera a modo suo, quindi va rifatto (vedi `genera_mappa.py --ripara-da`)."""
+    import re
+    return sorted({(int(x), int(z)) for x, z in
+                   re.findall(r"Error saving chunk Chunk\((-?\d+), (-?\d+),", testo)})
+
+
 def ripartisci(coords: list[tuple[int, int]], compiti: int) -> list[list[int]]:
     """Divide gli indici dei chunk in al piu' `compiti` gruppi, ognuno fatto di
     regioni intere (carico bilanciato: le regioni piu' piene per prime)."""
