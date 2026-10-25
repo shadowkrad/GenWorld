@@ -243,6 +243,14 @@ def main() -> None:
 
     t0 = time.time()
     primo = a.lotto == 0
+    if a.accetta_piano_vecchio and os.path.exists(op.cache):
+        # stessa idea per l'analisi in cache: si rifirma con la firma attuale delle opzioni
+        import numpy as _np
+        with _np.load(op.cache, allow_pickle=False) as z_:
+            contenuto = {k_: z_[k_] for k_ in z_.files}
+        contenuto["firma"] = _np.array([str(x_) for x_ in op.firma_analisi()])
+        _np.savez_compressed(op.cache, **contenuto)
+        print("analisi in cache riconosciuta con la firma attuale")
     analisi = analizza(op)
     if primo:
         for n in analisi.note:

@@ -177,7 +177,7 @@ def unisci(op, cartelle: list[str]) -> int:
 def scrivi_parallelo(op, a, piano, processi: int = 0, avanza=None, ferma=None) -> dict:
     """Come `motore.scrivi()` per tutto il mondo, con `processi` processi
     (0 = tanti quanti i core, al massimo 8). Ritorna lo stesso dizionario."""
-    from .motore import _nulla, carica_modelli, scrivi
+    from .motore import _nulla, carica_modelli, mappe_globali, scrivi
     avanza = avanza or _nulla
     n = processi or min(8, os.cpu_count() or 1)
     coords = coordinate_chunk(op.lato, op.alt)
@@ -196,6 +196,8 @@ def scrivi_parallelo(op, a, piano, processi: int = 0, avanza=None, ferma=None) -
         # (i fari si leggono da un mondo) a volte uscivano vuoti, e gli indici
         # dei modelli del piano non coincidevano piu'
         precaricati = carica_modelli(op, piano)
+        # le mappe di tutto il mondo si calcolano qui, UNA volta, e i lavoratori le mappano
+        precaricati["mappe"] = mappe_globali(op, a, piano)
         dati = os.path.join(base, "dati.pkl")
         pacchetto = su_disco((op, a, piano, precaricati), base)
         with open(dati, "wb") as f:

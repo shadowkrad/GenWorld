@@ -2724,6 +2724,51 @@ def carica_modelli(op: Opzioni, piano: Piano) -> dict:
     }
 
 
+def mappe_globali(op: Opzioni, a: Analisi, piano: Piano) -> dict:
+    """Le mappe dell'INTERO mondo che `scrivi()` consulta chunk per chunk: pendenza, clima, parete
+    nuda, neve, sponde, cascate, manto e piede dei vulcani. Costano una passata su tutto il mondo:
+    con piu' lavoratori vanno calcolate UNA volta (qui, nel processo principale) e passate come
+    array mappati (vedi `parallelo.py`); un lavoratore che le rifacesse da solo, su un mondo di
+    cento milioni di celle, ci metterebbe ore e gigabyte di memoria a testa."""
+    if piano.cls is not None:
+        a = replace(a, cls=piano.cls, livello=piano.livello)
+    pend = _pendenza(piano.h)
+    clima = B.freddo(a.cls, piano.h, livello_mare=LIVELLO_MARE, seed=op.seed)
+    nuda_m, neve_m = SG.superficie_montana(piano.h, pend, seed=op.seed,
+                                           freddo=clima)
+    # La parete nuda vale sulla terra ferma: sott'acqua non si vede, sul
+    # basalto di un vulcano sarebbe un banco di granito in mezzo a una
+    # colata, e sulla sabbia una scogliera di pietra in mezzo alle dune.
+    nuda_m &= ~np.isin(a.cls, M.MARINO + (M.FIUME, M.VULCANO, M.CRATERE,
+                                          M.DESERTO, M.SPIAGGIA))
+    neve_m = np.where(np.isin(a.cls, M.MARINO + (M.FIUME, M.CRATERE)),
+                      0, neve_m).astype(np.uint8)
+
+    # La sponda: la fascia di terra che il fiume scava per restare in un
+    # solco (vedi `fiumi.livella`, `scavo_rive`) e' spesso ripida quanto
+    # bastava a farla leggere come "parete" da `superficie_montana` -
+    # risultato, un bordo di pietra nuda intorno all'acqua, uno screenshot
+    # da controllare. Il fiume e' terra scavata, non una cava: qui non
+    # deve mai comparire la roccia di default, solo terra (vedi
+    # `_posa_sponde`).
+    fiume_m = a.cls == M.FIUME
+    sponda_m = np.zeros(a.cls.shape, bool)
+    if fiume_m.any():
+        from scipy.ndimage import binary_dilation as _dil_sp
+        sponda_m = _dil_sp(fiume_m, iterations=3) & ~fiume_m
+        nuda_m &= ~sponda_m
+    scarto_m = SG.piega(max(piano.h.shape),
+                        seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
+    manto_m = U.manto(a.cls, seed=op.seed)
+    piede_m = U.piede(a.cls, seed=op.seed)
+    caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
+    asse_ponte_m = (ST.asse_ponti(piano.tipo_strada) if piano.tipo_strada is not None
+                    else None)
+    return {"scarto": scarto_m, "nuda": nuda_m, "neve": neve_m, "manto": manto_m, "piede": piede_m,
+            "sponda": sponda_m, "caduta": caduta_m, "parete_acqua": parete_acqua_m,
+            "asse_ponte": asse_ponte_m}
+
+
 def scrivi(op: Opzioni, a: Analisi, piano: Piano,
            avanza: Avanzamento = _nulla,
            da: int = 0, quanti: int = 0,
@@ -2801,35 +2846,9 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # Gli strati fanno parte della roccia, quindi il sottosuolo puo'
         # scavarli e sostituirli come farebbe con la pietra liscia.
         tav_ss.aggiungi_rocce(roccia.ids)
-        pend = _pendenza(piano.h)
-        clima = B.freddo(a.cls, piano.h, livello_mare=LIVELLO_MARE, seed=op.seed)
-        nuda_m, neve_m = SG.superficie_montana(piano.h, pend, seed=op.seed,
-                                               freddo=clima)
-        # La parete nuda vale sulla terra ferma: sott'acqua non si vede, sul
-        # basalto di un vulcano sarebbe un banco di granito in mezzo a una
-        # colata, e sulla sabbia una scogliera di pietra in mezzo alle dune.
-        nuda_m &= ~np.isin(a.cls, M.MARINO + (M.FIUME, M.VULCANO, M.CRATERE,
-                                              M.DESERTO, M.SPIAGGIA))
-        neve_m = np.where(np.isin(a.cls, M.MARINO + (M.FIUME, M.CRATERE)),
-                          0, neve_m).astype(np.uint8)
-
-        # La sponda: la fascia di terra che il fiume scava per restare in un
-        # solco (vedi `fiumi.livella`, `scavo_rive`) e' spesso ripida quanto
-        # bastava a farla leggere come "parete" da `superficie_montana` -
-        # risultato, un bordo di pietra nuda intorno all'acqua, uno screenshot
-        # da controllare. Il fiume e' terra scavata, non una cava: qui non
-        # deve mai comparire la roccia di default, solo terra (vedi
-        # `_posa_sponde`).
-        fiume_m = a.cls == M.FIUME
-        sponda_m = np.zeros(a.cls.shape, bool)
-        if fiume_m.any():
-            from scipy.ndimage import binary_dilation as _dil_sp
-            sponda_m = _dil_sp(fiume_m, iterations=3) & ~fiume_m
-            nuda_m &= ~sponda_m
-        scarto_m = SG.piega(max(piano.h.shape),
-                            seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
-        manto_m = U.manto(a.cls, seed=op.seed)
-        piede_m = U.piede(a.cls, seed=op.seed)
+        mg = (precaricati or {}).get("mappe") or mappe_globali(op, a, piano)
+        scarto_m, nuda_m, neve_m = mg["scarto"], mg["nuda"], mg["neve"]
+        manto_m, piede_m, sponda_m = mg["manto"], mg["piede"], mg["sponda"]
         tav = V.Tavolozza(m) if piano.alberi is not None else None
         tav_ed = E.TavolozzaEdilizia(m) if (piano.edifici or piano.isolate) else None
         tav_ba = (BA.Tavolozza(m)
@@ -2873,9 +2892,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         centri_g = [(c.x - meta, c.z - meta) for c in piano.citta]
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
-        caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
-        asse_ponte_m = (ST.asse_ponti(piano.tipo_strada) if piano.tipo_strada is not None
-                        else None)
+        caduta_m, parete_acqua_m, asse_ponte_m = mg["caduta"], mg["parete_acqua"], mg["asse_ponte"]
         n = max(1, len(lista))
         for i, (cx, cz) in enumerate(lista):
             if ferma is not None and ferma():
