@@ -25,6 +25,8 @@ def carica(percorso: str) -> dict:
     d = np.load(percorso, allow_pickle=False)
     fuori = {"elev": d["elev"].astype(np.float32), "lago": d["lago"].astype(bool),
              "x0": float(d["x0"]), "y1": float(d["y1"]), "passo": float(d["passo"])}
+    fuori["crs"] = str(d["crs"]) if "crs" in d.files else "EPSG:3035"
+    fuori["metri_per_blocco"] = float(d["metri_per_blocco"]) if "metri_per_blocco" in d.files else METRI_PER_BLOCCO
     if "lat" in d.files:                       # latitudine a risoluzione ridotta (1 cella ogni `lat_sub`)
         fuori["lat"] = d["lat"].astype(np.float32)
         fuori["lat_sub"] = int(d["lat_sub"])
@@ -51,18 +53,26 @@ def a_mondo(d: dict, lato: int) -> dict:
     elev, oz, ox, f = _adatta(d["elev"], lato, -3000.0, 1)
     lago, _, _, _ = _adatta(d["lago"].astype(np.uint8), lato, 0, 0)
     lago = lago > 0
-    passo = d["passo"] / f                                      # metri per cella
+    geografico = d.get("crs") == "EPSG:4326"                    # gradi, non metri (la Terra intera)
+    mercatore = d.get("crs") == "EPSG:3857"                      # metri proiettati: a terra valgono meno
+    passo = d["passo"] / f * (111_320.0 if geografico else 1.0)  # metri per cella (in z)
+    mpb = d.get("metri_per_blocco", METRI_PER_BLOCCO)
     terra = elev > 0.5
     lat = _latitudine(d, elev.shape, f, oz, ox)
 
     # quote in blocchi: sopra il mare lineari, sotto compresse
-    h = np.where(terra, LIVELLO_MARE + elev / METRI_PER_BLOCCO,
+    h = np.where(terra, LIVELLO_MARE + elev / mpb,
                  LIVELLO_MARE - np.minimum(PROFONDITA_MASSIMA, 3.0 * np.sqrt(np.maximum(-elev, 0) / 10.0)))
     h = gaussian_filter(h.astype(np.float32), 0.6)              # toglie la grana del campionamento
     h = np.where(terra, np.maximum(h, LIVELLO_MARE + 1), np.minimum(h, LIVELLO_MARE - 1))
 
     gz, gx = np.gradient(gaussian_filter(elev, 1.0))
-    pend = np.hypot(gz, gx) / passo                              # metri su metro
+    if geografico:                                               # le colonne si stringono andando ai poli
+        pend = np.hypot(gz / passo, gx / (passo * np.maximum(np.cos(np.radians(lat)), 0.05)))
+    elif mercatore:                                              # il blocco e' cos(lat) volte il suo passo
+        pend = np.hypot(gz, gx) / (passo * np.maximum(np.cos(np.radians(lat)), 0.05))
+    else:
+        pend = np.hypot(gz, gx) / passo                          # metri su metro
     dal_mare = distance_transform_edt(terra)
 
     # limite degli alberi e delle nevi: scendono andando a nord (Alpi a 46 N: 2200 e 2900 m;
@@ -83,7 +93,7 @@ def a_mondo(d: dict, lato: int) -> dict:
     spiaggia = terra & (elev < 4.0) & (dal_mare <= 3) & (pend < 0.05)
     cls[spiaggia] = M.SPIAGGIA
     return {"cls": cls, "h": np.round(h).astype(np.int32), "lago": lago,
-            "elev": elev, "passo": passo, "oz": oz, "ox": ox, "fattore": f}
+            "elev": elev, "passo": passo, "oz": oz, "ox": ox, "fattore": f, "metri_per_blocco": mpb}
 
 
 def _latitudine(d: dict, forma: tuple, f: float, oz: int, ox: int) -> np.ndarray | float:
@@ -113,7 +123,7 @@ def applica_laghi(cls: np.ndarray, h: np.ndarray, livello: np.ndarray, base: dic
     pelo = np.zeros(cls.shape, np.float32)
     for i in range(1, n + 1):
         m = lab == i
-        pelo[m] = np.median(LIVELLO_MARE + elev[m] / METRI_PER_BLOCCO)
+        pelo[m] = np.median(LIVELLO_MARE + elev[m] / base.get("metri_per_blocco", METRI_PER_BLOCCO))
     dentro = distance_transform_edt(lago)
     fondo = pelo - np.minimum(12.0, 2.0 + dentro * 0.8)
     cls = cls.copy()
@@ -125,9 +135,16 @@ def applica_laghi(cls: np.ndarray, h: np.ndarray, livello: np.ndarray, base: dic
 
 def frazioni_da_lonlat(d: dict, lato: int, punti: list) -> list:
     """Da (lon, lat) alle frazioni 0..1 del mondo `lato` x `lato` (centrato)."""
-    from rasterio.warp import transform
-    xs, ys = transform("EPSG:4326", "EPSG:3035", [p[0] for p in punti], [p[1] for p in punti])
     ny, nx = d["elev"].shape
+    if d.get("crs") == "EPSG:4326":                             # gradi: la proiezione e' la griglia stessa
+        xs, ys = [p[0] for p in punti], [p[1] for p in punti]
+    elif d.get("crs") == "EPSG:3857":                           # Mercatore: si calcola a mano
+        R = 6378137.0
+        xs = [np.radians(p[0]) * R for p in punti]
+        ys = [R * np.log(np.tan(np.pi / 4 + np.radians(min(max(p[1], -85.05), 85.05)) / 2)) for p in punti]
+    else:
+        from rasterio.warp import transform
+        xs, ys = transform("EPSG:4326", "EPSG:3035", [p[0] for p in punti], [p[1] for p in punti])
     f = lato / max(ny, nx)
     oz, ox = (lato - round(ny * f)) // 2, (lato - round(nx * f)) // 2
     fuori = []

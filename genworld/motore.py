@@ -1286,12 +1286,14 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         H_, W_ = a.cls.shape
         reali = [(int(fz * H_), int(fx * W_), 52 if grande else 30, nome)
                  for nome, fx, fz, grande in op.citta_reali]
-        siti = ([(z_, x_, r_) for z_, x_, r_, _ in reali]
+        # le citta' vere possono stare su una costa o in una valle: tolleranze piu' larghe
+        siti = ([(z_, x_, r_, 0.40, 45.0) for z_, x_, r_, _ in reali]
                 + [s_ for s_ in siti
                    if all((s_[0] - z_) ** 2 + (s_[1] - x_) ** 2 > 140 ** 2 for z_, x_, _, _ in reali)])
     edifici, h, vie, muro, citta, banchi, urbano, cls_c, livello_c = CT.pianifica(
         a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31,
         forme=op.forme_citta)
+    siti = [tuple(s_[:3]) for s_ in siti]             # le tolleranze servivano solo alla scelta del sito
     nomi_citta: dict = {}
     for c_ in citta:                                   # a ogni citta' il nome vero piu' vicino
         liberi = [r_ for r_ in reali if r_[3] not in nomi_citta.values()]

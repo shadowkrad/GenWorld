@@ -76,3 +76,6 @@ input/italia_dem.npz
 input/dati_europa/
 input/europa_dem.npz
 input/prova_dem.npz
+input/dati_terra/
+input/terra_dem.npz
+input/terra*_dem.npz

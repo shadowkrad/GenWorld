@@ -243,7 +243,8 @@ def _raggio_piana(lato: int, murata: bool) -> int:
 
 
 def _valuta(cls, h, urbano, z, x, raggio_piana, livello_mare,
-            fissa=None, fissa_mura=None, murata=False) -> tuple[int, float] | None:
+            fissa=None, fissa_mura=None, murata=False,
+            mare_max: float = None, salto_max: float = None) -> tuple[int, float] | None:
     """(quota di spianamento, costo) di una piana centrata in (z, x), o None.
 
     Il terreno si piega alla citta', ma non senza limiti: dentro il quadrato
@@ -277,21 +278,21 @@ def _valuta(cls, h, urbano, z, x, raggio_piana, livello_mare,
     if u[D <= raggio_piana + MARGINE_RACCORDO].any():
         return None
     mare = float(np.isin(c, MARINO)[zona].mean())
-    if mare > MARINO_MASSIMO:
+    if mare > (MARINO_MASSIMO if mare_max is None else mare_max):
         return None
     terra = zona & ~np.isin(c, ACQUA)
     if terra.sum() < zona.sum() * 0.5:
         return None
     quote = q[terra]
     lo, hi = np.percentile(quote, (5, 95))
-    if hi - lo > SALTO_MASSIMO:
+    if hi - lo > (SALTO_MASSIMO if salto_max is None else salto_max):
         return None
     base = max(int(np.median(quote)), livello_mare + PROFONDITA_FOSSO + 2)
     return base, mare * 200.0 + float(hi - lo)
 
 
 def _cerca_sito(cls, h, urbano, z, x, raggio_piana, livello_mare,
-                fissa=None, fissa_mura=None, murata=False):
+                fissa=None, fissa_mura=None, murata=False, mare_max=None, salto_max=None):
     """Il posto migliore per la piana vicino al sito scelto: (z, x, quota).
 
     I siti sono scelti vicino all'acqua, quindi spesso a ridosso di una costa
@@ -302,7 +303,7 @@ def _cerca_sito(cls, h, urbano, z, x, raggio_piana, livello_mare,
     for oz in range(-SPOSTAMENTO_MASSIMO, SPOSTAMENTO_MASSIMO + 1, 4):
         for ox in range(-SPOSTAMENTO_MASSIMO, SPOSTAMENTO_MASSIMO + 1, 4):
             v = _valuta(cls, h, urbano, z + oz, x + ox, raggio_piana, livello_mare,
-                        fissa, fissa_mura, murata)
+                        fissa, fissa_mura, murata, mare_max, salto_max)
             if v is None:
                 continue
             costo = v[1] + 0.15 * float(np.hypot(oz, ox))
@@ -773,11 +774,16 @@ def pianifica(
     citta: list[Citta] = []
     banchi: list[E.Banco] = []
 
-    for n, (sz, sx, raggio) in enumerate(siti):
+    for n, sito in enumerate(siti):
+        sz, sx, raggio = sito[:3]
+        # un sito puo' avere in coda le sue tolleranze: (mare ammesso, dislivello ammesso) - le citta'
+        # VERE (capitali sulla costa o in valle) ne hanno di piu' di un villaggio scelto a caso
+        mare_max = sito[3] if len(sito) > 3 else None
+        salto_max = sito[4] if len(sito) > 4 else None
         rng = np.random.default_rng(seed * 977 + n)
         for lato, murata in piante_possibili(raggio):
             posto = _cerca_sito(cls, h, urbano, sz, sx, _raggio_piana(lato, murata),
-                                livello_mare, fissa, fissa_mura, murata)
+                                livello_mare, fissa, fissa_mura, murata, mare_max, salto_max)
             if posto is not None:
                 break
         else:
