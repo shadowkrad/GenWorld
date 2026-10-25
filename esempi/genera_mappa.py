@@ -111,6 +111,9 @@ def main() -> None:
                     help="solo con --sottosopra: quanto sono in rovina le costruzioni (0 intatte)")
     ap.add_argument("--dem", default="", metavar="FILE.npz",
                     help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
+    ap.add_argument("--riprendi", metavar="CARTELLA", default="",
+                    help="RIPRENDE una scrittura parallela interrotta: la cartella `genworld_...` rimasta "
+                         "accanto al mondo. Rifa solo i chunk mancanti, poi unisce e conclude")
     ap.add_argument("--ripara-da", metavar="LOG", default="",
                     help="RIPARA un mondo gia' scritto: rigenera i chunk che il log dice di non aver "
                          "potuto salvare ('Error saving chunk Chunk(cx, cz, ...', di solito per memoria "
@@ -183,6 +186,15 @@ def main() -> None:
                     help="cosa c'e' oltre la mappa: 'naturale' (terreno normale di "
                          "Minecraft generato al volo, nessun bordo) o 'vuoto' (aria)")
     a = ap.parse_args()
+    if a.riprendi:
+        from genworld.parallelo import riprendi_parallelo
+        t_ = time.time()
+        st = riprendi_parallelo(a.riprendi, processi=a.processi or 4,
+                                avanza=lambda f, txt: print(f"  {f:.2f} {txt}", flush=True))
+        print(f"ripreso: {st['chunk']} chunk in {time.time() - t_:.0f}s ({st['restano']} rimanenti)")
+        if "level_dat" in st:
+            print("level.dat:", st["level_dat"])
+        return
 
     try:
         versione = tuple(int(n) for n in a.versione.split("."))

@@ -171,3 +171,47 @@ class TestRiparazioneMondo(unittest.TestCase):
                 coord = tutti[k]
                 for (c1, b1), (c2, b2) in zip(r[coord][0], p[coord][0]):
                     self.assertTrue((b1 == b2).all(), f"blocchi diversi nel chunk riparato {coord}")
+
+
+class TestRipresa(unittest.TestCase):
+    def test_una_scrittura_interrotta_si_riprende_e_il_mondo_e_uguale_all_intero(self):
+        import pickle
+        from dataclasses import replace
+        from genworld.motore import carica_modelli, con_uscita, mappe_globali
+        with tempfile.TemporaryDirectory() as d:
+            img = mappa_finta(os.path.join(d, "isola.png"), 256)
+            base_opz = dict(immagine=img, lato=256, vulcani=0, alberi=0.3, villaggi=1.0, strade=True,
+                            caverne=1.0, miniere=1.0, accampamenti=4.0, cimiteri=4.0)
+            op_s = Opzioni(uscita=os.path.join(d, "seriale"), **base_opz)
+            op_r = Opzioni(uscita=os.path.join(d, "ripreso"), **base_opz)
+            a = analizza(op_s)
+            piano = pianifica(op_s, a)
+            scrivi(op_s, a, piano)
+            # la situazione dopo un'interruzione: cartella di lavoro con i dati e due mondi a meta'
+            coords = PA.coordinate_chunk(256)
+            gruppi = PA.ripartisci(coords, 2)
+            base = os.path.join(d, "genworld_prova")
+            os.makedirs(base)
+            if piano.cls is not None:
+                a = replace(a, cls=piano.cls, livello=piano.livello)
+            pre = carica_modelli(op_r, piano)
+            pre["mappe"] = mappe_globali(op_r, a, piano)
+            with open(os.path.join(base, "dati.pkl"), "wb") as f:
+                pickle.dump(PA.su_disco((op_r, a, piano, pre), base), f)
+            for k, g in enumerate(gruppi):
+                meta = g[:len(g) // 2]                      # solo la prima meta' dei chunk del gruppo
+                scrivi(con_uscita(op_r, os.path.join(base, f"w{k}"), op_r.nome), a, piano,
+                       indici=meta, lavoratore=True, precaricati=pre)
+            presenti = PA.chunk_presenti(os.path.join(base, "w0"))
+            self.assertTrue(0 < len(presenti) < len(gruppi[0]))
+            st = PA.riprendi_parallelo(base, processi=2)
+            self.assertEqual(st["chunk"], len(coords))
+            self.assertEqual(st.get("level_dat"), "valido")
+            self.assertFalse(os.path.exists(base))                    # a fine lavoro la cartella sparisce
+            s = _chunk_come_testo(op_s.uscita)
+            r = _chunk_come_testo(op_r.uscita)
+            self.assertEqual(sorted(s), sorted(r))
+            for k in s:
+                self.assertEqual(s[k][1], r[k][1], f"block entity del chunk {k}")
+                for (c1, b1), (c2, b2) in zip(s[k][0], r[k][0]):
+                    self.assertTrue((b1 == b2).all(), f"blocchi diversi nel chunk {k}")
