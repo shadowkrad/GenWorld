@@ -34,7 +34,8 @@ REGIONE = 32            # chunk per lato di un file region
 # Un mondo grande ha array enormi nel piano (centinaia di MB l'uno). Spedirli per pickle a ogni
 # lavoratore vuol dire una copia a testa: con 4 processi sono 4 volte la memoria. Qui gli array
 # sopra questa soglia vanno su disco in file `.npy` e i lavoratori li MAPPANO in sola lettura
-# (copia-su-scrittura): il sistema ne tiene una copia sola in memoria, condivisa.
+# (sola lettura): il sistema ne tiene una copia sola in memoria, condivisa, e Windows non conta ogni mappatura
+# nella memoria impegnata (con la copia-su-scrittura si: 6 lavoratori x 5 GB facevano esaurire il limite).
 SOGLIA_ARRAY = 4 << 20
 
 
@@ -78,9 +79,9 @@ def su_disco(oggetto, cartella: str, visti: dict | None = None, livello: int = 0
 
 
 def da_disco(oggetto, livello: int = 0):
-    """L'inverso di `su_disco`: gli `RifArray` tornano array, mappati dal file (copia su scrittura)."""
+    """L'inverso di `su_disco`: gli `RifArray` tornano array, mappati dal file in sola lettura."""
     if isinstance(oggetto, RifArray):
-        return np.load(oggetto.percorso, mmap_mode="c")
+        return np.load(oggetto.percorso, mmap_mode="r")
     if livello >= 3:
         return oggetto
     if dataclasses.is_dataclass(oggetto) and not isinstance(oggetto, type):

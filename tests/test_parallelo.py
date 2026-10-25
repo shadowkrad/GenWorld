@@ -131,7 +131,5 @@ class TestArrayCondivisi(unittest.TestCase):
             self.assertTrue(np.array_equal(r[0].dizionario["a"], grande))
             self.assertEqual(r[0].elenco[1], 7)
             self.assertEqual(r[1], "x")
-            r[0].grande[0] = 99                                    # copia su scrittura: si puo' scrivere
-            self.assertEqual(int(grande[0]), 0)                    # senza toccare l'originale
-            self.assertEqual(int(np.load(q[0].grande.percorso)[0]), 0)
+            self.assertFalse(r[0].grande.flags.writeable)          # sola lettura: niente memoria impegnata in piu'
             del r

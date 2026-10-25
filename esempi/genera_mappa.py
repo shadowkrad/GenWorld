@@ -111,6 +111,10 @@ def main() -> None:
                     help="solo con --sottosopra: quanto sono in rovina le costruzioni (0 intatte)")
     ap.add_argument("--dem", default="", metavar="FILE.npz",
                     help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
+    ap.add_argument("--accetta-piano-vecchio", action="store_true",
+                    help="riusa il piano in cache anche se il codice e' cambiato dopo averlo calcolato "
+                         "(solo se sai che non e' cambiato nulla che lo riguardi: serve a non rifare "
+                         "ore di pianificazione dopo un ritocco alla scrittura)")
     ap.add_argument("--solo-citta-reali", action="store_true",
                     help="niente villaggi automatici: solo le citta' del file --luoghi-reali")
     ap.add_argument("--luoghi-reali", default="", metavar="FILE.json",
@@ -245,6 +249,15 @@ def main() -> None:
             print(n)
         print(f"mappa {op.lato}x{op.lato}: quote {analisi.h.min()}..{analisi.h.max()}")
 
+    if a.cache_piano and a.accetta_piano_vecchio and os.path.exists(op.cache_piano):
+        import pickle
+        with open(op.cache_piano, "rb") as f_:
+            _vecchia, piano_v = pickle.load(f_)
+        with open(op.cache_piano + ".tmp", "wb") as f_:
+            pickle.dump((op.firma_piano(), piano_v), f_, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(op.cache_piano + ".tmp", op.cache_piano)
+        del piano_v
+        print("piano in cache riconosciuto con la firma attuale")
     if a.cache_piano:
         from genworld.motore import pianifica_con_cache
         piano, dalla_cache = pianifica_con_cache(op, analisi)
