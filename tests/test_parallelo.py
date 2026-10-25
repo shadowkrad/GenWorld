@@ -98,3 +98,40 @@ class TestEquivalenza(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestArrayCondivisi(unittest.TestCase):
+    def test_gli_array_grandi_vanno_su_disco_e_tornano_mappati(self):
+        import dataclasses
+        import tempfile
+        import numpy as np
+        from genworld import parallelo as PA
+
+        @dataclasses.dataclass
+        class Piano:
+            grande: np.ndarray
+            piccolo: np.ndarray
+            dizionario: dict
+            elenco: list
+            numero: int = 3
+
+        grande = np.arange(PA.SOGLIA_ARRAY // 4 + 10, dtype=np.int32)
+        p = Piano(grande=grande, piccolo=np.arange(5), dizionario={"a": grande, "b": np.arange(3)},
+                  elenco=[grande, 7])
+        with tempfile.TemporaryDirectory() as d:
+            q = PA.su_disco((p, "x"), d)
+            self.assertIsInstance(q[0].grande, PA.RifArray)
+            self.assertIsInstance(q[0].dizionario["a"], PA.RifArray)
+            self.assertEqual(q[0].grande.percorso, q[0].dizionario["a"].percorso)      # una copia sola
+            self.assertIs(q[0].piccolo, p.piccolo)                                       # i piccoli restano
+            self.assertEqual(q[0].numero, 3)
+            self.assertEqual(len(os.listdir(d)), 1)
+            r = PA.da_disco(q)
+            self.assertTrue(np.array_equal(r[0].grande, grande))
+            self.assertTrue(np.array_equal(r[0].dizionario["a"], grande))
+            self.assertEqual(r[0].elenco[1], 7)
+            self.assertEqual(r[1], "x")
+            r[0].grande[0] = 99                                    # copia su scrittura: si puo' scrivere
+            self.assertEqual(int(grande[0]), 0)                    # senza toccare l'originale
+            self.assertEqual(int(np.load(q[0].grande.percorso)[0]), 0)
+            del r

@@ -36,6 +36,9 @@ def main() -> None:
     ap.add_argument("--uscita", default=PERCORSO, help="cartella del mondo")
     ap.add_argument("--nome", default="Arda")
     ap.add_argument("--lato", type=int, default=832)
+    ap.add_argument("--altezza", type=int, default=0,
+                    help="mondo rettangolare: --lato blocchi in x per --altezza in z (0 = quadrato). "
+                         "Solo con --dem; l'origine resta a meta' del lato")
     ap.add_argument("--ritaglio", type=float, default=0.025,
                     help="frazione di cornice da togliere per lato")
     ap.add_argument("--lotto", type=int, default=0)
@@ -202,19 +205,21 @@ def main() -> None:
         from genworld import dem as DEM
         dati = json.load(open(a.luoghi_reali, encoding="utf-8"))
         d_ = DEM.carica(a.dem)
-        passo_cella = d_["passo"] / (a.lato / max(d_["elev"].shape))
+        passo_cella = d_["passo"] / min(a.lato / d_["elev"].shape[1], (a.altezza or a.lato) / d_["elev"].shape[0])
+        if d_.get("crs") == "EPSG:4326":
+            passo_cella *= 111_320.0
         vul = dati.get("vulcani", [])
-        fr = DEM.frazioni_da_lonlat(d_, a.lato, [(v["lon"], v["lat"]) for v in vul])
+        fr = DEM.frazioni_da_lonlat(d_, a.lato, [(v["lon"], v["lat"]) for v in vul], a.altezza or None)
         vulcani_pos = tuple(
             (fx, fz, max(5, round(v["raggio_km"] * 1000 / passo_cella)), v["altezza"],
              max(2, round(v.get("cratere_km", 1.0) * 1000 / passo_cella)),
              int(bool(v.get("spento", False))), int(bool(v.get("lago", False))))
             for (fx, fz), v in zip(fr, vul))
         cit = dati.get("citta", [])
-        frc = DEM.frazioni_da_lonlat(d_, a.lato, [(c["lon"], c["lat"]) for c in cit])
+        frc = DEM.frazioni_da_lonlat(d_, a.lato, [(c["lon"], c["lat"]) for c in cit], a.altezza or None)
         citta_reali = tuple((c["nome"], fx, fz, bool(c.get("grande"))) for (fx, fz), c in zip(frc, cit)
                             if 0 < fx < 1 and 0 < fz < 1)
-    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, sottosopra=a.sottosopra, decadimento=a.decadimento, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato,
+    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, sottosopra=a.sottosopra, decadimento=a.decadimento, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato, altezza=a.altezza,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,

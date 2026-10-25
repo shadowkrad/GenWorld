@@ -33,32 +33,34 @@ def carica(percorso: str) -> dict:
     return fuori
 
 
-def _adatta(a: np.ndarray, lato: int, riempi, ordine: int) -> tuple[np.ndarray, int, int, float]:
-    """Porta la griglia a `lato` sul lato lungo (se serve) e la centra nel quadrato.
-    Ritorna (array lato x lato, scarto z, scarto x, fattore di scala)."""
+def _adatta(a: np.ndarray, lato: int, riempi, ordine: int,
+            altezza: int | None = None) -> tuple[np.ndarray, int, int, float]:
+    """Porta la griglia nel mondo (`altezza` x `lato`, quadrato se manca `altezza`) mantenendo le
+    proporzioni, e la centra. Ritorna (array, scarto z, scarto x, fattore di scala)."""
     from scipy.ndimage import zoom
+    altezza = altezza or lato
     ny, nx = a.shape
-    f = lato / max(ny, nx)
+    f = min(lato / nx, altezza / ny)
     if abs(f - 1.0) > 1e-6:
         a = zoom(a, f, order=ordine)
         ny, nx = a.shape
-    fuori = np.full((lato, lato), riempi, a.dtype)
-    oz, ox = (lato - ny) // 2, (lato - nx) // 2
+    fuori = np.full((altezza, lato), riempi, a.dtype)
+    oz, ox = (altezza - ny) // 2, (lato - nx) // 2
     fuori[oz:oz + ny, ox:ox + nx] = a
     return fuori, oz, ox, f
 
 
-def a_mondo(d: dict, lato: int) -> dict:
-    """Quote in metri -> (classi, quote in blocchi, laghi) su una griglia lato x lato."""
-    elev, oz, ox, f = _adatta(d["elev"], lato, -3000.0, 1)
-    lago, _, _, _ = _adatta(d["lago"].astype(np.uint8), lato, 0, 0)
+def a_mondo(d: dict, lato: int, altezza: int | None = None) -> dict:
+    """Quote in metri -> (classi, quote in blocchi, laghi) su una griglia altezza x lato."""
+    elev, oz, ox, f = _adatta(d["elev"], lato, -3000.0, 1, altezza)
+    lago, _, _, _ = _adatta(d["lago"].astype(np.uint8), lato, 0, 0, altezza)
     lago = lago > 0
     geografico = d.get("crs") == "EPSG:4326"                    # gradi, non metri (la Terra intera)
     mercatore = d.get("crs") == "EPSG:3857"                      # metri proiettati: a terra valgono meno
     passo = d["passo"] / f * (111_320.0 if geografico else 1.0)  # metri per cella (in z)
     mpb = d.get("metri_per_blocco", METRI_PER_BLOCCO)
     terra = elev > 0.5
-    lat = _latitudine(d, elev.shape, f, oz, ox)
+    lat = _latitudine(d, elev.shape, f, oz, ox, lato, altezza)
 
     # quote in blocchi: sopra il mare lineari, sotto compresse
     h = np.where(terra, LIVELLO_MARE + elev / mpb,
@@ -96,7 +98,8 @@ def a_mondo(d: dict, lato: int) -> dict:
             "elev": elev, "passo": passo, "oz": oz, "ox": ox, "fattore": f, "metri_per_blocco": mpb}
 
 
-def _latitudine(d: dict, forma: tuple, f: float, oz: int, ox: int) -> np.ndarray | float:
+def _latitudine(d: dict, forma: tuple, f: float, oz: int, ox: int, lato: int | None = None,
+                altezza: int | None = None) -> np.ndarray | float:
     """Latitudine di ogni cella del mondo (costante 44 se il file non la contiene)."""
     if "lat" not in d:
         return 44.0
@@ -106,7 +109,7 @@ def _latitudine(d: dict, forma: tuple, f: float, oz: int, ox: int) -> np.ndarray
     grezza = d["lat"]
     # riporta la griglia ridotta alla dimensione del file e poi a quella del mondo
     piena = zoom(grezza, (ny / grezza.shape[0], nx / grezza.shape[1]), order=1)[:ny, :nx]
-    mondo, _, _, _ = _adatta(piena.astype(np.float32), forma[0], 44.0, 1)
+    mondo, _, _, _ = _adatta(piena.astype(np.float32), lato or forma[1], 44.0, 1, altezza or forma[0])
     return mondo[:forma[0], :forma[1]]
 
 
@@ -133,8 +136,9 @@ def applica_laghi(cls: np.ndarray, h: np.ndarray, livello: np.ndarray, base: dic
     return cls, h, livello
 
 
-def frazioni_da_lonlat(d: dict, lato: int, punti: list) -> list:
-    """Da (lon, lat) alle frazioni 0..1 del mondo `lato` x `lato` (centrato)."""
+def frazioni_da_lonlat(d: dict, lato: int, punti: list, altezza: int | None = None) -> list:
+    """Da (lon, lat) alle frazioni 0..1 del mondo `altezza` x `lato` (centrato): (x/lato, z/altezza)."""
+    altezza = altezza or lato
     ny, nx = d["elev"].shape
     if d.get("crs") == "EPSG:4326":                             # gradi: la proiezione e' la griglia stessa
         xs, ys = [p[0] for p in punti], [p[1] for p in punti]
@@ -145,11 +149,11 @@ def frazioni_da_lonlat(d: dict, lato: int, punti: list) -> list:
     else:
         from rasterio.warp import transform
         xs, ys = transform("EPSG:4326", "EPSG:3035", [p[0] for p in punti], [p[1] for p in punti])
-    f = lato / max(ny, nx)
-    oz, ox = (lato - round(ny * f)) // 2, (lato - round(nx * f)) // 2
+    f = min(lato / nx, altezza / ny)
+    oz, ox = (altezza - round(ny * f)) // 2, (lato - round(nx * f)) // 2
     fuori = []
     for x, y in zip(xs, ys):
         cx = (x - d["x0"]) / d["passo"] * f + ox
         cz = (d["y1"] - y) / d["passo"] * f + oz
-        fuori.append((cx / lato, cz / lato))
+        fuori.append((cx / lato, cz / altezza))
     return fuori

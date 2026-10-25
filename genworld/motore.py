@@ -170,6 +170,8 @@ class Opzioni:
     dimensioni: bool = False
     # Luoghi da scoprire (capanne di streghe, rovine sommerse, labirinti...): vedi `siti.py`.
     siti: float = 1.0
+    # Mondo RETTANGOLARE: `lato` blocchi in x per `altezza` in z (0 = quadrato). Solo con --dem.
+    altezza: int = 0
     # Il Nether come specchio dell'overworld: stessa geografia, materiali del Nether, lava al posto
     # dell'acqua (vedi `sottosopra.py`). Con questo il Nether non e' piu' quello disegnato da `nether.py`.
     sottosopra: bool = False
@@ -262,6 +264,16 @@ class Opzioni:
         return "adattivo" if self.adattivo else "soglie"
 
     @property
+    def alt(self) -> int:
+        """L'altezza (in z) del mondo: `lato` se e' quadrato."""
+        return self.altezza or self.lato
+
+    @property
+    def spawn(self) -> tuple:
+        """Il punto d'inizio: al centro del mondo (per un rettangolare, non sull'origine)."""
+        return (0, 150, -self.lato // 2 + self.alt // 2)
+
+    @property
     def cache_piano(self) -> str:
         return self.uscita.rstrip("/\\") + "_piano.pkl"
 
@@ -301,7 +313,7 @@ class Opzioni:
         Alberi, villaggi e strade NON ci sono: si calcolano dopo, e cambiarli
         non deve invalidare l'analisi, che e' la parte lenta.
         """
-        return (int(self.lato), self.modo(), float(self.erosione),
+        return (int(self.lato), int(self.altezza), self.modo(), float(self.erosione),
                 float(self.fiumi), int(self.vulcani), tuple(self.vulcani_posizioni), float(self.laghi),
                 float(self.ritaglio), os.path.abspath(self.immagine), B.firma())
 
@@ -555,7 +567,7 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
     if op.dem:
         from . import dem as DEM
         avanza(0.05, "quote reali")
-        base_dem = DEM.a_mondo(DEM.carica(op.dem), op.lato)
+        base_dem = DEM.a_mondo(DEM.carica(op.dem), op.lato, op.alt)
         cls, h = base_dem["cls"], base_dem["h"]
         note.append(f"quote reali: {os.path.basename(op.dem)}, {base_dem['passo']:.0f} m per blocco, "
                     f"{int(base_dem['lago'].sum())} celle di lago")
@@ -2742,7 +2754,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
 
     if piano.cls is not None:
         a = replace(a, cls=piano.cls, livello=piano.livello)
-    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
+    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=op.spawn,
                             versione=op.versione, seed=op.seed,
                             fuori_mappa=op.fuori_mappa,
                             sottosopra=getattr(op, 'sottosopra', False))
@@ -2752,7 +2764,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
     scritti = 0
     interrotto = False
 
-    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, crea=primo) as m:
+    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, altezza_blocchi=op.alt, crea=primo) as m:
         tav_ss = SS.Tavolozza(m)
         tav_mi = MI.Tavolozza(m) if piano.miniere else None
         tav_dg = DG.Tavolozza(m) if piano.dungeon else None
