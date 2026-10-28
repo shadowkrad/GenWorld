@@ -88,6 +88,15 @@ def _tavola() -> dict[str, tuple[str, dict]]:
         "arenaria": ("sandstone", {"variant": "normal"}),
         "arenaria_s": ("sandstone", {"variant": "smooth"}),
         "spawner": ("spawner", {}),
+        "lastra_ab": ("slab", {"material": "spruce", "type": "bottom"}),
+        "lastra_ab_alta": ("slab", {"material": "spruce", "type": "top"}),
+        "recinto_ab": ("fence", {"material": "spruce", "east": "false", "north": "false",
+                                 "south": "false", "west": "false"}),
+        "tronco_ab_s": ("log", {"axis": "y", "material": "spruce", "stripped": "true"}),
+        "ferro": ("iron_block", {}), "carbone": ("coal_block", {}),
+        "fuoco": ("campfire", {"facing": "north", "lit": "true", "signal_fire": "true"}),
+        "rotaia:ns": ("rail", {"shape": "north_south"}),
+        "rotaia:ew": ("rail", {"shape": "east_west"}),
     }
     for f in FACCE:
         t[f"scala_ds:{f}"] = ("stairs", {"material": "dark_oak", "facing": f,
@@ -99,6 +108,8 @@ def _tavola() -> dict[str, tuple[str, dict]]:
         t[f"pioli:{f}"] = ("ladder", {"facing": f, "waterlogged": "false"})
         t[f"torcia:{f}"] = ("torch", {"facing": f})
         t[f"forziere:{f}"] = ("chest", {"facing": f, "connection": "none", "material": "wood"})
+        t[f"scala_ab:{f}"] = ("stairs", {"material": "spruce", "facing": f,
+                                         "half": "bottom", "shape": "straight"})
         t[f"leggio:{f}"] = ("lectern", {"facing": f, "has_book": "false", "powered": "false"})
     return t
 
@@ -469,6 +480,94 @@ def disegna_radura(s: Sito) -> Disegno:
     return d
 
 
+# --- 12. Stazione ferroviaria con locomotiva a vapore --------------------------
+
+def disegna_stazione(s: Sito) -> Disegno:
+    """Il binario corre lungo `extra["asse"]` ("x" o "z") per il centro del sito. Dal lato -v
+    (a nord / a ovest) c'e' la banchina con la sala d'attesa; dal lato +v un binario morto con la
+    locomotiva, il tender e due carrelli. Coordinate locali: u lungo il binario, v di traverso."""
+    d = Disegno()
+    d.carrelli = []
+    asse = s.extra.get("asse", "x")
+    x, z, y = s.x, s.z, s.y            # y = il binario; la superficie della strada sta in y - 1
+
+    def P(u, v):
+        return (x + u, z + v) if asse == "x" else (x + v, z + u)
+
+    def box(u0, v0, h0, u1, v1, h1, k, vuoto=False):
+        (xa, za), (xb, zb) = P(u0, v0), P(u1, v1)
+        d.b(xa, y + h0, za, xb, y + h1, zb, k, vuoto)
+
+    def pt(u, v, h, k):
+        box(u, v, h, u, v, h, k)
+
+    ru = "rotaia:ns" if asse == "z" else "rotaia:ew"
+    dietro = "east" if asse == "x" else "south"
+    # spazio libero sopra tutto il sito
+    box(-12, -10, 0, 12, 8, 9, "aria")
+    # --- banchina su palafitte, raso la sede del binario
+    box(-9, -4, -1, 9, -2, -1, "assi_ab")
+    for u in range(-8, 9, 4):
+        box(u, -4, -6, u, -4, -2, "tronco_ab", True)
+        box(u, -2, -6, u, -2, -2, "tronco_ab", True)
+    for u in range(-9, 10):
+        if abs(u) > 1:                                            # la porta della sala resta libera
+            pt(u, -4, 0, "recinto_ab")
+    # --- sala d'attesa (u -6..6, v -9..-5)
+    box(-6, -9, -1, 6, -5, -1, "assi_ab")
+    box(-6, -9, 0, 6, -5, 4, "assi_ab")
+    box(-5, -8, 0, 5, -6, 3, "aria")
+    box(-7, -10, 5, 7, -4, 5, "lastra_ab")
+    for u in (-6, 6):
+        for v in (-9, -5):
+            box(u, v, 0, u, v, 4, "tronco_ab_s")
+    box(-1, -5, 0, 1, -5, 2, "aria")                             # la porta verso la banchina
+    for u in (-4, 4):
+        pt(u, -5, 2, "vetro")
+        pt(u, -9, 2, "vetro")
+    pt(0, -7, 4, "lanterna_app")
+    box(-4, -8, 0, -3, -8, 0, "barile")
+    pt(4, -8, 0, "banco")
+    # --- tettoia sopra la banchina
+    box(-9, -4, 4, 9, -2, 4, "lastra_ab")
+    for u in (-9, -4, 4, 9):
+        box(u, -4, 1, u, -4, 3, "recinto_ab")
+        pt(u, -3, 3, "lanterna_app")
+    # --- binario morto con la locomotiva
+    box(-11, 5, 0, 12, 5, 0, "aria")
+    for u in range(-11, 13):
+        pt(u, 5, 0, ru)
+    box(-11, 5, -1, 12, 5, -1, "assi_ab", True)
+    pt(-12, 5, 0, "tronco_ab_s")                                  # il respingente
+    pt(-12, 5, 1, "lanterna")
+    # locomotiva: u -9..0, v 4..6 (asse del binario v = 5)
+    box(-9, 4, 1, -1, 6, 3, "carbone")                            # caldaia
+    box(-9, 4, 2, -1, 6, 2, "ferro")                              # fascia di ferro
+    box(-9, 5, 4, -1, 5, 4, "ferro")                              # cupola superiore
+    box(-8, 5, 4, -8, 5, 7, "carbone")                            # ciminiera
+    pt(-8, 5, 8, "fuoco")                                         # il fumo
+    pt(-9, 5, 2, "lanterna")                                      # il faro
+    for u in (-7, -5, -3, 0, 2):                                  # le ruote
+        pt(u, 3, 0, "ferro")
+        pt(u, 7, 0, "ferro")
+    box(-10, 4, 0, -10, 6, 0, f"scala_ab:{dietro}")               # il cacciapietre
+    box(0, 4, 1, 3, 6, 4, "assi_ab")                              # cabina
+    box(1, 5, 1, 2, 5, 3, "aria")
+    box(0, 4, 5, 3, 6, 5, "lastra_ab")
+    for v in (4, 6):
+        pt(1, v, 2, "vetro")
+        pt(2, v, 2, "vetro")
+    pt(1, 5, 3, "lanterna_app")
+    box(4, 4, 1, 7, 6, 2, "carbone")                              # tender col carbone
+    box(4, 5, 1, 7, 5, 1, "assi_ab")
+    pt(5, 5, 3, "carbone")
+    # due carrelli attaccati dietro
+    for u in (10, 12):
+        px, pz = P(u, 5)
+        d.carrelli.append((px, y, pz))
+    return d
+
+
 # --- 10. Mulino a vento ---------------------------------------------------------
 
 def disegna_mulino(s: Sito) -> Disegno:
@@ -610,6 +709,7 @@ NOMI = {
     "pesca": ("Capanno {}", ("dei Pescatori", "di Riva Calma", "della Barca Rossa", "dell'Anguilla")),
     "radura": ("Radura {}", ("dei Funghi Giganti", "delle Lucciole", "del Cappello Rosso")),
     "museo": ("Museo {}", ("delle Meraviglie", "del Viandante")),
+    "stazione": ("Stazione {}", ("Centrale",)),
     "mulino": ("Mulino {}", ("del Vento", "della Piana", "di Spighe", "del Mugnaio", "Alto")),
 }
 
@@ -639,6 +739,8 @@ TIPI: dict[str, dict] = {
     "mulino":    {"mezzo": 8, "celle_per": 330_000,
                   "maschera": _m_piatto((M.PIANURA, M.PRATERIA), 6, 2), "disegno": disegna_mulino,
                   "nota": "mulino a vento, con le pale rivolte a nord"},
+    "stazione":  {"mezzo": 13, "celle_per": 0, "maschera": None, "disegno": disegna_stazione,
+                  "nota": "stazione di legno con la locomotiva a vapore sul binario morto"},
     "museo":     {"mezzo": 9, "celle_per": 0, "maschera": None, "disegno": disegna_museo,
                   "nota": "una sala con teche e uno scrigno; il curatore compra i reperti"},
 }
@@ -822,6 +924,17 @@ def creature(siti: list[Sito], trofei: dict | None = None) -> list:
             if c.capo and trofei and (s.x, s.z) in trofei:
                 c.trofeo = trofei[(s.x, s.z)]
             fuori.append(c)
+    return fuori
+
+
+def carrelli(siti: list[Sito], meta: int) -> list:
+    """I carrelli attaccati ai treni delle stazioni, in coordinate di GIOCO."""
+    from .miniere import Carrello
+    fuori = []
+    for i, s in enumerate(siti):
+        for k, (x, y, z) in enumerate(getattr(disegna(s), "carrelli", ())):
+            fuori.append(Carrello(x=x - meta + 0.5, y=float(y) + 0.1, z=z - meta + 0.5,
+                                  seme=s.seme + k * 31 + 5))
     return fuori
 
 

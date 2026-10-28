@@ -43,6 +43,7 @@ from . import castello as CS
 from . import entita as EN
 from . import incarichi as IC
 from . import isole as ISO
+from . import ferrovie as FE
 from . import siti as SI
 from . import sottosopra as SP
 from . import fortezze as FZ
@@ -170,6 +171,8 @@ class Opzioni:
     dimensioni: bool = False
     # Luoghi da scoprire (capanne di streghe, rovine sommerse, labirinti...): vedi `siti.py`.
     siti: float = 1.0
+    # Ferrovie fra le citta' piu' grandi, con stazioni di legno e locomotive a vapore: 0 = nessuna.
+    ferrovie: float = 1.0
     # Mondo RETTANGOLARE: `lato` blocchi in x per `altezza` in z (0 = quadrato). Solo con --dem.
     altezza: int = 0
     # Il Nether come specchio dell'overworld: stessa geografia, materiali del Nether, lava al posto
@@ -710,6 +713,7 @@ class Piano:
     isole: list = field(default_factory=list)
     indice_isole: dict = field(default_factory=dict)
     libro_citta: tuple | None = None
+    ferrovia: object = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
     # {indice edificio: (indice modello, rotazione)}: quale casa da template va
@@ -1595,8 +1599,21 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 
     # SITI da scoprire: streghe, rovine sommerse, labirinti, arene, santuari...
     siti_l: list = []
-    if op.siti > 0:
-        siti_l = SI.pianifica(cls_piano, h, LIVELLO_MARE, protetto, citta, densita=op.siti, seed=op.seed)
+    ferrovia = None
+    if op.ferrovie > 0 and tipo_strada is not None and len(citta) >= 2:
+        ferrovia = FE.pianifica(tipo_strada, quota_strada, citta, op.lato // 2, nomi_citta,
+                                densita=op.ferrovie, seed=op.seed)
+        if ferrovia.lunghezza:
+            note.append(f"ferrovia: {ferrovia.lunghezza} binari, {len(ferrovia.stazioni)} stazioni")
+            for s_ in ferrovia.stazioni:
+                protetto = protetto | SI.maschera([s_], a.cls.shape, margine=2)
+        else:
+            ferrovia = None
+    if op.siti > 0 or ferrovia is not None:
+        siti_l = (SI.pianifica(cls_piano, h, LIVELLO_MARE, protetto, citta, densita=op.siti, seed=op.seed)
+                  if op.siti > 0 else [])
+        if ferrovia is not None:
+            siti_l = siti_l + ferrovia.stazioni
         if siti_l:
             protetto = protetto | SI.maschera(siti_l, a.cls.shape, margine=2)
             if alberi:
@@ -1617,6 +1634,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
                          fortezze=fortezze, castelli=castelli_rovina, isole=isole,
                          nomi_citta=nomi_citta)
+    if ferrovia is not None:
+        nomi_c = {(l_.x + meta_l, l_.z + meta_l): l_.nome for l_ in luoghi if l_.tipo == "citta"}
+        for s_ in ferrovia.stazioni:
+            s_.nome = "Stazione di " + nomi_c.get(s_.extra.get("citta"), "la Piana")
     luoghi = luoghi + SI.luoghi(siti_l, meta_l)
 
     # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
@@ -1648,7 +1669,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                 f"{i.committente} -> {i.meta}" for i in incarichi) + ")")
     trofei = IC.trofei(incarichi)
     if siti_l:
-        abitanti = abitanti + SI.creature(siti_l, trofei)
+        abitanti = abitanti + SI.creature(siti_l, trofei) + SI.carrelli(siti_l, meta_l)
 
     if torri:
         capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed, trofei=trofei)
@@ -1754,6 +1775,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  cls=cls_piano, livello=a.livello,
                  isole=isole, indice_isole=ISO.indice_per_chunk(isole) if isole else {},
                  siti=siti_l, indice_siti=SI.indice_per_chunk(siti_l) if siti_l else {},
+                 ferrovia=ferrovia,
                  tipo_strada=tipo_strada, quota_strada=quota_strada,
                  alberi=alberi, indice_alberi=indice, muro=muro,
                  scarpata=scarpata,
@@ -2818,6 +2840,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
         tav_is = ISO.Tavolozza(m) if piano.isole else None
         tav_si = SI.Tavolozza(m) if piano.siti else None
+        tav_fe = FE.blocchi_rotaia(m) if piano.ferrovia is not None else None
         sp_specchio = SP.Specchio(m, op.decadimento, op.seed) if op.sottosopra else None
         sp_bio = (sp_specchio.biomi(None, B.BIOMI) if sp_specchio is not None and a.biomi is not None
                   else None)
@@ -2985,6 +3008,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         _dal_chunk(piano.indice_siti, sx, sz), meta=meta)
                 dungeon_g.update({(x - meta, y, z - meta): tipo
                                   for x, y, z, tipo in tav_si.bauli})
+            if tav_fe is not None:                 # dopo le stazioni: lo spazio libero non cancella la linea
+                FE.posa(blocchi, tav_fe, m.id_aria, ox, oz, -64, piano.ferrovia, ox >> 4, oz >> 4)
             if tav_cs is not None:
                 tav_cs.bauli.clear()
                 CS.posa(blocchi, tav_cs, fetta(piano.h, sx, sz), ox, oz, -64,

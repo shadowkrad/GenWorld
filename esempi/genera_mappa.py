@@ -109,6 +109,8 @@ def main() -> None:
                          "--no-sottosopra (il predefinito): il Nether disegnato da noi, con fortezze e bastioni")
     ap.add_argument("--decadimento", type=float, default=0.5, metavar="0..1",
                     help="solo con --sottosopra: quanto sono in rovina le costruzioni (0 intatte)")
+    ap.add_argument("--ferrovie", type=float, default=1.0, metavar="0..2",
+                    help="ferrovie fra le citta' grandi, con stazioni di legno e locomotive a vapore (0 = nessuna)")
     ap.add_argument("--dem", default="", metavar="FILE.npz",
                     help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
     ap.add_argument("--riprendi", metavar="CARTELLA", default="",
@@ -239,7 +241,7 @@ def main() -> None:
         frc = DEM.frazioni_da_lonlat(d_, a.lato, [(c["lon"], c["lat"]) for c in cit], a.altezza or None)
         citta_reali = tuple((c["nome"], fx, fz, bool(c.get("grande"))) for (fx, fz), c in zip(frc, cit)
                             if 0 < fx < 1 and 0 < fz < 1)
-    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, sottosopra=a.sottosopra, decadimento=a.decadimento, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato, altezza=a.altezza,
+    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, sottosopra=a.sottosopra, decadimento=a.decadimento, ferrovie=a.ferrovie, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato, altezza=a.altezza,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,

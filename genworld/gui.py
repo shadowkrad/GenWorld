@@ -611,6 +611,9 @@ class Finestra(QWidget):
         self.dimensioni = QCheckBox("Nether ed End (isole, cittadelle; senza Sottosopra anche fortezze)")
         self.dimensioni.setChecked(True)
         f.addRow(self.dimensioni)
+        self.ferrovie = QCheckBox("Ferrovie, stazioni e treni a vapore")
+        self.ferrovie.setChecked(True)
+        f.addRow(self.ferrovie)
         self.sottosopra = QCheckBox("Sottosopra: il Nether come specchio (altrimenti, Nether con fortezze)")
         f.addRow(self.sottosopra)
         self.decadimento = self._cursore(f, "Rovina del Sottosopra", 0, 100, 50, suffisso="%")
@@ -790,6 +793,7 @@ class Finestra(QWidget):
             dimensioni=self.dimensioni.isChecked(),
             sottosopra=self.sottosopra.isChecked(),
             decadimento=self.decadimento.value() / 100.0,
+            ferrovie=1.0 if self.ferrovie.isChecked() else 0.0,
             templates=cartella_template,
             templates_cimitero=cartella_cimitero,
             templates_portale=cartella_portale,
