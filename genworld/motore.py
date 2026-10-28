@@ -1601,12 +1601,24 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     siti_l: list = []
     ferrovia = None
     if op.ferrovie > 0 and tipo_strada is not None and len(citta) >= 2:
-        ferrovia = FE.pianifica(tipo_strada, quota_strada, citta, op.lato // 2, nomi_citta,
-                                densita=op.ferrovie, seed=op.seed)
+        ferrovia = FE.pianifica(tipo_strada, quota_strada, h, cls_piano, protetto, citta, op.lato // 2,
+                                nomi_citta, densita=op.ferrovie, seed=op.seed)
         if ferrovia.lunghezza:
             note.append(f"ferrovia: {ferrovia.lunghezza} binari, {len(ferrovia.stazioni)} stazioni")
+            # il corridoio dei binari (3 blocchi per lato) e' riservato: niente alberi, luoghi o arredi
+            zz, xx = np.array(sorted(ferrovia.celle)).T
+            corridoio = np.zeros(a.cls.shape, bool)
+            corridoio[zz, xx] = True
+            from scipy.ndimage import binary_dilation as _bd
+            corridoio = _bd(corridoio, iterations=2)
+            protetto = protetto | corridoio
             for s_ in ferrovia.stazioni:
                 protetto = protetto | SI.maschera([s_], a.cls.shape, margine=2)
+            if alberi:
+                tieni = ~corridoio[alberi["z"], alberi["x"]]
+                if not tieni.all():
+                    alberi = {k: v[tieni] for k, v in alberi.items()}
+                    indice = V.indice_per_chunk(alberi, op.lato) if alberi else {}
         else:
             ferrovia = None
     if op.siti > 0 or ferrovia is not None:
@@ -3008,8 +3020,6 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                         _dal_chunk(piano.indice_siti, sx, sz), meta=meta)
                 dungeon_g.update({(x - meta, y, z - meta): tipo
                                   for x, y, z, tipo in tav_si.bauli})
-            if tav_fe is not None:                 # dopo le stazioni: lo spazio libero non cancella la linea
-                FE.posa(blocchi, tav_fe, m.id_aria, ox, oz, -64, piano.ferrovia, ox >> 4, oz >> 4)
             if tav_cs is not None:
                 tav_cs.bauli.clear()
                 CS.posa(blocchi, tav_cs, fetta(piano.h, sx, sz), ox, oz, -64,
@@ -3083,6 +3093,8 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 spawner = DG.entita_blocco(piano.dungeon, ox, oz, meta)
                 if spawner:
                     bauli_c = (bauli_c or []) + spawner
+            if tav_fe is not None:                 # per ultimi: niente puo' piu' sovrascrivere la linea
+                FE.posa(blocchi, tav_fe, m.id_aria, ox, oz, -64, piano.ferrovia, ox >> 4, oz >> 4)
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
             if sp_specchio is not None:
                 # IL SOTTOSOPRA: gli stessi blocchi, con i materiali del Nether, nello stesso punto
