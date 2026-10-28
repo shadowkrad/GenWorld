@@ -88,7 +88,7 @@ class ScrittoreMondo:
             assicura_dimensioni(self.percorso, self.imp.data_version)
             if self.imp.sottosopra:
                 from . import sottosopra as SP
-                SP.scrivi_datapack(self.percorso)
+                SP.scrivi_datapack(self.percorso, self.imp.versione)
             self._livello = amulet.load_level(self.percorso)
             return self
 
@@ -125,7 +125,7 @@ class ScrittoreMondo:
         if self.imp.sottosopra:
             # il datapack va scritto PRIMA di aprire il livello: amulet vi legge l'altezza del Nether
             from . import sottosopra as SP
-            SP.scrivi_datapack(self.percorso)
+            SP.scrivi_datapack(self.percorso, self.imp.versione)
 
         # Dalle versioni piu' recenti (DataVersion 4786 in su, cioe' 26.2) le
         # dimensioni stanno in `dimensions/<namespace>/<nome>/` e amulet

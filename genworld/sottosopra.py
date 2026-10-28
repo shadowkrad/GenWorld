@@ -28,63 +28,29 @@ import numpy as np
 # Il datapack: Nether a scala 1:1 e alto come l'overworld
 # --------------------------------------------------------------------------
 
-PACK_MCMETA = {"pack": {"description": "Sottosopra: il Nether come specchio dell'overworld",
-                        "min_format": [107, 0], "max_format": 107}}
-
-# copia del tipo di dimensione del gioco 26.2 (`data/minecraft/dimension_type/the_nether.json`),
-# con scala 1, altezza da -64 a 320 e senza il soffitto
-DIMENSIONE_NETHER = {
-    "ambient_light": 0.1,
-    "attributes": {
-        "minecraft:gameplay/bed_rule": {"can_set_spawn": "never", "can_sleep": "never", "explodes": True},
-        "minecraft:gameplay/can_start_raid": False,
-        "minecraft:gameplay/fast_lava": True,
-        "minecraft:gameplay/piglins_zombify": False,
-        "minecraft:gameplay/respawn_anchor_works": True,
-        "minecraft:gameplay/sky_light_level": 4.0,
-        "minecraft:gameplay/snow_golem_melts": True,
-        "minecraft:gameplay/water_evaporates": True,
-        "minecraft:visual/ambient_light_color": "#3a2018",
-        "minecraft:visual/default_dripstone_particle": {"type": "minecraft:dripping_dripstone_lava"},
-        "minecraft:visual/fog_end_distance": 128.0,
-        "minecraft:visual/fog_start_distance": 8.0,
-        "minecraft:visual/sky_light_color": "#7a7aff",
-        "minecraft:visual/sky_light_factor": 0.0,
-    },
-    "cardinal_light": "nether",
-    "coordinate_scale": 1.0,
-    "has_ceiling": False,
-    "has_ender_dragon_fight": False,
-    "has_fixed_time": True,
-    "has_skylight": False,
-    "height": 384,
-    "infiniburn": "#minecraft:infiniburn_nether",
-    "logical_height": 384,
-    "min_y": -64,
-    "monster_spawn_block_light_limit": 15,
-    "monster_spawn_light_level": 7,
-    "skybox": "none",
-    "timelines": "#minecraft:in_nether",
-}
+def _cartella_dati(versione: tuple) -> str:
+    """La cartella dei file del datapack per una versione di gioco: `26.3` dalla 26.3 in poi, altrimenti
+    `26.2` (i formati dei tipi di dimensione e dei biomi sono cambiati fra le due)."""
+    radice = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dati", "sottosopra")
+    nome = "26.3" if tuple(versione) >= (26, 3, 0) else "26.2"
+    return os.path.join(radice, nome)
 
 
-def scrivi_datapack(percorso_mondo: str) -> str:
-    """Crea `<mondo>/datapacks/sottosopra/`. Ritorna la cartella. Idempotente."""
+def scrivi_datapack(percorso_mondo: str, versione: tuple = (26, 2, 0)) -> str:
+    """Crea `<mondo>/datapacks/sottosopra/` per la `versione` di gioco. Ritorna la cartella.
+    Idempotente. I file (tipo di dimensione, cinque biomi, `pack.mcmeta`) sono copie di quelli
+    del gioco con scala 1:1, altezza -64..320, nebbia scura e cenere: vedi `dati/sottosopra/`."""
     base = os.path.join(percorso_mondo, "datapacks", "sottosopra")
+    sorgente = _cartella_dati(versione)
     tipo = os.path.join(base, "data", "minecraft", "dimension_type")
     os.makedirs(tipo, exist_ok=True)
-    with open(os.path.join(base, "pack.mcmeta"), "w", encoding="utf-8") as f:
-        json.dump(PACK_MCMETA, f, indent=2)
-    with open(os.path.join(tipo, "the_nether.json"), "w", encoding="utf-8") as f:
-        json.dump(DIMENSIONE_NETHER, f, indent=2)
-    # i cinque biomi del Nether con nebbia scura e cenere nell'aria (copie di quelli del gioco 26.2)
-    sorgente = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dati", "sottosopra_biomi")
-    if os.path.isdir(sorgente):
-        dest = os.path.join(base, "data", "minecraft", "worldgen", "biome")
-        os.makedirs(dest, exist_ok=True)
-        for nome in os.listdir(sorgente):
-            if nome.endswith(".json"):
-                shutil.copyfile(os.path.join(sorgente, nome), os.path.join(dest, nome))
+    shutil.copyfile(os.path.join(sorgente, "pack.mcmeta"), os.path.join(base, "pack.mcmeta"))
+    shutil.copyfile(os.path.join(sorgente, "the_nether.json"), os.path.join(tipo, "the_nether.json"))
+    dest = os.path.join(base, "data", "minecraft", "worldgen", "biome")
+    os.makedirs(dest, exist_ok=True)
+    for nome in os.listdir(os.path.join(sorgente, "biomi")):
+        if nome.endswith(".json"):
+            shutil.copyfile(os.path.join(sorgente, "biomi", nome), os.path.join(dest, nome))
     return base
 
 

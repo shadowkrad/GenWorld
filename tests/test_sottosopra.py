@@ -195,6 +195,37 @@ class TestDatapack(unittest.TestCase):
                 lv.close()
 
 
+class TestVersioni(unittest.TestCase):
+    def test_il_datapack_segue_la_versione(self):
+        with tempfile.TemporaryDirectory() as d:
+            for ver, major, attr_ok, attr_no in (((26, 2, 0), 107, "explodes", "destroy_on_use"),
+                                                 ((26, 3, 0), 121, "destroy_on_use", "explodes")):
+                base = SP.scrivi_datapack(os.path.join(d, str(ver)), ver)
+                mc = json.load(open(os.path.join(base, "pack.mcmeta"), encoding="utf-8"))
+                self.assertEqual(mc["pack"]["max_format"], major)
+                dim = json.load(open(os.path.join(base, "data", "minecraft", "dimension_type",
+                                                  "the_nether.json"), encoding="utf-8"))
+                regola = json.dumps(dim["attributes"]["minecraft:gameplay/bed_rule"])
+                self.assertIn(attr_ok, regola)
+                self.assertNotIn(attr_no, regola)
+                self.assertEqual((dim["coordinate_scale"], dim["min_y"], dim["height"]), (1.0, -64, 384))
+                self.assertEqual(len(os.listdir(os.path.join(base, "data", "minecraft", "worldgen", "biome"))), 5)
+
+    def test_un_mondo_26_3_si_apre_con_l_altezza_giusta(self):
+        import amulet
+        from genworld.livello_dat import ImpostazioniMondo
+        from genworld.mondo import ScrittoreMondo
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "w")
+            imp = ImpostazioniMondo(nome="T", versione=(26, 3, 0), sottosopra=True)
+            self.assertGreaterEqual(imp.data_version, 5020)
+            with ScrittoreMondo(p, imp, lato_blocchi=64, crea=True) as m:
+                b = m._livello.bounds("minecraft:the_nether")
+                self.assertEqual((b.min[1], b.max[1]), (-64, 320))
+            lv = amulet.load_level(p)
+            lv.close()
+
+
 class TestCreature(unittest.TestCase):
     def test_abitanti_e_greggi_diventano_piglin_e_hoglin(self):
         from genworld.entita import Abitante
