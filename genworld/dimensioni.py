@@ -45,6 +45,7 @@ def _chunk_isole(pe) -> set:
         for cz in range(z0 >> 4, (z1 >> 4) + 1):
             for cx in range(x0 >> 4, (x1 >> 4) + 1):
                 fuori.add((cx, cz))
+    fuori.update(pe.indice_ponti)
     return fuori
 
 
