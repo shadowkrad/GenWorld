@@ -49,7 +49,8 @@ ISOLE = ("Isola del Corvo Bianco", "Isola dei Naufraghi", "Scoglio del Capitano"
          "Isola delle Due Palme", "Secca del Tesoro")
 PORTALI = ("Portale Antico", "Il Varco Spezzato", "Portale delle Ceneri", "Arco del Confine")
 
-TIPI_AVVENTURA = ("rovina", "torre", "fortezza", "castello", "isola")
+TIPI_AVVENTURA = ("rovina", "torre", "fortezza", "castello", "isola",
+                  "strega", "sommersa", "arena", "labirinto", "grotta")
 
 # otto direzioni, a partire da est, in senso orario guardando la mappa dall'alto
 # (+x est, +z sud)
@@ -98,13 +99,17 @@ def _scegli(rng: np.random.Generator, elenco: tuple, usati: set) -> str:
 
 def raccogli(citta: list, miniere: list, dungeon: list, torri: list, avamposti: list,
              meta: int, seed: int = 0, fortezze: list | None = None,
-             castelli: list | None = None, isole: list | None = None) -> list[Luogo]:
+             castelli: list | None = None, isole: list | None = None,
+             nomi_citta: dict | None = None) -> list[Luogo]:
     """Dà un nome a ogni luogo e lo mette in coordinate di gioco."""
     rng = np.random.default_rng(seed + 8888)
     usati: set = set()
     fuori: list[Luogo] = []
     for c in citta:
-        fuori.append(Luogo(_scegli(rng, CITTA, usati), "citta", c.x - meta, c.z - meta,
+        nome_c = (nomi_citta or {}).get((c.x, c.z))
+        if nome_c is None:
+            nome_c = _scegli(rng, CITTA, usati)
+        fuori.append(Luogo(nome_c, "citta", c.x - meta, c.z - meta,
                            nota=f"raggio {c.raggio}" + (", murata" if c.murata else "")
                            + (f", {c.forma}" if getattr(c, "forma", "quadrato") != "quadrato" else "")))
     for mn in miniere:

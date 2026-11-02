@@ -15,6 +15,7 @@ vegetazione, e tutto prima di scrivere un solo chunk.
 
 from __future__ import annotations
 
+import copy
 import os
 import time
 from dataclasses import dataclass, field, replace
@@ -42,7 +43,9 @@ from . import castello as CS
 from . import entita as EN
 from . import incarichi as IC
 from . import isole as ISO
+from . import ferrovie as FE
 from . import siti as SI
+from . import sottosopra as SP
 from . import fortezze as FZ
 from . import luoghi as LU
 from . import mappe as MP
@@ -71,6 +74,7 @@ from .profilo import Profilo, maschera_decoro
 from .rumore import dettaglio, quantizza
 
 LIVELLO_MARE = 62
+NETHER = "minecraft:the_nether"          # la dimensione dello specchio (vedi `sottosopra.py`)
 # Fin dove si scrivono i blocchi: l'albero di una nave da 170 blocchi arriva
 # oltre quota 220, e una cima tagliata si vede.
 ALTEZZA_MONDO = 256
@@ -127,6 +131,15 @@ class Opzioni:
     erosione: float = 0.0
     fiumi: float = 150.0
     vulcani: int = 3
+    # Posizioni dei vulcani scelte a mano sull'anteprima: [(x, z)] in frazioni 0..1 della
+    # mappa. Se ci sono, sono le uniche e `vulcani` non conta.
+    vulcani_posizioni: tuple = ()
+    # Modello di quote reali (`.npz` di `esempi/prepara_dem.py`): al posto dell'immagine.
+    dem: str = ""
+    # Citta' vere: ((nome, fx, fz, grande), ...) in frazioni 0..1 del mondo; si piazzano li'.
+    citta_reali: tuple = ()
+    # Con citta' vere: niente villaggi automatici, solo quelle (es. solo le capitali).
+    solo_citta_reali: bool = False
     alberi: float = 1.0
     villaggi: float = 1.0
     strade: bool = True
@@ -158,6 +171,15 @@ class Opzioni:
     dimensioni: bool = False
     # Luoghi da scoprire (capanne di streghe, rovine sommerse, labirinti...): vedi `siti.py`.
     siti: float = 1.0
+    # Ferrovie fra le citta' piu' grandi, con stazioni di legno e locomotive a vapore: 0 = nessuna.
+    ferrovie: float = 1.0
+    # Mondo RETTANGOLARE: `lato` blocchi in x per `altezza` in z (0 = quadrato). Solo con --dem.
+    altezza: int = 0
+    # Il Nether come specchio dell'overworld: stessa geografia, materiali del Nether, lava al posto
+    # dell'acqua (vedi `sottosopra.py`). Con questo il Nether non e' piu' quello disegnato da `nether.py`.
+    sottosopra: bool = False
+    # Quanto sono in rovina le costruzioni del Sottosopra: 0 intatte, 1 molto rovinate.
+    decadimento: float = 0.5
     # Cosa c'e' oltre la mappa disegnata: "naturale" = il terreno normale di
     # Minecraft, generato al volo (nessun bordo); "vuoto" = aria. Non cambia
     # l'analisi, quindi fuori da `firma_analisi`.
@@ -226,9 +248,33 @@ class Opzioni:
 
     def modo(self) -> str:
         """Chiave di cache: cambiando modo di classificare va rifatta l'analisi."""
+        if self.dem:
+            try:
+                st = os.stat(self.dem)
+                return f"dem:{os.path.basename(self.dem)}:{st.st_size}:{st.st_mtime_ns}"
+            except OSError:
+                return "dem:?"
         if self.profilo:
-            return "profilo:" + os.path.basename(self.profilo)
+            # il CONTENUTO conta, non solo il nome: ritoccare i campioni di un profilo e
+            # rianalizzare con la cache vecchia dava lo stesso risultato di prima
+            try:
+                import hashlib
+                with open(self.profilo, "rb") as f:
+                    impronta = hashlib.sha1(f.read()).hexdigest()[:12]
+            except OSError:
+                impronta = "?"
+            return f"profilo:{os.path.basename(self.profilo)}:{impronta}"
         return "adattivo" if self.adattivo else "soglie"
+
+    @property
+    def alt(self) -> int:
+        """L'altezza (in z) del mondo: `lato` se e' quadrato."""
+        return self.altezza or self.lato
+
+    @property
+    def spawn(self) -> tuple:
+        """Il punto d'inizio: al centro del mondo (per un rettangolare, non sull'origine)."""
+        return (0, 150, -self.lato // 2 + self.alt // 2)
 
     @property
     def cache_piano(self) -> str:
@@ -270,8 +316,8 @@ class Opzioni:
         Alberi, villaggi e strade NON ci sono: si calcolano dopo, e cambiarli
         non deve invalidare l'analisi, che e' la parte lenta.
         """
-        return (int(self.lato), self.modo(), float(self.erosione),
-                float(self.fiumi), int(self.vulcani), float(self.laghi),
+        return (int(self.lato), int(self.altezza), self.modo(), float(self.erosione),
+                float(self.fiumi), int(self.vulcani), tuple(self.vulcani_posizioni), float(self.laghi),
                 float(self.ritaglio), os.path.abspath(self.immagine), B.firma())
 
 
@@ -409,27 +455,37 @@ def _terreno(op: Opzioni, cls: np.ndarray, rug: np.ndarray, prof,
 
 def _vulcani(op: Opzioni, cls: np.ndarray, h: np.ndarray, note: list[str],
              avanza: Avanzamento):
-    """Coni, crateri, laghi di lava e colate. Ritorna (cls, h, lava, colata, q_lava)."""
+    """Coni, crateri, laghi di lava e colate. Ritorna (cls, h, lava, colata, q_lava, spenti)."""
     # VULCANI. Vanno prima dei fiumi: sono l'unico elemento che si SOVRAPPONE
     # al terreno invece di dedurlo, e il deflusso deve poter scendere dai loro
     # fianchi. Calcolarli dopo darebbe coni senza torrenti.
     lava = np.zeros(h.shape, bool)
     colata = np.zeros(h.shape, np.float32)
     q_lava = np.zeros(h.shape, np.float32)
-    if op.vulcani > 0:
+    spenti: list = []
+    if op.vulcani > 0 or op.vulcani_posizioni:
         avanza(0.52, "vulcani")
+        H_, W_ = cls.shape
+        scelte = [(int(p[1] * H_), int(p[0] * W_), *[int(v) for v in p[2:]])
+                  for p in op.vulcani_posizioni] or None
         coni = U.scegli_siti(cls, h, quanti=op.vulcani,
-                             livello_mare=LIVELLO_MARE, seed=9)
+                             livello_mare=LIVELLO_MARE, seed=9, posizioni=scelte)
         if coni:
             cls, h, lava, q_lava = U.modella(cls, h, coni)
-            colata = U.colate(h, cls, coni)
-            st = U.statistiche(coni, cls, lava, colata)
-            note.append(f"vulcani: {st['vulcani']}, cono {st['cono']} celle, "
-                        f"cratere {st['cratere']}, lago di lava "
-                        f"{st['lago_di_lava']}, colate {st['colate']} "
-                        f"(di cui {st['colate_incandescenti']} incandescenti), "
-                        f"cima a quota {st['quota_massima']}")
-    return cls, h, lava, colata, q_lava
+            attivi = [v for v in coni if not v.spento]
+            if attivi:
+                colata = U.colate(h, cls, attivi)
+                st = U.statistiche(attivi, cls, lava, colata)
+                note.append(f"vulcani attivi: {st['vulcani']}, cono {st['cono']} celle, "
+                            f"cratere {st['cratere']}, lago di lava "
+                            f"{st['lago_di_lava']}, colate {st['colate']} "
+                            f"(di cui {st['colate_incandescenti']} incandescenti), "
+                            f"cima a quota {st['quota_massima']}")
+            if len(attivi) < len(coni):
+                note.append(f"vulcani spenti: {len(coni) - len(attivi)} "
+                            f"({sum(1 for v in coni if v.spento and v.lago)} con il lago nel cratere)")
+            spenti = [v for v in coni if v.spento]
+    return cls, h, lava, colata, q_lava, spenti
 
 
 def _fiumi(op: Opzioni, cls: np.ndarray, h: np.ndarray, lava: np.ndarray,
@@ -510,16 +566,30 @@ def analizza(op: Opzioni, avanza: Avanzamento = _nulla,
             return cached
 
     note: list[str] = []
-    cls, rug, prof = _carica_e_classifica(op, note, avanza)
-    h = _terreno(op, cls, rug, prof, note, avanza)
-    cls, h, lava, colata, q_lava = _vulcani(op, cls, h, note, avanza)
+    base_dem = None
+    if op.dem:
+        from . import dem as DEM
+        avanza(0.05, "quote reali")
+        base_dem = DEM.a_mondo(DEM.carica(op.dem), op.lato, op.alt)
+        cls, h = base_dem["cls"], base_dem["h"]
+        note.append(f"quote reali: {os.path.basename(op.dem)}, {base_dem['passo']:.0f} m per blocco, "
+                    f"{int(base_dem['lago'].sum())} celle di lago")
+    else:
+        cls, rug, prof = _carica_e_classifica(op, note, avanza)
+        h = _terreno(op, cls, rug, prof, note, avanza)
+    cls, h, lava, colata, q_lava, spenti = _vulcani(op, cls, h, note, avanza)
     cls, h, livello, marino = _fiumi(op, cls, h, lava, q_lava, note, avanza)
     cls, h, livello = _laghi(op, cls, h, livello, marino, note, avanza)
+    if base_dem is not None:
+        cls, h, livello = DEM.applica_laghi(cls, h, livello, base_dem)
+    if any(v.lago for v in spenti):
+        cls, h, livello = U.laghi_dei_crateri(cls, h, livello, spenti)
 
     # I biomi per ultimi: dipendono dalle classi, e i fiumi le cambiano.
     # Calcolati prima, un corso d'acqua sarebbe rimasto pianura.
     avanza(0.88, "biomi")
-    bio = B.assegna(cls, h, livello_mare=LIVELLO_MARE, seed=op.seed)
+    bio = B.assegna(cls, h, livello_mare=LIVELLO_MARE, seed=op.seed,
+                    umido_max=1 if op.dem else 8)
     conteggio = B.statistiche(bio)
     principali = list(conteggio.items())[:6]
     note.append("biomi: " + ", ".join(f"{k} {v}" for k, v in principali)
@@ -643,6 +713,7 @@ class Piano:
     isole: list = field(default_factory=list)
     indice_isole: dict = field(default_factory=dict)
     libro_citta: tuple | None = None
+    ferrovia: object = None
     avamposti: list = field(default_factory=list)
     indice_avamposti: dict = field(default_factory=dict)
     # {indice edificio: (indice modello, rotazione)}: quale casa da template va
@@ -1220,10 +1291,34 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     avanza(0.05, "pianta urbana")
     siti = (I.scegli_siti(a.cls, h, livello_mare=LIVELLO_MARE,
                           celle_per_villaggio=int(45_000 / max(op.villaggi, 1e-3)),
+                          massimo=8 if op.citta_reali else 14,
                           seed=31) if op.villaggi > 0 else [])
+    # CITTA' VERE (vedi `esempi/genera_mappa.py --luoghi-reali`): si piazzano per prime, nel
+    # punto indicato; i villaggi automatici restano solo lontano da loro
+    reali = []
+    if op.villaggi > 0 and op.citta_reali and op.solo_citta_reali:
+        siti = []                                  # niente villaggi automatici: solo quelli veri
+    if op.villaggi > 0 and op.citta_reali:
+        H_, W_ = a.cls.shape
+        reali = [(int(fz * H_), int(fx * W_), 52 if grande else 30, nome)
+                 for nome, fx, fz, grande in op.citta_reali]
+        # le citta' vere possono stare su una costa o in una valle: tolleranze piu' larghe
+        siti = ([(z_, x_, r_, 0.40, 45.0) for z_, x_, r_, _ in reali]
+                + [s_ for s_ in siti
+                   if all((s_[0] - z_) ** 2 + (s_[1] - x_) ** 2 > 140 ** 2 for z_, x_, _, _ in reali)])
     edifici, h, vie, muro, citta, banchi, urbano, cls_c, livello_c = CT.pianifica(
         a.cls, h, a.livello, siti, livello_mare=LIVELLO_MARE, seed=31,
         forme=op.forme_citta)
+    siti = [tuple(s_[:3]) for s_ in siti]             # le tolleranze servivano solo alla scelta del sito
+    nomi_citta: dict = {}
+    for c_ in citta:                                   # a ogni citta' il nome vero piu' vicino
+        liberi = [r_ for r_ in reali if r_[3] not in nomi_citta.values()]
+        if liberi:
+            r_ = min(liberi, key=lambda q: (q[0] - c_.z) ** 2 + (q[1] - c_.x) ** 2)
+            if (r_[0] - c_.z) ** 2 + (r_[1] - c_.x) ** 2 <= 90 ** 2:
+                nomi_citta[(c_.x, c_.z)] = r_[3]
+    if reali:
+        note.append(f"citta' vere piazzate: {len(nomi_citta)} su {len(reali)}")
     # Le citta' cambiano la mappa (il terreno si adatta a loro: fiumi interrati,
     # fossi scavati): da qui in poi, e in `scrivi()`, vale la mappa cambiata.
     a = replace(a, cls=cls_c, livello=livello_c)
@@ -1504,8 +1599,33 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
 
     # SITI da scoprire: streghe, rovine sommerse, labirinti, arene, santuari...
     siti_l: list = []
-    if op.siti > 0:
-        siti_l = SI.pianifica(cls_piano, h, LIVELLO_MARE, protetto, citta, densita=op.siti, seed=op.seed)
+    ferrovia = None
+    if op.ferrovie > 0 and tipo_strada is not None and len(citta) >= 2:
+        ferrovia = FE.pianifica(tipo_strada, quota_strada, h, cls_piano, protetto, citta, op.lato // 2,
+                                nomi_citta, densita=op.ferrovie, seed=op.seed)
+        if ferrovia.lunghezza:
+            note.append(f"ferrovia: {ferrovia.lunghezza} binari, {len(ferrovia.stazioni)} stazioni")
+            # il corridoio dei binari (3 blocchi per lato) e' riservato: niente alberi, luoghi o arredi
+            zz, xx = np.array(sorted(ferrovia.celle)).T
+            corridoio = np.zeros(a.cls.shape, bool)
+            corridoio[zz, xx] = True
+            from scipy.ndimage import binary_dilation as _bd
+            corridoio = _bd(corridoio, iterations=2)
+            protetto = protetto | corridoio
+            for s_ in ferrovia.stazioni:
+                protetto = protetto | SI.maschera([s_], a.cls.shape, margine=2)
+            if alberi:
+                tieni = ~corridoio[alberi["z"], alberi["x"]]
+                if not tieni.all():
+                    alberi = {k: v[tieni] for k, v in alberi.items()}
+                    indice = V.indice_per_chunk(alberi, op.lato) if alberi else {}
+        else:
+            ferrovia = None
+    if op.siti > 0 or ferrovia is not None:
+        siti_l = (SI.pianifica(cls_piano, h, LIVELLO_MARE, protetto, citta, densita=op.siti, seed=op.seed)
+                  if op.siti > 0 else [])
+        if ferrovia is not None:
+            siti_l = siti_l + ferrovia.stazioni
         if siti_l:
             protetto = protetto | SI.maschera(siti_l, a.cls.shape, margine=2)
             if alberi:
@@ -1515,7 +1635,6 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                 if not tieni.all():
                     alberi = {k: v[tieni] for k, v in alberi.items()}
                     indice = V.indice_per_chunk(alberi, op.lato) if alberi else {}
-            abitanti = abitanti + SI.creature(siti_l)
             abitanti = abitanti + [CM.curatore(s_, seed=op.seed) for s_ in siti_l if s_.tipo == "museo"]
             conteggio: dict = {}
             for s_ in siti_l:
@@ -1525,7 +1644,12 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
     # LUOGHI. Nomi, cartelli e la catena di indizi, a pianificazione finita
     meta_l = op.lato // 2
     luoghi = LU.raccogli(citta, miniere, dungeon, torri, avamposti, meta_l, seed=op.seed,
-                         fortezze=fortezze, castelli=castelli_rovina, isole=isole)
+                         fortezze=fortezze, castelli=castelli_rovina, isole=isole,
+                         nomi_citta=nomi_citta)
+    if ferrovia is not None:
+        nomi_c = {(l_.x + meta_l, l_.z + meta_l): l_.nome for l_ in luoghi if l_.tipo == "citta"}
+        for s_ in ferrovia.stazioni:
+            s_.nome = "Stazione di " + nomi_c.get(s_.extra.get("citta"), "la Piana")
     luoghi = luoghi + SI.luoghi(siti_l, meta_l)
 
     # INCARICHI. Prima dei combattenti: il capo deve sapere che porta un trofeo.
@@ -1547,11 +1671,17 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         for isl in isole:
             x, y, z, _ = isl.forzieri()[0]
             strutture[("isola", isl.x - meta_l, isl.z - meta_l)] = (None, (x - meta_l, y, z - meta_l))
+        for s_ in siti_l:
+            if s_.tipo in LU.TIPI_AVVENTURA:
+                strutture[(s_.tipo, s_.x - meta_l, s_.z - meta_l)] = (
+                    (s_.x, s_.z) if SI.ha_capo(s_) else None, SI.forziere_principale(s_, meta_l))
         incarichi = IC.pianifica(citta, luoghi, strutture, meta_l, seed=op.seed)
         if incarichi:
             note.append(f"incarichi: {len(incarichi)} (" + ", ".join(
                 f"{i.committente} -> {i.meta}" for i in incarichi) + ")")
     trofei = IC.trofei(incarichi)
+    if siti_l:
+        abitanti = abitanti + SI.creature(siti_l, trofei) + SI.carrelli(siti_l, meta_l)
 
     if torri:
         capi = TR.combattenti(torri, [(c.x, c.z) for c in citta], seed=op.seed, trofei=trofei)
@@ -1612,6 +1742,13 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
         sedi[("isola", isl.x - meta_l, isl.z - meta_l)] = (x - meta_l, y, z - meta_l)
         if libro is not None:
             libri[(x - meta_l, y, z - meta_l)] = libro
+    for s_ in siti_l:
+        if s_.tipo in LU.TIPI_AVVENTURA:
+            pos = SI.forziere_principale(s_, meta_l)
+            sedi[(s_.tipo, s_.x - meta_l, s_.z - meta_l)] = pos
+            libro = ind["tappe"].get((s_.tipo, s_.x - meta_l, s_.z - meta_l))
+            if libro is not None:
+                libri[pos] = libro
     libri.update(SI.libri_pellegrini(siti_l, meta_l))
     mappe_tesoro = MP.pianifica(luoghi, sedi, meta_l)
     oggetti_forzieri = IC.oggetti_forziere(incarichi)
@@ -1634,7 +1771,10 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
             note.append(f"consegne fra citta': {len(consegne_l)}")
         occupati = {(int(a.x), int(a.z)) for a in committenti}
         commissioni = CM.pianifica(citta, luoghi, tipo_strada, h, meta_l, occupati, seed=op.seed)
-        abitanti = abitanti + committenti + commissioni
+        pattuglie = CM.guardie(citta, tipo_strada, h, seed=op.seed)
+        if pattuglie:
+            note.append(f"golem di pattuglia: {len(pattuglie)}")
+        abitanti = abitanti + committenti + commissioni + pattuglie
         if commissioni:
             note.append(f"commissioni dei popolani: {len(commissioni)} abitanti, "
                         f"{sum(len(a.offerte) for a in commissioni)} richieste")
@@ -1647,6 +1787,7 @@ def pianifica(op: Opzioni, a: Analisi, avanza: Avanzamento = _nulla) -> Piano:
                  cls=cls_piano, livello=a.livello,
                  isole=isole, indice_isole=ISO.indice_per_chunk(isole) if isole else {},
                  siti=siti_l, indice_siti=SI.indice_per_chunk(siti_l) if siti_l else {},
+                 ferrovia=ferrovia,
                  tipo_strada=tipo_strada, quota_strada=quota_strada,
                  alberi=alberi, indice_alberi=indice, muro=muro,
                  scarpata=scarpata,
@@ -2617,6 +2758,51 @@ def carica_modelli(op: Opzioni, piano: Piano) -> dict:
     }
 
 
+def mappe_globali(op: Opzioni, a: Analisi, piano: Piano) -> dict:
+    """Le mappe dell'INTERO mondo che `scrivi()` consulta chunk per chunk: pendenza, clima, parete
+    nuda, neve, sponde, cascate, manto e piede dei vulcani. Costano una passata su tutto il mondo:
+    con piu' lavoratori vanno calcolate UNA volta (qui, nel processo principale) e passate come
+    array mappati (vedi `parallelo.py`); un lavoratore che le rifacesse da solo, su un mondo di
+    cento milioni di celle, ci metterebbe ore e gigabyte di memoria a testa."""
+    if piano.cls is not None:
+        a = replace(a, cls=piano.cls, livello=piano.livello)
+    pend = _pendenza(piano.h)
+    clima = B.freddo(a.cls, piano.h, livello_mare=LIVELLO_MARE, seed=op.seed)
+    nuda_m, neve_m = SG.superficie_montana(piano.h, pend, seed=op.seed,
+                                           freddo=clima)
+    # La parete nuda vale sulla terra ferma: sott'acqua non si vede, sul
+    # basalto di un vulcano sarebbe un banco di granito in mezzo a una
+    # colata, e sulla sabbia una scogliera di pietra in mezzo alle dune.
+    nuda_m &= ~np.isin(a.cls, M.MARINO + (M.FIUME, M.VULCANO, M.CRATERE,
+                                          M.DESERTO, M.SPIAGGIA))
+    neve_m = np.where(np.isin(a.cls, M.MARINO + (M.FIUME, M.CRATERE)),
+                      0, neve_m).astype(np.uint8)
+
+    # La sponda: la fascia di terra che il fiume scava per restare in un
+    # solco (vedi `fiumi.livella`, `scavo_rive`) e' spesso ripida quanto
+    # bastava a farla leggere come "parete" da `superficie_montana` -
+    # risultato, un bordo di pietra nuda intorno all'acqua, uno screenshot
+    # da controllare. Il fiume e' terra scavata, non una cava: qui non
+    # deve mai comparire la roccia di default, solo terra (vedi
+    # `_posa_sponde`).
+    fiume_m = a.cls == M.FIUME
+    sponda_m = np.zeros(a.cls.shape, bool)
+    if fiume_m.any():
+        from scipy.ndimage import binary_dilation as _dil_sp
+        sponda_m = _dil_sp(fiume_m, iterations=3) & ~fiume_m
+        nuda_m &= ~sponda_m
+    scarto_m = SG.piega(max(piano.h.shape),
+                        seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
+    manto_m = U.manto(a.cls, seed=op.seed)
+    piede_m = U.piede(a.cls, seed=op.seed)
+    caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
+    asse_ponte_m = (ST.asse_ponti(piano.tipo_strada) if piano.tipo_strada is not None
+                    else None)
+    return {"scarto": scarto_m, "nuda": nuda_m, "neve": neve_m, "manto": manto_m, "piede": piede_m,
+            "sponda": sponda_m, "caduta": caduta_m, "parete_acqua": parete_acqua_m,
+            "asse_ponte": asse_ponte_m}
+
+
 def scrivi(op: Opzioni, a: Analisi, piano: Piano,
            avanza: Avanzamento = _nulla,
            da: int = 0, quanti: int = 0,
@@ -2647,16 +2833,17 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
 
     if piano.cls is not None:
         a = replace(a, cls=piano.cls, livello=piano.livello)
-    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
+    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=op.spawn,
                             versione=op.versione, seed=op.seed,
-                            fuori_mappa=op.fuori_mappa)
+                            fuori_mappa=op.fuori_mappa,
+                            sottosopra=getattr(op, 'sottosopra', False))
     os.makedirs(os.path.dirname(os.path.abspath(op.uscita)) or ".", exist_ok=True)
     primo = da == 0
     t0 = time.time()
     scritti = 0
     interrotto = False
 
-    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, crea=primo) as m:
+    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, altezza_blocchi=op.alt, crea=primo) as m:
         tav_ss = SS.Tavolozza(m)
         tav_mi = MI.Tavolozza(m) if piano.miniere else None
         tav_dg = DG.Tavolozza(m) if piano.dungeon else None
@@ -2665,6 +2852,10 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         tav_cs = CS.Tavolozza(m) if piano.castelli_rovina else None
         tav_is = ISO.Tavolozza(m) if piano.isole else None
         tav_si = SI.Tavolozza(m) if piano.siti else None
+        tav_fe = FE.blocchi_rotaia(m) if piano.ferrovia is not None else None
+        sp_specchio = SP.Specchio(m, op.decadimento, op.seed) if op.sottosopra else None
+        sp_bio = (sp_specchio.biomi(None, B.BIOMI) if sp_specchio is not None and a.biomi is not None
+                  else None)
         tav_av = AP.Tavolozza(m) if piano.avamposti else None
         cat_ar = TM.Catalogo(piano.arredi_modelli, m) if piano.arredi else None
         # Il cimitero e il portale da template (vedi avamposti.py e il
@@ -2690,35 +2881,9 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         # Gli strati fanno parte della roccia, quindi il sottosuolo puo'
         # scavarli e sostituirli come farebbe con la pietra liscia.
         tav_ss.aggiungi_rocce(roccia.ids)
-        pend = _pendenza(piano.h)
-        clima = B.freddo(a.cls, piano.h, livello_mare=LIVELLO_MARE, seed=op.seed)
-        nuda_m, neve_m = SG.superficie_montana(piano.h, pend, seed=op.seed,
-                                               freddo=clima)
-        # La parete nuda vale sulla terra ferma: sott'acqua non si vede, sul
-        # basalto di un vulcano sarebbe un banco di granito in mezzo a una
-        # colata, e sulla sabbia una scogliera di pietra in mezzo alle dune.
-        nuda_m &= ~np.isin(a.cls, M.MARINO + (M.FIUME, M.VULCANO, M.CRATERE,
-                                              M.DESERTO, M.SPIAGGIA))
-        neve_m = np.where(np.isin(a.cls, M.MARINO + (M.FIUME, M.CRATERE)),
-                          0, neve_m).astype(np.uint8)
-
-        # La sponda: la fascia di terra che il fiume scava per restare in un
-        # solco (vedi `fiumi.livella`, `scavo_rive`) e' spesso ripida quanto
-        # bastava a farla leggere come "parete" da `superficie_montana` -
-        # risultato, un bordo di pietra nuda intorno all'acqua, uno screenshot
-        # da controllare. Il fiume e' terra scavata, non una cava: qui non
-        # deve mai comparire la roccia di default, solo terra (vedi
-        # `_posa_sponde`).
-        fiume_m = a.cls == M.FIUME
-        sponda_m = np.zeros(a.cls.shape, bool)
-        if fiume_m.any():
-            from scipy.ndimage import binary_dilation as _dil_sp
-            sponda_m = _dil_sp(fiume_m, iterations=3) & ~fiume_m
-            nuda_m &= ~sponda_m
-        scarto_m = SG.piega(max(piano.h.shape),
-                            seed=op.seed)[:piano.h.shape[0], :piano.h.shape[1]]
-        manto_m = U.manto(a.cls, seed=op.seed)
-        piede_m = U.piede(a.cls, seed=op.seed)
+        mg = (precaricati or {}).get("mappe") or mappe_globali(op, a, piano)
+        scarto_m, nuda_m, neve_m = mg["scarto"], mg["nuda"], mg["neve"]
+        manto_m, piede_m, sponda_m = mg["manto"], mg["piede"], mg["sponda"]
         tav = V.Tavolozza(m) if piano.alberi is not None else None
         tav_ed = E.TavolozzaEdilizia(m) if (piano.edifici or piano.isolate) else None
         tav_ba = (BA.Tavolozza(m)
@@ -2762,9 +2927,7 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
         centri_g = [(c.x - meta, c.z - meta) for c in piano.citta]
         cripte_g = [(av.x - meta, av.z - meta, AP.RAGGIO_CIMITERO + 4)
                     for av in piano.avamposti if av.tipo == "cimitero"]
-        caduta_m, parete_acqua_m = CAS.trova(a.livello, a.cls, LIVELLO_MARE, a.lava)
-        asse_ponte_m = (ST.asse_ponti(piano.tipo_strada) if piano.tipo_strada is not None
-                        else None)
+        caduta_m, parete_acqua_m, asse_ponte_m = mg["caduta"], mg["parete_acqua"], mg["asse_ponte"]
         n = max(1, len(lista))
         for i, (cx, cz) in enumerate(lista):
             if ferma is not None and ferma():
@@ -2930,7 +3093,15 @@ def scrivi(op: Opzioni, a: Analisi, piano: Piano,
                 spawner = DG.entita_blocco(piano.dungeon, ox, oz, meta)
                 if spawner:
                     bauli_c = (bauli_c or []) + spawner
+            if tav_fe is not None:                 # per ultimi: niente puo' piu' sovrascrivere la linea
+                FE.posa(blocchi, tav_fe, m.id_aria, ox, oz, -64, piano.ferrovia, ox >> 4, oz >> 4)
             m.scrivi_chunk(cx, cz, blocchi, biomi=bio_c, bauli=bauli_c)
+            if sp_specchio is not None:
+                # IL SOTTOSOPRA: gli stessi blocchi, con i materiali del Nether, nello stesso punto
+                blocchi_n = sp_specchio.specchia(blocchi, SP.variante_chunk(cx, cz), cx, cz)
+                bio_n = sp_bio[fetta(a.biomi, sx, sz)] if a.biomi is not None else None
+                be_n = [SP.specchia_be(copy.deepcopy(b_)) for b_ in (bauli_c or [])]
+                m.scrivi_chunk(cx, cz, blocchi_n, biomi=bio_n, bauli=be_n, dimensione=NETHER)
             scritti += 1
             if i % 25 == 0 or i == n - 1:
                 avanza((i + 1) / n, f"chunk {da + i + 1} di {len(tutti)}")
@@ -2979,6 +3150,10 @@ def passaggi_finali(op: Opzioni, piano: Piano, fuori: dict) -> dict:
         # se e' nata in un muro o sotto terra (vedi `sicurezza.py`).
         in_gioco, sicure = SIC.rendi_sicure(op.uscita, in_gioco)
         fuori["creature_spostate"] = sicure
+        if op.sottosopra:                           # le creature dello specchio (vedi `sottosopra.py`)
+            from .livello_dat import ImpostazioniMondo as _Imp2
+            EN.scrivi_regioni(op.uscita, SP.specchia_creature(in_gioco),
+                              _Imp2(versione=op.versione).data_version, dimensione="the_nether")
         # `_Imp()` da solo darebbe sempre il DataVersion di 1.21.4 di
         # default, non quello scelto in `op.versione` - level.dat e le
         # entita' finirebbero con due DataVersion diversi.

@@ -36,6 +36,9 @@ def main() -> None:
     ap.add_argument("--uscita", default=PERCORSO, help="cartella del mondo")
     ap.add_argument("--nome", default="Arda")
     ap.add_argument("--lato", type=int, default=832)
+    ap.add_argument("--altezza", type=int, default=0,
+                    help="mondo rettangolare: --lato blocchi in x per --altezza in z (0 = quadrato). "
+                         "Solo con --dem; l'origine resta a meta' del lato")
     ap.add_argument("--ritaglio", type=float, default=0.025,
                     help="frazione di cornice da togliere per lato")
     ap.add_argument("--lotto", type=int, default=0)
@@ -100,6 +103,34 @@ def main() -> None:
                     "rettangolo di interesse + campioni col contagocce")
     ap.add_argument("--vulcani", type=int, default=3, metavar="N",
                     help="quanti vulcani piazzare (0 = nessuno)")
+    ap.add_argument("--sottosopra", action=argparse.BooleanOptionalAction, default=False,
+                    help="il Nether e' lo specchio dell'overworld: stessa geografia, materiali del "
+                         "Nether, lava al posto dell'acqua (scala 1:1, via datapack). "
+                         "--no-sottosopra (il predefinito): il Nether disegnato da noi, con fortezze e bastioni")
+    ap.add_argument("--decadimento", type=float, default=0.5, metavar="0..1",
+                    help="solo con --sottosopra: quanto sono in rovina le costruzioni (0 intatte)")
+    ap.add_argument("--ferrovie", type=float, default=1.0, metavar="0..2",
+                    help="ferrovie fra le citta' grandi, con stazioni di legno e locomotive a vapore (0 = nessuna)")
+    ap.add_argument("--dem", default="", metavar="FILE.npz",
+                    help="quote reali preparate con esempi/prepara_dem.py, al posto dell'immagine")
+    ap.add_argument("--riprendi", metavar="CARTELLA", default="",
+                    help="RIPRENDE una scrittura parallela interrotta: la cartella `genworld_...` rimasta "
+                         "accanto al mondo. Rifa solo i chunk mancanti, poi unisce e conclude")
+    ap.add_argument("--ripara-da", metavar="LOG", default="",
+                    help="RIPARA un mondo gia' scritto: rigenera i chunk che il log dice di non aver "
+                         "potuto salvare ('Error saving chunk Chunk(cx, cz, ...', di solito per memoria "
+                         "esaurita) senza toccare gli altri. Serve --cache-piano e le stesse opzioni")
+    ap.add_argument("--accetta-piano-vecchio", action="store_true",
+                    help="riusa il piano in cache anche se il codice e' cambiato dopo averlo calcolato "
+                         "(solo se sai che non e' cambiato nulla che lo riguardi: serve a non rifare "
+                         "ore di pianificazione dopo un ritocco alla scrittura)")
+    ap.add_argument("--solo-citta-reali", action="store_true",
+                    help="niente villaggi automatici: solo le citta' del file --luoghi-reali")
+    ap.add_argument("--luoghi-reali", default="", metavar="FILE.json",
+                    help="citta' e vulcani veri (lat/lon) da piazzare dove stanno; serve --dem")
+    ap.add_argument("--vulcani-px", metavar="X,Y;X,Y", default="",
+                    help="posizioni dei vulcani in PIXEL dell'immagine originale (come le legge "
+                         "un editor di immagini); se ci sono, sono le uniche e --vulcani non conta")
     ap.add_argument("--strade", action="store_true", default=True,
                     help="traccia la rete stradale e i ponti (attivo)")
     ap.add_argument("--senza-strade", dest="strade", action="store_false")
@@ -157,6 +188,15 @@ def main() -> None:
                     help="cosa c'e' oltre la mappa: 'naturale' (terreno normale di "
                          "Minecraft generato al volo, nessun bordo) o 'vuoto' (aria)")
     a = ap.parse_args()
+    if a.riprendi:
+        from genworld.parallelo import riprendi_parallelo
+        t_ = time.time()
+        st = riprendi_parallelo(a.riprendi, processi=a.processi or 4,
+                                avanza=lambda f, txt: print(f"  {f:.2f} {txt}", flush=True))
+        print(f"ripreso: {st['chunk']} chunk in {time.time() - t_:.0f}s ({st['restano']} rimanenti)")
+        if "level_dat" in st:
+            print("level.dat:", st["level_dat"])
+        return
 
     try:
         versione = tuple(int(n) for n in a.versione.split("."))
@@ -175,7 +215,33 @@ def main() -> None:
             print("  blocchi senza colore:", st["blocchi_ignoti"])
         return
 
-    op = Opzioni(immagine=a.immagine, uscita=a.uscita, nome=a.nome, lato=a.lato,
+    vulcani_pos = ()
+    if a.vulcani_px:
+        from genworld.profilo import Profilo
+        punti = [tuple(float(v) for v in c.split(",")) for c in a.vulcani_px.split(";") if c.strip()]
+        prof_ = Profilo.carica(a.profilo) if a.profilo else Profilo()
+        vulcani_pos = tuple(prof_.frazioni_da_pixel(a.immagine, a.lato, punti))
+    citta_reali = ()
+    if a.dem and a.luoghi_reali:
+        import json
+        from genworld import dem as DEM
+        dati = json.load(open(a.luoghi_reali, encoding="utf-8"))
+        d_ = DEM.carica(a.dem)
+        passo_cella = d_["passo"] / min(a.lato / d_["elev"].shape[1], (a.altezza or a.lato) / d_["elev"].shape[0])
+        if d_.get("crs") == "EPSG:4326":
+            passo_cella *= 111_320.0
+        vul = dati.get("vulcani", [])
+        fr = DEM.frazioni_da_lonlat(d_, a.lato, [(v["lon"], v["lat"]) for v in vul], a.altezza or None)
+        vulcani_pos = tuple(
+            (fx, fz, max(5, round(v["raggio_km"] * 1000 / passo_cella)), v["altezza"],
+             max(2, round(v.get("cratere_km", 1.0) * 1000 / passo_cella)),
+             int(bool(v.get("spento", False))), int(bool(v.get("lago", False))))
+            for (fx, fz), v in zip(fr, vul))
+        cit = dati.get("citta", [])
+        frc = DEM.frazioni_da_lonlat(d_, a.lato, [(c["lon"], c["lat"]) for c in cit], a.altezza or None)
+        citta_reali = tuple((c["nome"], fx, fz, bool(c.get("grande"))) for (fx, fz), c in zip(frc, cit)
+                            if 0 < fx < 1 and 0 < fz < 1)
+    op = Opzioni(immagine=a.immagine, vulcani_posizioni=vulcani_pos, dem=a.dem, sottosopra=a.sottosopra, decadimento=a.decadimento, ferrovie=a.ferrovie, citta_reali=citta_reali, solo_citta_reali=a.solo_citta_reali, uscita=a.uscita, nome=a.nome, lato=a.lato, altezza=a.altezza,
                  ritaglio=a.ritaglio, profilo=a.profilo, adattivo=a.adattivo,
                  erosione=a.erosione, fiumi=a.fiumi, vulcani=a.vulcani,
                  alberi=a.alberi, villaggi=a.villaggi, strade=a.strade,
@@ -195,12 +261,29 @@ def main() -> None:
 
     t0 = time.time()
     primo = a.lotto == 0
+    if a.accetta_piano_vecchio and os.path.exists(op.cache):
+        # stessa idea per l'analisi in cache: si rifirma con la firma attuale delle opzioni
+        import numpy as _np
+        with _np.load(op.cache, allow_pickle=False) as z_:
+            contenuto = {k_: z_[k_] for k_ in z_.files}
+        contenuto["firma"] = _np.array([str(x_) for x_ in op.firma_analisi()])
+        _np.savez_compressed(op.cache, **contenuto)
+        print("analisi in cache riconosciuta con la firma attuale")
     analisi = analizza(op)
     if primo:
         for n in analisi.note:
             print(n)
         print(f"mappa {op.lato}x{op.lato}: quote {analisi.h.min()}..{analisi.h.max()}")
 
+    if a.cache_piano and a.accetta_piano_vecchio and os.path.exists(op.cache_piano):
+        import pickle
+        with open(op.cache_piano, "rb") as f_:
+            _vecchia, piano_v = pickle.load(f_)
+        with open(op.cache_piano + ".tmp", "wb") as f_:
+            pickle.dump((op.firma_piano(), piano_v), f_, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(op.cache_piano + ".tmp", op.cache_piano)
+        del piano_v
+        print("piano in cache riconosciuto con la firma attuale")
     if a.cache_piano:
         from genworld.motore import pianifica_con_cache
         piano, dalla_cache = pianifica_con_cache(op, analisi)
@@ -211,6 +294,20 @@ def main() -> None:
     if primo:
         for n in piano.note:
             print(n)
+
+    if a.ripara_da:
+        from genworld.motore import carica_modelli, mappe_globali
+        from genworld.parallelo import chiavi_da_log, coordinate_chunk
+        coords = chiavi_da_log(open(a.ripara_da, encoding="utf-8", errors="replace").read())
+        indice = {c: k for k, c in enumerate(coordinate_chunk(op.lato, op.alt))}
+        ks = sorted(indice[c] for c in coords if c in indice)
+        print(f"chunk da riparare: {len(ks)}")
+        if ks:
+            pre = carica_modelli(op, piano)
+            pre["mappe"] = mappe_globali(op, analisi, piano)
+            st = scrivi(op, analisi, piano, da=1, indici=ks, lavoratore=True, precaricati=pre)
+            print(f"riparati {st['chunk']} chunk")
+        return
 
     quanti = a.chunk_per_lotto
     if a.processi != 1 and not quanti:

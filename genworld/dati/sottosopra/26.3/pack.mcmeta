@@ -1,0 +1,10 @@
+{
+  "pack": {
+    "description": "Sottosopra: il Nether come specchio dell'overworld",
+    "min_format": [
+      121,
+      0
+    ],
+    "max_format": 121
+  }
+}

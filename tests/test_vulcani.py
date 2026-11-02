@@ -211,3 +211,65 @@ class TestPiede(unittest.TestCase):
         self.assertTrue((V.piede(cls, seed=4) == V.piede(cls, seed=4)).all())
         vuota = np.full((50, 50), M.PIANURA, np.uint8)
         self.assertFalse(V.piede(vuota).any())
+
+
+class TestPosizioniScelte(unittest.TestCase):
+    def test_i_vulcani_stanno_dove_sono_stati_messi_e_quanti_non_conta(self):
+        cls, h = terreno()
+        v = V.scegli_siti(cls, h, quanti=5, posizioni=[(120, 140), (100, 100)])
+        self.assertEqual([(a.z, a.x) for a in v], [(120, 140), (100, 100)])
+
+    def test_in_mare_non_si_fa_e_vicino_al_bordo_il_raggio_si_riduce(self):
+        cls, h = terreno()
+        self.assertEqual(V.scegli_siti(cls, h, posizioni=[(120, 10)]), [])
+        v = V.scegli_siti(cls, h, posizioni=[(120, 62)])
+        self.assertEqual(len(v), 1)
+        self.assertLessEqual(v[0].raggio, 62 - 4 - 0)
+        self.assertGreaterEqual(min(v[0].z, v[0].x, 239 - v[0].z, 239 - v[0].x), v[0].raggio + 4)
+
+    def test_senza_posizioni_resta_automatico(self):
+        cls, h = terreno()
+        cls, h = terreno(700)
+        self.assertEqual(len(V.scegli_siti(cls, h, quanti=2, seed=1)), 2)
+        self.assertEqual(V.scegli_siti(cls, h, quanti=0), [])
+
+    def test_le_posizioni_cambiano_la_firma_dell_analisi(self):
+        from genworld.motore import Opzioni
+        a = Opzioni(immagine="x.png", uscita="u")
+        b = Opzioni(immagine="x.png", uscita="u", vulcani_posizioni=((0.5, 0.5),))
+        self.assertNotEqual(a.firma_analisi(), b.firma_analisi())
+
+
+
+class TestCacheProfilo(unittest.TestCase):
+    def test_cambiare_il_contenuto_del_profilo_cambia_la_chiave_di_cache(self):
+        import os
+        import tempfile
+        from genworld.motore import Opzioni
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "x.profilo.json")
+            open(p, "w").write("{}")
+            a = Opzioni(immagine="x.png", uscita="u", profilo=p).firma_analisi()
+            open(p, "w").write('{"nome": "altro"}')
+            b = Opzioni(immagine="x.png", uscita="u", profilo=p).firma_analisi()
+            self.assertNotEqual(a, b)
+
+
+class TestPixelAFrazioni(unittest.TestCase):
+    def test_conversione_con_rettangolo_e_centramento(self):
+        import os
+        import tempfile
+        from PIL import Image
+        from genworld.profilo import Profilo
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "i.png")
+            Image.new("RGB", (400, 200), (0, 0, 0)).save(p)
+            prof = Profilo(roi=(0.25, 0.0, 0.75, 1.0))           # ritaglio 200 x 200: quadrato
+            f = prof.frazioni_da_pixel(p, 100, [(200, 100), (50, 100), (150, 0)])
+            self.assertAlmostEqual(f[0][0], 0.5)
+            self.assertAlmostEqual(f[0][1], 0.5)
+            self.assertEqual(len(f), 2)                           # (50, 100) e' fuori dal ritaglio
+            self.assertAlmostEqual(f[1][0], 0.25)
+            # senza ritaglio: 400 x 200 in 100 x 100 -> 100 x 50 centrata, scarto verticale 25
+            g = Profilo().frazioni_da_pixel(p, 100, [(0, 0), (400, 200)])
+            self.assertEqual(g, [(0.0, 0.25), (1.0, 0.75)])

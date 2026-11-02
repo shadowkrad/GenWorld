@@ -44,6 +44,7 @@ SPECIE = {
     "pesce_tropicale": "tropical_fish", "calamaro": "squid", "delfino": "dolphin",
     "pesce_palla": "pufferfish", "calamaro_luminoso": "glow_squid",
     "mercante": "wandering_trader", "lama_mercante": "trader_llama",
+    "golem": "iron_golem",
 }
 
 # chi vive in acqua: nessun "OnGround", si piazza dentro l'acqua e non sul fondo
@@ -60,7 +61,7 @@ SALUTE = {
     "pappagallo": 6.0, "ocelotto": 10.0, "ape": 10.0, "gatto": 10.0, "rana": 10.0,
     "merluzzo": 3.0, "salmone": 3.0, "pesce_tropicale": 3.0, "calamaro": 10.0,
     "delfino": 10.0, "pesce_palla": 3.0, "calamaro_luminoso": 10.0,
-    "mercante": 20.0, "lama_mercante": 15.0,
+    "mercante": 20.0, "lama_mercante": 15.0, "golem": 100.0,
 }
 
 CORTILE = ("mucca", "pecora", "gallina", "maiale")

@@ -278,6 +278,34 @@ def pianifica(citta: list, luoghi: list, strade, altezze, meta: int, occupati: s
     return fuori
 
 
+def guardie(citta: list, strade, altezze, seed: int = 0) -> list:
+    """Le PATTUGLIE: due golem di ferro sulle strade attorno alla piazza di ogni citta' (quattro
+    se e' murata), a distanza diversa dal centro: difendono gli abitanti dai mostri."""
+    from .fauna import Animale
+    fuori: list = []
+    if strade is None:
+        return fuori
+    rng = np.random.default_rng(seed + 7171)
+    H, W = strade.shape
+    for n_c, c in enumerate(citta):
+        pz, px = c.piazza
+        z0, z1, x0, x1 = max(0, pz - 26), min(H, pz + 27), max(0, px - 26), min(W, px + 27)
+        zz, xx = np.nonzero(strade[z0:z1, x0:x1] > 0)
+        if zz.size == 0:
+            continue
+        d2 = (zz + z0 - pz) ** 2 + (xx + x0 - px) ** 2
+        for k in range(4 if c.murata else 2):
+            lo, hi = (30, 100) if k % 2 == 0 else (150, 600)
+            ok = np.nonzero((d2 >= lo) & (d2 <= hi))[0]
+            if ok.size == 0:
+                continue
+            i = int(ok[int(rng.integers(0, ok.size))])
+            z, x = int(zz[i]) + z0, int(xx[i]) + x0
+            fuori.append(Animale(x=x + 0.5, y=float(altezze[z, x]), z=z + 0.5, specie="golem",
+                                 seme=(seed * 6271 + n_c * 104729 + k * 7919 + 73) & 0x7FFFFFFF))
+    return fuori
+
+
 def sezione_elenco(abitanti: list) -> str:
     """Per `luoghi.md`: chi chiede cosa."""
     if not abitanti:

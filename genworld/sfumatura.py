@@ -88,15 +88,21 @@ def segna_bordo(percorso_mondo: str, anelli: int = ANELLI,
                                           *dimensione.split("/"), "region", "r.*.*.mca")))
     if not files and dimensione == "minecraft/overworld":
         files = sorted(glob.glob(os.path.join(percorso_mondo, "region", "r.*.*.mca")))
-    regioni = {}
+    # Prima passata: solo QUALI chunk esistono. Un mondo grande ha milioni di chunk: tenerli tutti in
+    # memoria con i loro dati (come si faceva) costa decine di GB. Poi si rilegge una regione per volta.
+    presenti: set = set()
+    elenco = []
     for f in files:
         dati = _leggi_regione(f)
         if dati is None:
             continue
-        regioni[f] = dati
-    presenti = {c for dati in regioni.values() for c in dati}
+        presenti.update(dati)
+        elenco.append(f)
+        del dati
+    regioni = {f: None for f in elenco}
     segnati = 0
-    for f, dati in regioni.items():
+    for f in elenco:
+        dati = _leggi_regione(f)
         cambiato = False
         for (cx, cz), (grezzo, data) in list(dati.items()):
             bordo = any((cx + dx, cz + dz) not in presenti

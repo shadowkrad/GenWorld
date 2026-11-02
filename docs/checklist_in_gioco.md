@@ -280,3 +280,15 @@ Forzieri con ossa e refurtiva; scheletro (stray sulla neve).
 ## Sottoterra
 
 - [ ] Grotte con dripstone, muschio, pozze, sculk profondo, geodi di ametista (vedi `docs/`).
+
+## Ferrovie e treni
+
+- [ ] Una stazione (cerca "Stazione di ..." in `luoghi.md`): banchina di legno su palafitte, sala d'attesa, e sul binario morto la locomotiva a vapore con il fumo dalla ciminiera, il tender di carbone e due carrelli.
+- [ ] La linea corre sulle strade fra le citta': in piano ogni tanto un binario alimentato (con blocco di redstone sotto), in salita tutti alimentati. Sali su un carrello e prova a spingerlo: non deve deragliare alle curve.
+- [ ] In Sottosopra la stessa stazione e' in rovina: il treno fantasma.
+
+## Dimensione X (End)
+
+- [ ] `/execute in minecraft:the_end run tp @s X Y Z` alla Cittadella di Vecna (vedi `luoghi.md`): la Camera del Grande Pendolo ha l'orologio fermo alle 4:44, la catena col peso d'oro e sotto un forziere con le ali (elytra).
+- [ ] I ponti tentacolari di sculk partono da Vecna verso le altre isole: si cammina sopra (pavimento largo 3, due blocchi d'aria sopra) e dai lati pendono i tentacoli.
+- [ ] Sulle isole di cori: bozzoli di sculk con un forziere e un catalizzatore dentro, obelischi d'ombra con la cima piangente.

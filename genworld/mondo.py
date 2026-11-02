@@ -62,10 +62,14 @@ class ScrittoreMondo:
         lato_blocchi: int = 256,
         sovrascrivi: bool = True,
         crea: bool = True,
+        altezza_blocchi: int | None = None,
     ) -> None:
         self.percorso = percorso
         self.imp = impostazioni or ImpostazioniMondo()
         self.lato = lato_blocchi
+        # un mondo rettangolare (lato x altezza): l'origine del gioco resta a meta' del LATO, quindi
+        # in z il mondo va da -lato/2 a -lato/2 + altezza (vedi `coordinate_chunk`)
+        self.altezza = altezza_blocchi or lato_blocchi
         self.sovrascrivi = sovrascrivi
         # crea=False riapre un mondo gia' esistente: serve a generare una mappa
         # grande in piu' esecuzioni, un lotto di chunk alla volta.
@@ -82,6 +86,9 @@ class ScrittoreMondo:
             if not os.path.exists(self.percorso):
                 raise FileNotFoundError(f"non esiste: {self.percorso}")
             assicura_dimensioni(self.percorso, self.imp.data_version)
+            if self.imp.sottosopra:
+                from . import sottosopra as SP
+                SP.scrivi_datapack(self.percorso, self.imp.versione)
             self._livello = amulet.load_level(self.percorso)
             return self
 
@@ -115,6 +122,10 @@ class ScrittoreMondo:
         #
         # Scrivendolo prima, `load_level` legge i limiti veri (-64..320).
         livello_dat.scrivi(os.path.join(self.percorso, "level.dat"), self.imp)
+        if self.imp.sottosopra:
+            # il datapack va scritto PRIMA di aprire il livello: amulet vi legge l'altezza del Nether
+            from . import sottosopra as SP
+            SP.scrivi_datapack(self.percorso, self.imp.versione)
 
         # Dalle versioni piu' recenti (DataVersion 4786 in su, cioe' 26.2) le
         # dimensioni stanno in `dimensions/<namespace>/<nome>/` e amulet
@@ -221,10 +232,11 @@ class ScrittoreMondo:
         return self.lato // 16
 
     def chunk_coords(self) -> Iterator[tuple[int, int]]:
-        """Coordinate chunk del mondo, centrate sull'origine."""
+        """Coordinate chunk del mondo: in x centrate sull'origine; in z, per un mondo quadrato
+        pure, per uno rettangolare da -lato/2 per `altezza` blocchi."""
         meta = self.chunk_per_lato // 2
         for cx in range(-meta, meta):
-            for cz in range(-meta, meta):
+            for cz in range(-meta, -meta + self.altezza // 16):
                 yield cx, cz
 
     def origine_chunk(self, cx: int, cz: int) -> tuple[int, int]:

@@ -102,7 +102,7 @@ def pianifica(citta: list, luoghi: list, strutture: dict, meta: int,
         l = min(liberi, key=lambda m: LU.distanza(qui, m))
         usate.add((l.tipo, l.x, l.z))
         capo, forziere = strutture[(l.tipo, l.x, l.z)]
-        if l.tipo in ("rovina", "isola"):
+        if l.tipo in ("rovina", "isola", "labirinto", "grotta"):
             tipo = "recupera"
         elif l.tipo == "castello" and forziere is not None and rng.random() < 0.5:
             tipo = "salva"

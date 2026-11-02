@@ -178,6 +178,19 @@ class TestAcquirenti(unittest.TestCase):
         self.assertIn("smeraldi", md)
 
 
+class TestGuardie(unittest.TestCase):
+    def test_golem_sulle_strade_due_o_quattro_per_citta(self):
+        citta, luoghi, strade, h = mondo()
+        g = CM.guardie(citta, strade, h, seed=2)
+        self.assertEqual(len(g), 4 + 2)
+        for a in g:
+            self.assertEqual(a.specie, "golem")
+            self.assertTrue(strade[int(a.z), int(a.x)] > 0)
+            self.assertEqual(str(a.nbt_tag()["id"]), "minecraft:iron_golem")
+            self.assertEqual(float(a.nbt_tag()["Health"]), 100.0)
+        self.assertEqual(CM.guardie(citta, None, h), [])
+
+
 class TestElenco(unittest.TestCase):
     def test_sezione_per_luoghi_md(self):
         citta, luoghi, strade, h = mondo()

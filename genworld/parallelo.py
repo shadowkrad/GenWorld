@@ -16,6 +16,7 @@ verifica del level.dat) lo fa il processo principale dopo, come prima.
 """
 from __future__ import annotations
 
+import dataclasses
 import glob
 import multiprocessing as mp
 import os
@@ -26,16 +27,99 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 
+import numpy as np
+
 REGIONE = 32            # chunk per lato di un file region
+
+# Un mondo grande ha array enormi nel piano (centinaia di MB l'uno). Spedirli per pickle a ogni
+# lavoratore vuol dire una copia a testa: con 4 processi sono 4 volte la memoria. Qui gli array
+# sopra questa soglia vanno su disco in file `.npy` e i lavoratori li MAPPANO in sola lettura
+# (sola lettura): il sistema ne tiene una copia sola in memoria, condivisa, e Windows non conta ogni mappatura
+# nella memoria impegnata (con la copia-su-scrittura si: 6 lavoratori x 5 GB facevano esaurire il limite).
+SOGLIA_ARRAY = 4 << 20
+
+
+@dataclasses.dataclass
+class RifArray:
+    """Al posto di un array grande, dentro il pickle: dove ritrovarlo."""
+    percorso: str
+
+
+def su_disco(oggetto, cartella: str, visti: dict | None = None, livello: int = 0):
+    """Una copia di `oggetto` con gli array grandi sostituiti da `RifArray`. Guarda dentro
+    dataclass, dizionari, liste e tuple (due livelli: basta al piano e all'analisi)."""
+    visti = {} if visti is None else visti
+    if isinstance(oggetto, np.ndarray):
+        if oggetto.nbytes < SOGLIA_ARRAY:
+            return oggetto
+        if id(oggetto) not in visti:
+            nome = os.path.join(cartella, f"a{len(visti)}.npy")
+            np.save(nome, np.ascontiguousarray(oggetto))
+            visti[id(oggetto)] = RifArray(nome)
+        return visti[id(oggetto)]
+    if livello >= 3:
+        return oggetto
+    if dataclasses.is_dataclass(oggetto) and not isinstance(oggetto, type):
+        cambi = {}
+        for f in dataclasses.fields(oggetto):
+            v = getattr(oggetto, f.name)
+            n = su_disco(v, cartella, visti, livello + 1)
+            if n is not v:
+                cambi[f.name] = n
+        return replace(oggetto, **cambi) if cambi else oggetto
+    if isinstance(oggetto, dict):
+        nuovo = {k: su_disco(v, cartella, visti, livello + 1) for k, v in oggetto.items()}
+        return nuovo if any(nuovo[k] is not oggetto[k] for k in oggetto) else oggetto
+    if isinstance(oggetto, (list, tuple)) and len(oggetto) < 64:
+        nuovo = [su_disco(v, cartella, visti, livello + 1) for v in oggetto]
+        if all(n is v for n, v in zip(nuovo, oggetto)):
+            return oggetto
+        return type(oggetto)(nuovo) if isinstance(oggetto, list) else tuple(nuovo)
+    return oggetto
+
+
+def da_disco(oggetto, livello: int = 0):
+    """L'inverso di `su_disco`: gli `RifArray` tornano array, mappati dal file in sola lettura."""
+    if isinstance(oggetto, RifArray):
+        return np.load(oggetto.percorso, mmap_mode="r")
+    if livello >= 3:
+        return oggetto
+    if dataclasses.is_dataclass(oggetto) and not isinstance(oggetto, type):
+        cambi = {}
+        for f in dataclasses.fields(oggetto):
+            v = getattr(oggetto, f.name)
+            n = da_disco(v, livello + 1)
+            if n is not v:
+                cambi[f.name] = n
+        return replace(oggetto, **cambi) if cambi else oggetto
+    if isinstance(oggetto, dict):
+        nuovo = {k: da_disco(v, livello + 1) for k, v in oggetto.items()}
+        return nuovo if any(nuovo[k] is not oggetto[k] for k in oggetto) else oggetto
+    if isinstance(oggetto, (list, tuple)) and len(oggetto) < 64:
+        nuovo = [da_disco(v, livello + 1) for v in oggetto]
+        if all(n is v for n, v in zip(nuovo, oggetto)):
+            return oggetto
+        return type(oggetto)(nuovo) if isinstance(oggetto, list) else tuple(nuovo)
+    return oggetto
 
 _dati = None
 _contatore = None
 
 
-def coordinate_chunk(lato: int) -> list[tuple[int, int]]:
+def coordinate_chunk(lato: int, altezza: int | None = None) -> list[tuple[int, int]]:
     """Le stesse coordinate di `ScrittoreMondo.chunk_coords()`, senza aprire un mondo."""
     meta = (lato // 16) // 2
-    return [(cx, cz) for cx in range(-meta, meta) for cz in range(-meta, meta)]
+    return [(cx, cz) for cx in range(-meta, meta)
+            for cz in range(-meta, -meta + (altezza or lato) // 16)]
+
+
+def chiavi_da_log(testo: str) -> list[tuple[int, int]]:
+    """Le coordinate dei chunk che amulet non ha potuto salvare, dal log ("Error saving chunk
+    Chunk(cx, cz, ..."). Succede se la memoria si esaurisce nel salvataggio: il chunk manca e il
+    gioco lo rigenera a modo suo, quindi va rifatto (vedi `genera_mappa.py --ripara-da`)."""
+    import re
+    return sorted({(int(x), int(z)) for x, z in
+                   re.findall(r"Error saving chunk Chunk\((-?\d+), (-?\d+),", testo)})
 
 
 def ripartisci(coords: list[tuple[int, int]], compiti: int) -> list[list[int]]:
@@ -53,11 +137,11 @@ def ripartisci(coords: list[tuple[int, int]], compiti: int) -> list[list[int]]:
 def _avvia(percorso: str, contatore) -> None:
     global _dati, _contatore
     with open(percorso, "rb") as f:
-        _dati = pickle.load(f)
+        _dati = da_disco(pickle.load(f))
     _contatore = contatore
 
 
-def _lavora(k: int, indici: list[int], cartella: str) -> dict:
+def _lavora(k: int, indici: list[int], cartella: str, riprendi: bool = False) -> dict:
     from .motore import con_uscita, scrivi
     op, a, piano, precaricati = _dati
     sub = os.path.join(cartella, f"w{k}")
@@ -69,7 +153,8 @@ def _lavora(k: int, indici: list[int], cartella: str) -> dict:
             _contatore.value += fatti - visti[0]
         visti[0] = fatti
 
-    st = scrivi(con_uscita(op, sub, op.nome), a, piano, avanza=avanza,
+    # con `riprendi` il mondo di lavoro esiste gia' (`da=1` vuol dire "non ricrearlo")
+    st = scrivi(con_uscita(op, sub, op.nome), a, piano, avanza=avanza, da=1 if riprendi else 0,
                 indici=indici, lavoratore=True, precaricati=precaricati)
     with _contatore.get_lock():
         _contatore.value += len(indici) - visti[0]
@@ -80,10 +165,11 @@ def unisci(op, cartelle: list[str]) -> int:
     """Crea il mondo vero (vuoto) e ci sposta i file region dei lavoratori."""
     from .livello_dat import ImpostazioniMondo
     from .mondo import ScrittoreMondo
-    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
+    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=op.spawn,
                             versione=op.versione, seed=op.seed,
-                            fuori_mappa=op.fuori_mappa)
-    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, crea=True):
+                            fuori_mappa=op.fuori_mappa,
+                            sottosopra=getattr(op, 'sottosopra', False))
+    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, altezza_blocchi=op.alt, crea=True):
         pass
     spostati = 0
     for sub in cartelle:
@@ -98,13 +184,85 @@ def unisci(op, cartelle: list[str]) -> int:
     return spostati
 
 
+def chunk_presenti(mondo: str, con_nether: bool = False) -> set:
+    """(cx, cz) dei chunk GIA' scritti in un mondo (letti dalle tabelle dei file region, senza
+    aprirli): quelli nell'overworld e, se `con_nether`, anche nel Nether. Un chunk che manca in
+    una delle due dimensioni si considera da rifare."""
+    def leggi(dim: str) -> set:
+        presenti = set()
+        # dalla 26.1 le dimensioni stanno in `dimensions/minecraft/<nome>/region`; prima l'overworld
+        # era `region` e il Nether `DIM-1/region`
+        vecchia = {"overworld": "region", "the_nether": os.path.join("DIM-1", "region")}[dim]
+        files = (glob.glob(os.path.join(glob.escape(mondo), "dimensions", "minecraft", dim, "region",
+                                        "r.*.*.mca"))
+                 or glob.glob(os.path.join(glob.escape(mondo), vecchia, "r.*.*.mca")))
+        for f in files:
+            rx, rz = (int(v) for v in os.path.basename(f).split(".")[1:3])
+            with open(f, "rb") as fh:
+                tabella = fh.read(4096)
+            for i in range(1024):
+                if tabella[4 * i:4 * i + 4] != b"\0\0\0\0":
+                    presenti.add((rx * REGIONE + i % REGIONE, rz * REGIONE + i // REGIONE))
+        return presenti
+    ow = leggi("overworld")
+    return ow & leggi("the_nether") if con_nether else ow
+
+
+def riprendi_parallelo(base: str, processi: int = 4, avanza=None, ferma=None) -> dict:
+    """Riprende una scrittura parallela interrotta (memoria esaurita, riavvio del computer, un
+    errore): `base` e' la cartella `genworld_...` rimasta accanto al mondo, con `dati.pkl`, gli
+    array del piano e i mondi di lavoro `w0`, `w1`... Per ogni lavoratore si rifanno SOLO i
+    chunk che nel suo mondo non ci sono (compresi quelli persi per un salvataggio fallito), poi si
+    uniscono i mondi e si fanno i passaggi finali, come `scrivi_parallelo`."""
+    from .motore import _nulla
+    avanza = avanza or _nulla
+    with open(os.path.join(base, "dati.pkl"), "rb") as f:
+        op, a, piano, precaricati = da_disco(pickle.load(f))
+    mondi = sorted(glob.glob(os.path.join(glob.escape(base), "w*")),
+                   key=lambda p: int(os.path.basename(p)[1:]))
+    coords = coordinate_chunk(op.lato, op.alt)
+    gruppi = ripartisci(coords, len(mondi))
+    if len(gruppi) != len(mondi):
+        raise RuntimeError(f"i mondi di lavoro sono {len(mondi)} ma i gruppi {len(gruppi)}: "
+                           "la ripartizione non coincide con quella originale")
+    con_nether = bool(getattr(op, "sottosopra", False))
+    compiti = []
+    for k, g in enumerate(gruppi):
+        fatti_k = chunk_presenti(mondi[k], con_nether)
+        resto = [i for i in g if coords[i] not in fatti_k]
+        if resto:
+            compiti.append((k, resto))
+    totale = sum(len(r) for _, r in compiti)
+    avanza(0.0, f"da rifare {totale} chunk su {len(coords)}")
+    t0 = time.time()
+    ctx = mp.get_context("spawn")
+    contatore = ctx.Value("i", 0)
+    dati = os.path.join(base, "dati.pkl")
+    if compiti:
+        compiti.sort(key=lambda c: -len(c[1]))               # i piu' grossi per primi: carico migliore
+        with ProcessPoolExecutor(max_workers=max(1, min(processi, len(compiti))), mp_context=ctx,
+                                 initializer=_avvia, initargs=(dati, contatore)) as ex:
+            futuri = [ex.submit(_lavora, k, r, base, True) for k, r in compiti]
+            for fu in as_completed(futuri):
+                fu.result()
+                avanza(min(1.0, contatore.value / max(1, totale)), f"chunk {contatore.value} di {totale}")
+                if ferma is not None and ferma():
+                    for g in futuri:
+                        g.cancel()
+                    raise InterruptedError("generazione annullata")
+    avanza(1.0, "unisco le regioni")
+    unisci(op, mondi)
+    shutil.rmtree(base, ignore_errors=True)
+    return _finali(op, a, piano, len(coords), len(coords), time.time() - t0)
+
+
 def scrivi_parallelo(op, a, piano, processi: int = 0, avanza=None, ferma=None) -> dict:
     """Come `motore.scrivi()` per tutto il mondo, con `processi` processi
     (0 = tanti quanti i core, al massimo 8). Ritorna lo stesso dizionario."""
-    from .motore import _nulla, carica_modelli, scrivi
+    from .motore import _nulla, carica_modelli, mappe_globali, scrivi
     avanza = avanza or _nulla
     n = processi or min(8, os.cpu_count() or 1)
-    coords = coordinate_chunk(op.lato)
+    coords = coordinate_chunk(op.lato, op.alt)
     gruppi = ripartisci(coords, n * 2)
     if n <= 1 or len(gruppi) <= 1:
         return scrivi(op, a, piano, avanza, ferma=ferma)
@@ -120,9 +278,12 @@ def scrivi_parallelo(op, a, piano, processi: int = 0, avanza=None, ferma=None) -
         # (i fari si leggono da un mondo) a volte uscivano vuoti, e gli indici
         # dei modelli del piano non coincidevano piu'
         precaricati = carica_modelli(op, piano)
+        # le mappe di tutto il mondo si calcolano qui, UNA volta, e i lavoratori le mappano
+        precaricati["mappe"] = mappe_globali(op, a, piano)
         dati = os.path.join(base, "dati.pkl")
+        pacchetto = su_disco((op, a, piano, precaricati), base)
         with open(dati, "wb") as f:
-            pickle.dump((op, a, piano, precaricati), f, protocol=pickle.HIGHEST_PROTOCOL)
+            pickle.dump(pacchetto, f, protocol=pickle.HIGHEST_PROTOCOL)
         ctx = mp.get_context("spawn")
         contatore = ctx.Value("i", 0)
         totale = len(coords)
@@ -140,8 +301,13 @@ def scrivi_parallelo(op, a, piano, processi: int = 0, avanza=None, ferma=None) -
         avanza(1.0, "unisco le regioni")
         unisci(op, [r["cartella"] for r in sorted(fatti, key=lambda r: r["k"])])
         scritti = sum(r["chunk"] for r in fatti)
-    finally:
-        shutil.rmtree(base, ignore_errors=True)
+    except BaseException:
+        # un errore non deve buttare via ore di lavoro: la cartella resta e si riprende con
+        # `genera_mappa.py --riprendi` (vedi `riprendi_parallelo`)
+        print(f"ATTENZIONE: scrittura interrotta. Il lavoro fatto e' in {base}: "
+              f"si riprende con  --riprendi \"{base}\"", flush=True)
+        raise
+    shutil.rmtree(base, ignore_errors=True)
 
     # i passaggi finali, una volta sola e nel processo principale
     return _finali(op, a, piano, scritti, len(coords), time.time() - t0)

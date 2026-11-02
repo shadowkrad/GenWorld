@@ -45,6 +45,7 @@ def _chunk_isole(pe) -> set:
         for cz in range(z0 >> 4, (z1 >> 4) + 1):
             for cx in range(x0 >> 4, (x1 >> 4) + 1):
                 fuori.add((cx, cz))
+    fuori.update(pe.indice_ponti)
     return fuori
 
 
@@ -54,8 +55,9 @@ def scrivi(op) -> dict:
     from .livello_dat import ImpostazioniMondo
     from .mondo import ScrittoreMondo
 
-    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=(0, 150, 0),
-                            versione=op.versione, seed=op.seed, fuori_mappa=op.fuori_mappa)
+    imp = ImpostazioniMondo(nome=op.nome, modalita=1, spawn=op.spawn,
+                            versione=op.versione, seed=op.seed, fuori_mappa=op.fuori_mappa,
+                            sottosopra=getattr(op, 'sottosopra', False))
     pn = NE.pianifica(op.lato, seed=op.seed)
     pe = FINE.pianifica(op.lato, seed=op.seed)
     guardie_n: list = []
@@ -66,12 +68,14 @@ def scrivi(op) -> dict:
     per_n, per_e = _per_chunk(creature_n), _per_chunk(creature_e)
     scritti_n = scritti_e = 0
 
-    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, crea=False) as m:
+    with ScrittoreMondo(op.uscita, imp, lato_blocchi=op.lato, altezza_blocchi=op.alt, crea=False) as m:
         tn = NE.Tavolozza(m)
         te = FINE.Tavolozza(m)
         id_n = [m.bioma(b) for b in NE.BIOMI]
         id_e = m.bioma("the_end")
-        for cx, cz in m.chunk_coords():
+        # il Nether disegnato da noi (`nether.py`) e' quadrato: su un mondo rettangolare non si scrive
+        classico = not getattr(op, "sottosopra", False) and op.alt == op.lato
+        for cx, cz in (m.chunk_coords() if classico else []):
             blocchi, biomi, spawner, forzieri = NE.blocchi_chunk(pn, tn, cx, cz, id_n)
             ox, oz = cx * 16, cz * 16
             be = BA.trova(blocchi, tn.bauli, ox, oz, 0, seed=op.seed, dungeon=forzieri)
@@ -92,7 +96,8 @@ def scrivi(op) -> dict:
             scritti_e += 1
 
     dv = imp.data_version
-    EN.scrivi_regioni(op.uscita, creature_n, dv, dimensione="the_nether")
+    if not getattr(op, "sottosopra", False) and op.alt == op.lato:
+        EN.scrivi_regioni(op.uscita, creature_n, dv, dimensione="the_nether")
     EN.scrivi_regioni(op.uscita, creature_e, dv, dimensione="the_end")
     return {"nether_chunk": scritti_n, "end_chunk": scritti_e,
             "nether_strutture": len(pn.strutture), "end_isole": len(pe.isole),

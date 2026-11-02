@@ -158,8 +158,9 @@ def _macchie(forma, seed: int, celle: int = 12) -> np.ndarray:
 # --------------------------------------------------------------------------
 
 def assegna(cls: np.ndarray, altezze: np.ndarray, livello_mare: int = 62,
-            seed: int = 5) -> np.ndarray:
-    """Mappa [z, x] di indici in `BIOMI`."""
+            seed: int = 5, umido_max: int = 8) -> np.ndarray:
+    """Mappa [z, x] di indici in `BIOMI`. `umido_max`: fin dove sopra il mare puo' esserci
+    palude di mangrovie (blocchi); con quote reali, dove un blocco vale 28 m, va ridotto."""
     f = freddo(cls, altezze, livello_mare, seed=seed)
     h = altezze.astype(np.float32)
     var = _macchie(cls.shape, seed + 1)
@@ -214,7 +215,7 @@ def assegna(cls: np.ndarray, altezze: np.ndarray, livello_mare: int = 62,
     # il bosco caldo e' giungla: alberi alti, chioma a piu' livelli
     posa(bosco & caldo, "jungle")
     # le terre basse e umide, a macchie, sono palude di mangrovie
-    umido = (aperto | bosco) & (h <= livello_mare + 8) & ~gelido & (var > 0.38)
+    umido = (aperto | bosco) & (h <= livello_mare + umido_max) & ~gelido & (var > 0.38)
     posa(umido, "mangrove_swamp")
     posa(bosco & fresco, "taiga")
     posa(bosco & fresco & (var > 0.62), "giant_spruce_taiga")

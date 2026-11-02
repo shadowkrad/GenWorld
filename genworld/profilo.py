@@ -126,6 +126,25 @@ class Profilo:
         im = im.resize((nw, nh), Image.LANCZOS)
         return np.asarray(im).astype(np.float32) / 255.0
 
+    def frazioni_da_pixel(self, percorso: str, lato: int, punti: list) -> list:
+        """Da punti (x, y) in PIXEL dell'immagine originale alle frazioni 0..1 del mondo
+        `lato` x `lato`: tiene conto del rettangolo di interesse, del ridimensionamento che
+        mantiene le proporzioni e del centramento nel quadrato (vedi `motore.analizza`).
+        Un punto fuori dal rettangolo viene scartato."""
+        w, h = Image.open(percorso).size
+        x0, y0, x1, y1 = self.roi if self.roi else (0.0, 0.0, 1.0, 1.0)
+        px0, py0, px1, py1 = int(x0 * w), int(y0 * h), int(x1 * w), int(y1 * h)
+        cw, ch = px1 - px0, py1 - py0
+        scala = lato / max(cw, ch)
+        nw, nh = max(1, round(cw * scala)), max(1, round(ch * scala))
+        ox, oy = (lato - nw) // 2, (lato - nh) // 2
+        fuori = []
+        for (x, y) in punti:
+            if not (px0 <= x <= px1 and py0 <= y <= py1):
+                continue
+            fuori.append(((ox + (x - px0) * scala) / lato, (oy + (y - py0) * scala) / lato))
+        return fuori
+
     def _campioni_nel_ritaglio(self) -> dict[int, list[tuple[float, float]]]:
         """Riporta i punti dalle coordinate dell'originale a quelle del ritaglio."""
         if not self.roi:

@@ -175,16 +175,18 @@ class TestChunkNether(unittest.TestCase):
                 b = Block("universal_minecraft", n, {a: StringTag(c) for a, c in pr.items()})
                 r = v.block.from_universal(b)
                 self.assertTrue(r[0].namespaced_name.startswith("minecraft:"), (k, r))
-                if k not in ("recinto", "tronco_c", "tronco_d"):   # questi cambiano nome in gioco
+                if k not in ("recinto", "tronco_c", "tronco_d", "catena", "bianco", "nero"):   # questi cambiano nome in gioco
                     self.assertEqual(r[0].base_name, n, k)
 
 
 class TestEnd(unittest.TestCase):
-    def test_sette_isole_due_cittadelle_una_con_le_ali(self):
+    def test_sette_isole_due_cittadelle_e_vecna_con_le_ali(self):
         p = FINE.pianifica(1000, seed=3)
-        self.assertEqual(len(p.isole), 7)
+        self.assertEqual(len(p.isole), 8)
         self.assertEqual(sum(i.cittadella for i in p.isole), 2)
+        self.assertEqual(sum(i.vecna for i in p.isole), 1)
         self.assertEqual(sum(i.tesoro for i in p.isole), 1)
+        self.assertTrue(next(i for i in p.isole if i.tesoro).vecna)
         for i in p.isole:
             self.assertGreaterEqual(i.x ** 2 + i.z ** 2, 150 ** 2)
 
@@ -212,7 +214,60 @@ class TestEnd(unittest.TestCase):
 
     def test_creature_sulle_isole(self):
         p = FINE.pianifica(1000, seed=3)
-        self.assertEqual(sum(1 for c in p.creature if c.specie == "shulker"), 8)
+        self.assertEqual(sum(1 for c in p.creature if c.specie == "shulker"), 12)
+
+
+class TestDimensioneX(unittest.TestCase):
+    def setUp(self):
+        self.p = FINE.pianifica(1000, seed=3)
+        self.tav = FINE.Tavolozza(Finto())
+        self.vecna = next(i for i in self.p.isole if i.vecna)
+
+    def test_i_ponti_collegano_vecna_alle_altre_isole(self):
+        self.assertGreaterEqual(len(self.p.ponti), 4)
+        self.assertTrue(self.p.indice_ponti)
+        for pts in self.p.ponti:
+            self.assertTrue(any(c == 1 for *_, c in pts))
+            self.assertTrue(any(c == 0 for *_, c in pts))        # ci sono i tentacoli
+        # i chunk dei ponti si scrivono anche fuori dalle isole
+        cx, cz = next(iter(self.p.indice_ponti))
+        r = FINE.blocchi_chunk(self.p, self.tav, cx, cz, 1)
+        self.assertIsNotNone(r)
+        self.assertGreater(int(((r[0] == self.tav.id["sculk"]) | (r[0] == self.tav.id["ds_tegole"])).sum()), 5)
+
+    def test_il_ponte_ha_un_pavimento_percorribile(self):
+        pts = [q for q in self.p.ponti[0] if q[4] == 1]
+        x, y, z = pts[len(pts) // 2][:3]
+        r = FINE.blocchi_chunk(self.p, self.tav, x >> 4, z >> 4, 1)[0]
+        lx, lz = x & 15, z & 15
+        self.assertEqual(int(r[lx, y, lz]), int(self.tav.id["ds_tegole"]))
+        self.assertEqual(int(r[lx, y + 1, lz]), int(self.tav.id["aria"]))
+        self.assertEqual(int(r[lx, y + 2, lz]), int(self.tav.id["aria"]))
+
+    def test_la_camera_del_pendolo_ha_orologio_catena_e_oro(self):
+        i = self.vecna
+        trovati = {}
+        for cz in range((i.z - 24) >> 4, ((i.z + 24) >> 4) + 1):
+            for cx in range((i.x - 24) >> 4, ((i.x + 24) >> 4) + 1):
+                r = FINE.blocchi_chunk(self.p, self.tav, cx, cz, 1)[0]
+                for k in ("bianco", "nero", "catena", "oro", "piange"):
+                    trovati[k] = trovati.get(k, 0) + int((r == self.tav.id[k]).sum())
+        for k in ("bianco", "nero", "catena", "oro", "piange"):
+            self.assertGreater(trovati[k], 3, k)
+
+    def test_i_bozzoli_hanno_il_forziere_e_gli_obelischi_ci_sono(self):
+        coralli = [i for i in self.p.isole if not i.cittadella and not i.vecna]
+        self.assertTrue(all(i.bozzoli and i.obelischi for i in coralli))
+        i = coralli[0]
+        bx, bz = i.x + i.bozzoli[0][0], i.z + i.bozzoli[0][1]
+        r = FINE.blocchi_chunk(self.p, self.tav, bx >> 4, bz >> 4, 1)
+        self.assertIn("end_citta", r[2].values())
+        self.assertGreater(int((r[0] == self.tav.id["sculk"]).sum()), 20)
+
+    def test_i_chunk_da_scrivere_comprendono_i_ponti(self):
+        from genworld import dimensioni as DI
+        chunk = DI._chunk_isole(self.p)
+        self.assertTrue(set(self.p.indice_ponti) <= chunk)
 
 
 class TestBottino(unittest.TestCase):

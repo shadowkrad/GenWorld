@@ -6,3 +6,6 @@
 pytest>=8
 coverage>=7
 ruff>=0.5
+
+# Solo per esempi/prepara_dem.py (quote reali). Con numpy<2 serve rasterio<1.5.
+rasterio<1.5
