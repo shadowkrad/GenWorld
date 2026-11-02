@@ -29,7 +29,7 @@ from . import strade as ST
 
 PASSO_ALIMENTATO = 12
 LUNGHEZZA_RETTILINEO = 10              # celle dritte e piane per lato richieste a una stazione
-DISTANZA_MAX = 600                     # oltre, due citta' non si collegano
+DISTANZA_MAX = 1400                     # oltre, due citta' non si collegano
 MARGINE_FINESTRA = 40
 SCAVO_MAX = 7                          # dislivello massimo fra binario e terreno
 
@@ -205,7 +205,7 @@ def _scegli_ancora(fin: _Finestra, c, verso, usate: list):
 
 def pianifica(tipo_strada, quota_strada, h, cls, protetto, citta: list, meta: int,
               nomi_citta: dict | None = None, densita: float = 1.0, seed: int = 0,
-              max_stazioni: int = 14) -> Ferrovia:
+              max_stazioni: int = 26) -> Ferrovia:
     """Rete e stazioni. I binari escono in coordinate di GIOCO (per chunk), le stazioni sono
     `Sito` in coordinate di MAPPA."""
     fer = Ferrovia()
@@ -292,10 +292,10 @@ def pianifica(tipo_strada, quota_strada, h, cls, protetto, citta: list, meta: in
 
 
 def _stazione(glob: list, celle: dict, c, fin: _Finestra, seme: int):
-    """Un tratto rettilineo e piano nei primi 60 passi della linea, con lo spazio per la stazione."""
+    """Un tratto rettilineo e piano nei primi 140 passi della linea, con lo spazio per la stazione."""
     from .siti import Sito
     sito = None
-    for k in range(LUNGHEZZA_RETTILINEO, min(len(glob) - LUNGHEZZA_RETTILINEO, 70)):
+    for k in range(LUNGHEZZA_RETTILINEO, min(len(glob) - LUNGHEZZA_RETTILINEO, 140)):
         z, x = glob[k]
         f = celle[(z, x)][0]
         if f not in ("north_south", "east_west"):
