@@ -73,6 +73,7 @@ LARGHEZZA_IMBOCCO = 5                # e quanto si allarga ai lati del portale
 ALTEZZA_IMBOCCO = 7                  # altezza della roccia sopra il pavimento, sulla facciata
 BINARIO_FUORI = 6                   # celle di binario all'aperto, davanti al portale
 DISTANZA_FRA_MINIERE = 90           # nessuna miniera a portata d'occhio di un'altra
+PROFONDITA_PROTETTA = 12            # sotto una struttura in superficie si scava solo oltre questa profondita'
 LIVELLI_MAX = 3                     # piani di una miniera, il primo compreso
 PROB_LIVELLO_SOTTO = 0.92           # probabilita' di scendere ancora, per ogni piano
 PROFONDITA_RAMPA_INTERNA = (16, 28) # di quanto scende una rampa fra due piani
@@ -928,7 +929,7 @@ def _carica_rampa(out, tav, rng, h_c, r: Rampa, y_superficie: int, ox: int, oz: 
             lx, lz = wx - ox, wz - oz
             if not (0 <= lx < 16 and 0 <= lz < 16):
                 continue
-            if protetto_c is not None and protetto_c[lx, lz]:
+            if protetto_c is not None and protetto_c[lx, lz] and int(h_c[lx, lz]) - fy < PROFONDITA_PROTETTA:
                 continue
             sup = int(h_c[lx, lz])                 # primo blocco libero sopra il terreno
             # pavimento: sempre pieno. Dove il terreno sta piu' in basso (il
@@ -978,7 +979,7 @@ def _carica_rampa(out, tav, rng, h_c, r: Rampa, y_superficie: int, ox: int, oz: 
                 lx, lz = wx - ox, wz - oz
                 if not (0 <= lx < 16 and 0 <= lz < 16):
                     continue
-                if protetto_c is not None and protetto_c[lx, lz]:
+                if protetto_c is not None and protetto_c[lx, lz] and int(h_c[lx, lz]) - fy < PROFONDITA_PROTETTA:
                     continue
                 ly_t = fy + ALTEZZA_GALLERIA - y0
                 if 1 <= ly_t < H:
@@ -1387,6 +1388,15 @@ def _carica_camera(out, tav, h_c, rng, g: Giacimento, ox: int, oz: int, y0: int,
                   int(rng.integers(14, 28)), scavabile, protetto=protetto_c)
 
 
+def _protetto_a(protetto_c, h_c, y: int):
+    """La maschera delle colonne con una struttura sopra, ridotta a quelle dove la galleria
+    a quota `y` e' abbastanza vicina alla superficie da disturbarla: piu' sotto si scava
+    liberamente (altrimenti una rampa si ferma sotto ogni casa, campo o binario)."""
+    if protetto_c is None:
+        return None
+    return protetto_c & ((h_c - y) < PROFONDITA_PROTETTA)
+
+
 def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
          y0: int, miniere: list[Miniera], quali, scavabile: tuple,
          seed: int = 0, protetto_c: np.ndarray | None = None) -> None:
@@ -1417,10 +1427,10 @@ def posa(out: np.ndarray, tav: Tavolozza, h_c: np.ndarray, ox: int, oz: int,
                           scavabile, protetto_c)
         _carica_portale(out, tav, h_c, mn, ox, oz, y0, protetto_c)
         for inc in mn.incroci:                   # prima dei segmenti: i binari si posano dopo
-            _carica_incrocio(out, tav, rng, inc, ox, oz, y0, protetto_c)
+            _carica_incrocio(out, tav, rng, inc, ox, oz, y0, _protetto_a(protetto_c, h_c, inc.y))
         for seg in mn.segmenti:
             _carica_segmento(out, tav, rng, h_c, seg, ox, oz, y0, scavabile,
-                             protetto_c, prof)
+                             _protetto_a(protetto_c, h_c, seg.y), prof)
         for g in mn.giacimenti:
             _carica_giacimento(out, tav, h_c, rng, g, ox, oz, y0, scavabile,
-                               protetto_c)
+                               _protetto_a(protetto_c, h_c, g.y))

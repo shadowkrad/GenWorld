@@ -510,8 +510,8 @@ class TestPosa(unittest.TestCase):
         out, h_c = self.colonna_piena(quota_terreno=100)
         s = FintoScrittore()
         tav = MI.Tavolozza(s)
-        seg = MI.Segmento(x0=0, z0=8, x1=15, z1=8, y=50)
-        mn = MI.Miniera(x=0, z=8, y_superficie=100, y_fondo=50, segmenti=[seg])
+        seg = MI.Segmento(x0=0, z0=8, x1=15, z1=8, y=92)
+        mn = MI.Miniera(x=0, z=8, y_superficie=100, y_fondo=92, segmenti=[seg])
         protetto_c = np.zeros((16, 16), bool)
         protetto_c[8, 8] = True
         MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,),
@@ -523,8 +523,21 @@ class TestPosa(unittest.TestCase):
         colonna = out[8, :100 - self.Y0, 8]
         self.assertTrue((colonna == self.SOLIDO).all())
         # una colonna vicina, non protetta, resta invece scavata come prima
-        y_a1 = 50 + 1 - self.Y0
+        y_a1 = 92 + 1 - self.Y0
         self.assertNotEqual(int(out[9, y_a1, 8]), self.SOLIDO)
+
+    def test_in_profondita_si_scava_anche_sotto_una_struttura(self):
+        """Una galleria molto sotto la superficie non disturba quello che c'e' sopra:
+        la rampa non deve fermarsi sotto ogni casa o binario."""
+        out, h_c = self.colonna_piena(quota_terreno=100)
+        tav = MI.Tavolozza(FintoScrittore())
+        seg = MI.Segmento(x0=0, z0=8, x1=15, z1=8, y=50)
+        mn = MI.Miniera(x=0, z=8, y_superficie=100, y_fondo=50, segmenti=[seg])
+        protetto_c = np.zeros((16, 16), bool)
+        protetto_c[8, 8] = True
+        MI.posa(out, tav, h_c, 0, 0, self.Y0, [mn], [0], (self.SOLIDO,),
+               seed=1, protetto_c=protetto_c)
+        self.assertNotEqual(int(out[8, 51 - self.Y0, 8]), self.SOLIDO)
 
 class TestGiacimenti(unittest.TestCase):
     """La saletta a fine diramazione: vuota al centro, con il minerale
@@ -923,7 +936,7 @@ class TestPosaRampa(unittest.TestCase):
     def test_protetto_c_blocca_la_rampa(self):
         protetto = np.zeros((16, 16), bool)
         protetto[8, 8] = True
-        out, tav, s = self.posa(self.rampa(y=70), quota_terreno=100, protetto_c=protetto)
+        out, tav, s = self.posa(self.rampa(y=95), quota_terreno=100, protetto_c=protetto)
         self.assertTrue((out[8, :100 - self.Y0, 8] == self.SOLIDO).all())
 
     def test_la_rampa_a_cavallo_di_due_chunk_arriva_completa(self):
